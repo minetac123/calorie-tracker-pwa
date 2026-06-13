@@ -1464,6 +1464,7 @@ function init() {
   initPhotoHandlers();
   initFormHandlers();
   initAuthHandlers();
+  initBarcodeAndSearch();
 
   // Logout button
   const logoutBtn = document.getElementById('btn-logout');
@@ -1536,6 +1537,294 @@ function init() {
       navigator.serviceWorker.register('/sw.js')
         .then((reg) => console.log('PWA Service Worker úspěšně registrován!', reg.scope))
         .catch((err) => console.error('Registrace Service Workeru selhala:', err));
+    });
+  }
+}
+
+// ==========================================================================
+// OPEN FOOD FACTS API INTEGRATION
+// ==========================================================================
+async function fetchProductByBarcode(barcode) {
+  const url = `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Chyba sítě při dotazu do databáze (${response.status})`);
+  }
+  const data = await response.json();
+  if (data.status !== 1 || !data.product) {
+    throw new Error("Produkt nebyl v databázi nalezen.");
+  }
+  
+  const p = data.product;
+  const name = p.product_name_cs || p.product_name || "Neznámý produkt";
+  const brand = p.brands ? ` (${p.brands})` : "";
+  
+  // Nutrients per 100g (or 100ml)
+  const calories = Math.round(Number(p.nutriments?.['energy-kcal_100g'] || p.nutriments?.['energy-kcal_value'] || 0));
+  const protein = Math.round(Number(p.nutriments?.proteins_100g || 0) * 10) / 10;
+  const carbs = Math.round(Number(p.nutriments?.carbohydrates_100g || 0) * 10) / 10;
+  const fat = Math.round(Number(p.nutriments?.fat_100g || 0) * 10) / 10;
+  
+  return {
+    name: name + brand,
+    calories,
+    protein,
+    carbs,
+    fat,
+    amount: "100g"
+  };
+}
+
+async function searchFoodDatabase(query) {
+  // Use Czech language priority subdomain cs.openfoodfacts.org
+  const url = `https://cs.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Chyba vyhledávání v databázi.");
+  }
+  const data = await response.json();
+  if (!data.products || data.products.length === 0) {
+    return [];
+  }
+  
+  return data.products.map(p => {
+    const name = p.product_name_cs || p.product_name || "Neznámý produkt";
+    const brand = p.brands ? ` (${p.brands})` : "";
+    const calories = Math.round(Number(p.nutriments?.['energy-kcal_100g'] || p.nutriments?.['energy-kcal_value'] || 0));
+    const protein = Math.round(Number(p.nutriments?.proteins_100g || 0) * 10) / 10;
+    const carbs = Math.round(Number(p.nutriments?.carbohydrates_100g || 0) * 10) / 10;
+    const fat = Math.round(Number(p.nutriments?.fat_100g || 0) * 10) / 10;
+    
+    return {
+      name: name + brand,
+      calories,
+      protein,
+      carbs,
+      fat,
+      amount: "100g"
+    };
+  });
+}
+
+// ==========================================================================
+// BARCODE SCANNER WORKFLOW
+// ==========================================================================
+let html5QrScanner = null;
+
+function startBarcodeScanner() {
+  const modal = document.getElementById('barcode-scanner-modal');
+  if (modal) {
+    modal.classList.add('active');
+  }
+  
+  const errorEl = document.getElementById('barcode-error');
+  if (errorEl) errorEl.style.display = 'none';
+  
+  document.getElementById('input-manual-barcode').value = '';
+  
+  // Clear any existing scanner
+  if (html5QrScanner) {
+    html5QrScanner.clear();
+  }
+  
+  html5QrScanner = new Html5Qrcode("reader");
+  
+  const config = {
+    fps: 10,
+    qrbox: function(width, height) {
+      // Return a horizontal rectangle optimized for barcodes
+      return { width: Math.round(width * 0.7), height: Math.round(height * 0.4) };
+    }
+  };
+  
+  html5QrScanner.start(
+    { facingMode: "environment" },
+    config,
+    async (decodedText, decodedResult) => {
+      // Barcode detected! Stop scanner and fetch
+      stopBarcodeScanner();
+      
+      showToast("Kód naskenován: " + decodedText + " 🔍");
+      
+      try {
+        const product = await fetchProductByBarcode(decodedText);
+        prefillManualFoodForm(product);
+      } catch (err) {
+        console.error(err);
+        alert(`Produkt se čárovým kódem ${decodedText} nebyl nalezen nebo došlo k chybě připojení.\nMůžeš ho zapsat ručně.`);
+      }
+    },
+    (errorMessage) => {
+      // Quiet fail for scan frame failures
+    }
+  ).catch(err => {
+    console.error("Camera start error", err);
+    const errorEl = document.getElementById('barcode-error');
+    if (errorEl) {
+      errorEl.innerText = "Chyba přístupu ke kameře. Zadej kód ručně.";
+      errorEl.style.display = 'block';
+    }
+  });
+}
+
+function stopBarcodeScanner() {
+  const modal = document.getElementById('barcode-scanner-modal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+  
+  if (html5QrScanner) {
+    html5QrScanner.stop().then(() => {
+      console.log("Scanner stopped.");
+    }).catch(err => {
+      console.error("Error stopping scanner", err);
+    });
+  }
+}
+
+function prefillManualFoodForm(product) {
+  // Switch to Manual Add Screen
+  const fab = document.querySelector('.nav-fab');
+  if (fab) fab.click();
+  
+  // Open manual tab
+  const manualTabBtn = document.getElementById('tab-btn-manual');
+  if (manualTabBtn) manualTabBtn.click();
+  
+  // Set values
+  document.getElementById('input-food-name').value = product.name;
+  document.getElementById('input-food-cal').value = product.calories;
+  document.getElementById('input-food-amount').value = product.amount;
+  document.getElementById('input-food-p').value = product.protein;
+  document.getElementById('input-food-c').value = product.carbs;
+  document.getElementById('input-food-f').value = product.fat;
+  
+  showToast("Potravina předvyplněna! Uprav množství a ulož. 🍽️");
+}
+
+function initBarcodeAndSearch() {
+  // Barcode quick action trigger
+  const qaBarcode = document.getElementById('qa-barcode');
+  if (qaBarcode) {
+    qaBarcode.addEventListener('click', () => {
+      startBarcodeScanner();
+    });
+  }
+  
+  // Scanner Modal close buttons
+  const btnCloseScanner = document.getElementById('btn-close-scanner');
+  if (btnCloseScanner) {
+    btnCloseScanner.addEventListener('click', stopBarcodeScanner);
+  }
+  
+  // Manual EAN search inside scanner modal
+  const btnSearchBarcode = document.getElementById('btn-search-barcode');
+  const inputManualBarcode = document.getElementById('input-manual-barcode');
+  const errorEl = document.getElementById('barcode-error');
+  
+  if (btnSearchBarcode && inputManualBarcode) {
+    const handleBarcodeSearch = async () => {
+      const barcode = inputManualBarcode.value.trim();
+      if (!barcode) {
+        alert("Zadej čárový kód.");
+        return;
+      }
+      
+      if (errorEl) errorEl.style.display = 'none';
+      btnSearchBarcode.disabled = true;
+      btnSearchBarcode.innerText = "Hledám...";
+      
+      try {
+        const product = await fetchProductByBarcode(barcode);
+        stopBarcodeScanner();
+        prefillManualFoodForm(product);
+      } catch (err) {
+        console.error(err);
+        if (errorEl) {
+          errorEl.innerText = err.message || "Chyba při vyhledávání.";
+          errorEl.style.display = 'block';
+        }
+      } finally {
+        btnSearchBarcode.disabled = false;
+        btnSearchBarcode.innerText = "Hledat";
+      }
+    };
+    
+    btnSearchBarcode.addEventListener('click', handleBarcodeSearch);
+    inputManualBarcode.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleBarcodeSearch();
+      }
+    });
+  }
+  
+  // Database search inside manual form
+  const inputDbSearch = document.getElementById('input-db-search');
+  const btnDbSearch = document.getElementById('btn-db-search');
+  const dbResultsContainer = document.getElementById('db-search-results');
+  
+  if (btnDbSearch && inputDbSearch && dbResultsContainer) {
+    const handleDbSearch = async () => {
+      const query = inputDbSearch.value.trim();
+      if (!query) {
+        alert("Zadej hledaný název potraviny.");
+        return;
+      }
+      
+      btnDbSearch.disabled = true;
+      btnDbSearch.innerText = "Vyhledávám...";
+      dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--text-secondary); font-size:14px;">Hledám potraviny v databázi...</div>`;
+      dbResultsContainer.style.display = 'block';
+      
+      try {
+        const products = await searchFoodDatabase(query);
+        dbResultsContainer.innerHTML = '';
+        
+        if (products.length === 0) {
+          dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--text-secondary); font-size:14px;">Nebyly nalezeny žádné potraviny.</div>`;
+          return;
+        }
+        
+        products.forEach(p => {
+          const item = document.createElement('div');
+          item.className = 'search-result-item';
+          item.innerHTML = `
+            <span class="search-result-title">${p.name}</span>
+            <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na 100g)</span>
+          `;
+          
+          item.addEventListener('click', () => {
+            prefillManualFoodForm(p);
+            dbResultsContainer.style.display = 'none';
+            inputDbSearch.value = '';
+          });
+          
+          dbResultsContainer.appendChild(item);
+        });
+        
+      } catch (err) {
+        console.error(err);
+        dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--color-danger); font-size:14px;">Chyba při komunikaci s databází.</div>`;
+      } finally {
+        btnDbSearch.disabled = false;
+        btnDbSearch.innerText = "Hledat";
+      }
+    };
+    
+    btnDbSearch.addEventListener('click', handleDbSearch);
+    inputDbSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleDbSearch();
+      }
+    });
+    
+    // Hide results when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#input-db-search') && !e.target.closest('#btn-db-search') && !e.target.closest('#db-search-results')) {
+        dbResultsContainer.style.display = 'none';
+      }
     });
   }
 }

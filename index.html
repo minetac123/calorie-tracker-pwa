@@ -276,6 +276,19 @@
 
       <!-- MANUAL ENTRY -->
       <div id="sub-view-manual" class="add-sub-view">
+        <div class="dark-card" style="margin-bottom: 12px; padding: 16px 20px;">
+          <div class="form-group" style="margin-bottom: 0; position: relative;">
+            <label>Rychlé hledání v databázi potravin</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="input-db-search" placeholder="Zadej název (např. Termix, rohlík...)" style="flex: 1; padding: 12px 14px; font-size: 15px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); color: #fff;">
+              <button class="btn btn-primary" id="btn-db-search" style="width: auto; padding: 0 16px; font-size: 14px; border-radius: 12px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: 700;">Hledat</button>
+            </div>
+            <div id="db-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; background: rgba(10, 10, 20, 0.98); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); z-index: 100; max-height: 250px; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); margin-top: 6px;">
+              <!-- Výsledky hledání -->
+            </div>
+          </div>
+        </div>
+        
         <form class="dark-card" id="manual-food-form">
           <div class="form-group">
             <label>Název jídla</label>
@@ -465,9 +478,36 @@
     </div>
   </div>
 
+  <!-- BARCODE SCANNER MODAL -->
+  <div class="modal-overlay" id="barcode-scanner-modal">
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-header">
+        <h2>Naskenuj čárový kód</h2>
+        <button class="modal-close" id="btn-close-scanner">×</button>
+      </div>
+      <div class="modal-body" style="padding: 16px;">
+        <div id="reader" style="width: 100%; border-radius: 16px; overflow: hidden; background: #000; border: 1px solid var(--border-glass);"></div>
+        
+        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+          <p style="font-size: 13px; color: var(--text-secondary); text-align: center;">
+            Namiř čárový kód jídla na kameru
+          </p>
+          <div class="qa-divider" style="height: 1px; width: 100%; margin: 8px 0;"></div>
+          <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Nebo zadej čárový kód ručně</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="input-manual-barcode" placeholder="EAN kód (např. 859...)" style="flex: 1; padding: 10px 14px; font-size: 14px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); color: #fff;">
+            <button class="btn btn-primary" id="btn-search-barcode" style="width: auto; padding: 10px 16px; font-size: 14px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700;">Hledat</button>
+          </div>
+          <div id="barcode-error" style="color: var(--color-danger); font-size: 12px; display: none; text-align: center; margin-top: 4px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast-notification">Úspěšně přidáno!</div>
   <div class="safe-area-bottom"></div>
 
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="/app.js"></script>
 </body>
 </html>
