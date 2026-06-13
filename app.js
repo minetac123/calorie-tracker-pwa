@@ -295,45 +295,92 @@ function renderDashboard() {
   const goalC = appState.goals.carbs;
   const goalF = appState.goals.fat;
   
-  // Update Main Dashboard Stats
-  document.getElementById('dash-eaten').innerText = `${totalCal} kcal`;
-  document.getElementById('dash-current').innerText = totalCal;
-  document.getElementById('dash-target').innerText = `/ ${goalCal} kcal`;
-  
+  // ── Update Main Dashboard Stats ──────────────────────────────────────────
   const percent = Math.min(100, Math.round((totalCal / goalCal) * 100));
-  document.getElementById('dash-percent').innerText = `${percent} %`;
-  
-  // Main Ring SVG Animation (circumference approx 534 for r=85)
+
+  // Center ring display
+  document.getElementById('dash-current').innerText = totalCal;
+  document.getElementById('dash-target').innerText  = `z ${goalCal}`;
+
+  // Legend items
+  document.getElementById('dash-eaten').innerText      = `${totalCal} kcal`;
+  document.getElementById('dash-activities').innerText = `0 kcal`;
+  const protLegend = document.getElementById('dash-protein-legend');
+  if (protLegend) protLegend.innerText = `${totalP}g`;
+
+  // Macros % badge
+  const pctDisplay = document.getElementById('dash-pct-display');
+  if (pctDisplay) pctDisplay.innerText = `${percent} %`;
+
+  // Hidden old percent el (JS may reference it)
+  const oldPercent = document.getElementById('dash-percent');
+  if (oldPercent) oldPercent.innerText = `${percent} %`;
+
+  // ── THREE ACTIVITY RINGS ─────────────────────────────────────────────────
+  // Outer: Calories (circ 534, r=85)
   const ringPath = document.getElementById('dash-circle-path');
-  const ringOffset = 534 - (534 * Math.min(1, totalCal / goalCal));
-  ringPath.style.strokeDashoffset = ringOffset;
-  
-  if (totalCal > goalCal) {
-    ringPath.style.stroke = "var(--color-danger)";
-    document.getElementById('dash-percent').style.backgroundColor = "var(--color-danger)";
-  } else {
-    ringPath.style.stroke = "var(--color-calorie)";
-    document.getElementById('dash-percent').style.backgroundColor = "var(--color-calorie)";
+  if (ringPath) {
+    const calRatio  = Math.min(1, totalCal / goalCal);
+    ringPath.style.strokeDashoffset = 534 - (534 * calRatio);
+    ringPath.style.stroke = totalCal > goalCal
+      ? 'var(--color-danger)'
+      : 'url(#grad-kcal)';
   }
-  
-  // Update Macros
+
+  // Middle: Activity (circ 402, r=64) — currently placeholder 0
+  const actPath = document.getElementById('ring-activity-path');
+  if (actPath) {
+    actPath.style.strokeDashoffset = 402; // activity tracking not yet implemented
+  }
+
+  // Inner: Protein (circ 270, r=43)
+  const protPath = document.getElementById('ring-protein-path');
+  if (protPath) {
+    const pRatio = Math.min(1, totalP / (goalP || 1));
+    protPath.style.strokeDashoffset = 270 - (270 * pRatio);
+  }
+
+  // ── MACROS — hidden SVG rings (backward compat) ───────────────────────────
+  const pPct = Math.round((totalP / (goalP || 1)) * 100);
+  const cPct = Math.round((totalC / (goalC || 1)) * 100);
+  const fPct = Math.round((totalF / (goalF || 1)) * 100);
+
   document.getElementById('val-p-current').innerText = `${totalP} g`;
-  document.getElementById('val-p-target').innerText = `${goalP} g`;
-  const pPct = Math.round((totalP / goalP) * 100);
-  document.getElementById('val-p-pct').innerText = `${Math.min(100, pPct)} %`;
+  document.getElementById('val-p-target').innerText  = `${goalP} g`;
+  document.getElementById('val-p-pct').innerText     = `${Math.min(100, pPct)} %`;
   document.getElementById('bar-p-fill').style.strokeDashoffset = 100 - Math.min(100, pPct);
-  
+
   document.getElementById('val-c-current').innerText = `${totalC} g`;
-  document.getElementById('val-c-target').innerText = `${goalC} g`;
-  const cPct = Math.round((totalC / goalC) * 100);
-  document.getElementById('val-c-pct').innerText = `${Math.min(100, cPct)} %`;
+  document.getElementById('val-c-target').innerText  = `${goalC} g`;
+  document.getElementById('val-c-pct').innerText     = `${Math.min(100, cPct)} %`;
   document.getElementById('bar-c-fill').style.strokeDashoffset = 100 - Math.min(100, cPct);
-  
+
   document.getElementById('val-f-current').innerText = `${totalF} g`;
-  document.getElementById('val-f-target').innerText = `${goalF} g`;
-  const fPct = Math.round((totalF / goalF) * 100);
-  document.getElementById('val-f-pct').innerText = `${Math.min(100, fPct)} %`;
+  document.getElementById('val-f-target').innerText  = `${goalF} g`;
+  document.getElementById('val-f-pct').innerText     = `${Math.min(100, fPct)} %`;
   document.getElementById('bar-f-fill').style.strokeDashoffset = 100 - Math.min(100, fPct);
+
+  // ── NEW Apple-style horizontal macro bars ─────────────────────────────────
+  const pDisplay = document.getElementById('val-p-display');
+  const cDisplay = document.getElementById('val-c-display');
+  const fDisplay = document.getElementById('val-f-display');
+  if (pDisplay) pDisplay.innerText = `${totalP} g`;
+  if (cDisplay) cDisplay.innerText = `${totalC} g`;
+  if (fDisplay) fDisplay.innerText = `${totalF} g`;
+
+  const pGoalDisp = document.getElementById('val-p-goal-display');
+  const cGoalDisp = document.getElementById('val-c-goal-display');
+  const fGoalDisp = document.getElementById('val-f-goal-display');
+  if (pGoalDisp) pGoalDisp.innerText = goalP;
+  if (cGoalDisp) cGoalDisp.innerText = goalC;
+  if (fGoalDisp) fGoalDisp.innerText = goalF;
+
+  const barP = document.getElementById('bar-p-new');
+  const barC = document.getElementById('bar-c-new');
+  const barF = document.getElementById('bar-f-new');
+  if (barP) barP.style.width = `${Math.min(100, pPct)}%`;
+  if (barC) barC.style.width = `${Math.min(100, cPct)}%`;
+  if (barF) barF.style.width = `${Math.min(100, fPct)}%`;
   
   // Render Food Timeline List
   const foodListContainer = document.getElementById('meals-list-container');

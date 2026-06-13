@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>FitAI – Kalorický Tracker</title>
   
+  <meta name="description" content="FitAI – Tvůj chytrý AI kalorický tracker s databází potravin a Gemini AI analýzou.">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FitAI">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#050510">
+  <meta name="theme-color" content="#000000">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -23,7 +24,7 @@
   <div class="safe-area-top"></div>
 
   <main class="app-container">
-    
+
     <!-- ================= LOGIN SCREEN ================= -->
     <section id="screen-login" class="app-screen active">
       <div class="login-hero">
@@ -32,7 +33,7 @@
         <p class="login-subtitle">Tvůj chytrý kalorický tracker</p>
       </div>
 
-      <div class="dark-card login-card">
+      <div class="login-card">
         <div class="segmented-control" id="auth-tabs">
           <button class="segment-btn active" id="tab-login">Přihlášení</button>
           <button class="segment-btn" id="tab-register">Registrace</button>
@@ -40,11 +41,11 @@
 
         <div class="form-group">
           <label for="auth-username">Uživatelské jméno</label>
-          <input type="text" id="auth-username" autocomplete="username" autocapitalize="none">
+          <input type="text" id="auth-username" autocomplete="username" autocapitalize="none" placeholder="Zadej uživatelské jméno">
         </div>
         <div class="form-group">
           <label for="auth-password">Heslo</label>
-          <input type="password" id="auth-password" autocomplete="current-password">
+          <input type="password" id="auth-password" autocomplete="current-password" placeholder="Zadej heslo">
         </div>
 
         <div id="auth-error" style="color: var(--color-danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
@@ -55,137 +56,218 @@
         </button>
       </div>
 
-      <p style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 16px;">
-        Data se ukládají do cloudu<br>a jsou dostupná na všech zařízeních
+      <p style="text-align: center; color: var(--text-3); font-size: 12px; margin-top: 20px; font-weight: 500;">
+        Data se ukládají bezpečně do cloudu
       </p>
     </section>
 
     <!-- ================= DASHBOARD SCREEN ================= -->
     <section id="screen-dashboard" class="app-screen">
-      
-      <!-- Top Calendar Row -->
-      <div class="calendar-row">
-        <div class="cal-day"><span>Po</span><div class="cal-circle active-goal">8</div></div>
-        <div class="cal-day"><span>Út</span><div class="cal-circle active-goal">9</div></div>
-        <div class="cal-day"><span>St</span><div class="cal-circle active-goal">10</div></div>
-        <div class="cal-day"><span>Čt</span><div class="cal-circle active-goal">11</div></div>
-        <div class="cal-day"><span>Pá</span><div class="cal-circle active-goal">12</div></div>
-        <div class="cal-day current">
-          <span class="cal-current-label">Dnes</span>
-          <div class="cal-circle current-day">
-            <svg class="cal-arc" viewBox="0 0 36 36">
-              <circle class="arc-bg" cx="18" cy="18" r="16"></circle>
-              <circle class="arc-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="57"></circle>
-            </svg>
-            <span class="cal-date">13</span>
-          </div>
-        </div>
-        <div class="cal-day"><span>Ne</span><div class="cal-circle future">14</div></div>
-      </div>
 
-      <!-- Main Circle Area -->
-      <div class="main-progress-area">
-        <div class="side-stat left">
-          <div class="stat-icon food-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4v16M7 4v8a4 4 0 0 0 8 0V4M19 4v16"></path></svg>
-          </div>
-          <div class="stat-value" id="dash-eaten">0 kcal</div>
-          <div class="stat-label">Snězeno</div>
-        </div>
-        
-        <div class="center-circle-container">
-          <svg class="main-ring" viewBox="0 0 200 200">
+      <!-- Calendar Row -->
+      <div class="calendar-row"></div>
+
+      <!-- THREE ACTIVITY RINGS — Apple Fitness Style -->
+      <div class="activity-rings-area">
+        <div class="rings-wrapper">
+          <svg class="activity-rings-svg" viewBox="0 0 200 200" aria-hidden="true">
             <defs>
-              <linearGradient id="ring-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#fbbf24" />
-                <stop offset="50%" stop-color="#f59e0b" />
-                <stop offset="100%" stop-color="#f97316" />
+              <linearGradient id="grad-kcal" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FF6B6B"/>
+                <stop offset="100%" stop-color="#FF375F"/>
+              </linearGradient>
+              <linearGradient id="grad-act" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FFD60A"/>
+                <stop offset="100%" stop-color="#FF9F0A"/>
+              </linearGradient>
+              <linearGradient id="grad-prot" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#34C759"/>
+                <stop offset="100%" stop-color="#30D158"/>
               </linearGradient>
             </defs>
-            <circle class="ring-bg" cx="100" cy="100" r="85"></circle>
-            <circle class="ring-fill" id="dash-circle-path" cx="100" cy="100" r="85" stroke-dasharray="534" stroke-dashoffset="534"></circle>
+
+            <!-- Outer: Calories (r=85, circ≈534) -->
+            <circle class="ring-track ring-track-1" cx="100" cy="100" r="85" stroke-width="14"/>
+            <circle class="ring-progress" id="dash-circle-path"
+                    cx="100" cy="100" r="85" stroke-width="14"
+                    stroke="url(#grad-kcal)"
+                    stroke-dasharray="534" stroke-dashoffset="534"/>
+
+            <!-- Middle: Activity (r=64, circ≈402) -->
+            <circle class="ring-track ring-track-2" cx="100" cy="100" r="64" stroke-width="14"/>
+            <circle class="ring-progress" id="ring-activity-path"
+                    cx="100" cy="100" r="64" stroke-width="14"
+                    stroke="url(#grad-act)"
+                    stroke-dasharray="402" stroke-dashoffset="402"/>
+
+            <!-- Inner: Protein (r=43, circ≈270) -->
+            <circle class="ring-track ring-track-3" cx="100" cy="100" r="43" stroke-width="14"/>
+            <circle class="ring-progress" id="ring-protein-path"
+                    cx="100" cy="100" r="43" stroke-width="14"
+                    stroke="url(#grad-prot)"
+                    stroke-dasharray="270" stroke-dashoffset="270"/>
           </svg>
-          <div class="ring-content">
-            <div class="ring-main-val" id="dash-current">0</div>
-            <div class="ring-sub-val" id="dash-target">/ 2000 kcal</div>
-            <div class="ring-percent" id="dash-percent">0 %</div>
+
+          <div class="rings-center-content">
+            <div class="rings-main-num" id="dash-current">0</div>
+            <div class="rings-unit">kcal</div>
+            <div class="rings-goal-txt" id="dash-target">z 2000</div>
           </div>
         </div>
 
-        <div class="side-stat right">
-          <div class="stat-icon run-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5V3M16.2 7.8l1.4-1.4M19 12h2M16.2 16.2l1.4 1.4M12 19v2M7.8 16.2l-1.4 1.4M5 12H3M7.8 7.8L6.4 6.4"></path></svg>
+        <!-- Ring Legend -->
+        <div class="rings-legend">
+          <div class="rings-legend-item">
+            <div class="legend-dot" style="background: #FF375F;"></div>
+            <div class="legend-info">
+              <span class="legend-label">Snězeno</span>
+              <span class="legend-val" id="dash-eaten">0</span>
+            </div>
           </div>
-          <div class="stat-value" id="dash-activities">0 kcal</div>
+          <div class="rings-legend-item">
+            <div class="legend-dot" style="background: #FF9F0A;"></div>
+            <div class="legend-info">
+              <span class="legend-label">Aktivita</span>
+              <span class="legend-val" id="dash-activities">0</span>
+            </div>
+          </div>
+          <div class="rings-legend-item">
+            <div class="legend-dot" style="background: #30D158;"></div>
+            <div class="legend-info">
+              <span class="legend-label">Bílkoviny</span>
+              <span class="legend-val" id="dash-protein-legend">0g</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hidden: old main-progress-area IDs for JS compat -->
+      <div class="main-progress-area" style="display:none;" aria-hidden="true">
+        <div class="side-stat left">
+          <div class="stat-icon food-icon"></div>
+          <div class="stat-value" id="dash-eaten-old">0 kcal</div>
+          <div class="stat-label">Snězeno</div>
+        </div>
+        <div class="center-circle-container">
+          <svg class="main-ring" viewBox="0 0 200 200">
+            <circle class="ring-bg" cx="100" cy="100" r="85"></circle>
+          </svg>
+          <div class="ring-content">
+            <div class="ring-main-val"></div>
+            <div class="ring-sub-val"></div>
+            <div class="ring-percent" id="dash-percent"></div>
+          </div>
+        </div>
+        <div class="side-stat right">
+          <div class="stat-icon run-icon"></div>
+          <div class="stat-value" id="dash-activities-old">0 kcal</div>
           <div class="stat-label">Aktivity</div>
         </div>
       </div>
 
       <!-- Quick Action Bar -->
       <div class="quick-actions-bar">
-        <button class="qa-btn" id="qa-add">
+        <button class="qa-btn" id="qa-add" aria-label="Přidat jídlo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          <span class="qa-btn-label">Přidat</span>
         </button>
         <div class="qa-divider"></div>
-        <button class="qa-btn" id="qa-barcode">
+        <button class="qa-btn" id="qa-barcode" aria-label="Čárový kód">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="5" x2="4" y2="19"></line><line x1="8" y1="5" x2="8" y2="19"></line><line x1="12" y1="5" x2="12" y2="19"></line><line x1="16" y1="5" x2="16" y2="19"></line><line x1="20" y1="5" x2="20" y2="19"></line></svg>
+          <span class="qa-btn-label">Kód</span>
         </button>
         <div class="qa-divider"></div>
-        <button class="qa-btn" id="qa-mic">
+        <button class="qa-btn" id="qa-mic" aria-label="Hlasový vstup">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+          <span class="qa-btn-label">Hlas</span>
         </button>
         <div class="qa-divider"></div>
-        <button class="qa-btn" id="qa-camera">
+        <button class="qa-btn" id="qa-camera" aria-label="Fotit jídlo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          <span class="qa-btn-label">Foto</span>
         </button>
         <div class="qa-divider"></div>
-        <button class="qa-btn" id="qa-run">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5V3M16.2 7.8l1.4-1.4M19 12h2M16.2 16.2l1.4 1.4M12 19v2M7.8 16.2l-1.4 1.4M5 12H3M7.8 7.8L6.4 6.4"></path></svg>
+        <button class="qa-btn" id="qa-run" aria-label="Aktivita / Sport">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+          <span class="qa-btn-label">Aktivita</span>
         </button>
       </div>
 
-      <!-- Nutrients Card -->
-      <div class="nutrients-card">
-        <div class="nutrients-header">
-          <h2>Živiny</h2>
-          <svg viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+      <!-- Macros Section — Apple-style horizontal bars -->
+      <div class="macros-section">
+        <div class="macros-header">
+          <span class="macros-title">Živiny</span>
+          <span class="macros-pct" id="dash-pct-display">0 %</span>
         </div>
-        <div class="nutrients-grid">
+        <div class="macro-row">
           <!-- Protein -->
+          <div class="macro-item">
+            <div class="macro-item-header">
+              <span class="macro-name">Bílkoviny</span>
+              <span class="macro-vals">
+                <span class="macro-current" id="val-p-display">0 g</span>
+                <span class="macro-target-txt"> / <span id="val-p-goal-display">130</span> g</span>
+              </span>
+            </div>
+            <div class="macro-bar-track">
+              <div class="macro-bar-fill" id="bar-p-new" style="background: #30D158;"></div>
+            </div>
+          </div>
+          <!-- Carbs -->
+          <div class="macro-item">
+            <div class="macro-item-header">
+              <span class="macro-name">Sacharidy</span>
+              <span class="macro-vals">
+                <span class="macro-current" id="val-c-display">0 g</span>
+                <span class="macro-target-txt"> / <span id="val-c-goal-display">220</span> g</span>
+              </span>
+            </div>
+            <div class="macro-bar-track">
+              <div class="macro-bar-fill" id="bar-c-new" style="background: #FF9F0A;"></div>
+            </div>
+          </div>
+          <!-- Fat -->
+          <div class="macro-item">
+            <div class="macro-item-header">
+              <span class="macro-name">Tuky</span>
+              <span class="macro-vals">
+                <span class="macro-current" id="val-f-display">0 g</span>
+                <span class="macro-target-txt"> / <span id="val-f-goal-display">65</span> g</span>
+              </span>
+            </div>
+            <div class="macro-bar-track">
+              <div class="macro-bar-fill" id="bar-f-new" style="background: #FF375F;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hidden old nutrients-card (IDs kept for JS) -->
+      <div class="nutrients-card" aria-hidden="true" style="display:none;">
+        <div class="nutrients-grid">
           <div class="nutr-col">
             <div class="nutr-title">Bílkoviny</div>
             <div class="nutr-val" id="val-p-current">0 g</div>
             <div class="nutr-ring-container">
-              <svg viewBox="0 0 36 36">
-                <circle class="nutr-bg" cx="18" cy="18" r="16"></circle>
-                <circle class="nutr-fill" id="bar-p-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="100"></circle>
-              </svg>
+              <svg viewBox="0 0 36 36"><circle class="nutr-bg" cx="18" cy="18" r="16"></circle><circle class="nutr-fill" id="bar-p-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="100"></circle></svg>
               <span class="nutr-pct" id="val-p-pct">0 %</span>
             </div>
             <div class="nutr-total" id="val-p-target">130 g</div>
           </div>
-          <!-- Carbs -->
           <div class="nutr-col">
             <div class="nutr-title">Sacharidy</div>
             <div class="nutr-val" id="val-c-current">0 g</div>
             <div class="nutr-ring-container">
-              <svg viewBox="0 0 36 36">
-                <circle class="nutr-bg" cx="18" cy="18" r="16"></circle>
-                <circle class="nutr-fill" id="bar-c-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="100"></circle>
-              </svg>
+              <svg viewBox="0 0 36 36"><circle class="nutr-bg" cx="18" cy="18" r="16"></circle><circle class="nutr-fill" id="bar-c-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="100"></circle></svg>
               <span class="nutr-pct" id="val-c-pct">0 %</span>
             </div>
             <div class="nutr-total" id="val-c-target">220 g</div>
           </div>
-          <!-- Fat -->
           <div class="nutr-col">
             <div class="nutr-title">Tuky</div>
             <div class="nutr-val" id="val-f-current">0 g</div>
             <div class="nutr-ring-container">
-              <svg viewBox="0 0 36 36">
-                <circle class="nutr-bg" cx="18" cy="18" r="16"></circle>
-                <circle class="nutr-fill" id="bar-f-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="100"></circle>
-              </svg>
+              <svg viewBox="0 0 36 36"><circle class="nutr-bg" cx="18" cy="18" r="16"></circle><circle class="nutr-fill" id="bar-f-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="100"></circle></svg>
               <span class="nutr-pct" id="val-f-pct">0 %</span>
             </div>
             <div class="nutr-total" id="val-f-target">65 g</div>
@@ -193,19 +275,18 @@
         </div>
       </div>
 
-      <!-- Menu Section -->
+      <!-- Meals Section -->
       <div class="menu-section">
         <div class="menu-header">
           <h2>Jídelníček</h2>
           <span class="analysis-link">Analýza</span>
         </div>
-        
         <div class="meals-list" id="meals-list-container">
-          <!-- Dynamicky načítané položky jídelníčku podle kategorií -->
+          <!-- Dynamically populated -->
         </div>
       </div>
 
-      <!-- Extras -->
+      <!-- Water & Weight -->
       <div class="extras-section">
         <div class="extra-card water-card">
           <div class="extra-card-header">
@@ -213,11 +294,13 @@
               <span class="water-icon">💧</span>
               <h3>Pitný režim</h3>
             </div>
-            <button class="btn-add-extra water-add">+</button>
+            <button class="btn-add-extra water-add" aria-label="Přidat vodu">+</button>
           </div>
           <div class="water-progress-area">
-            <span class="water-current">0 l</span>
-            <span class="water-target">z 3 l</span>
+            <div class="water-vals">
+              <span class="water-current">0 l</span>
+              <span class="water-target">z 3 l</span>
+            </div>
             <div class="water-bar-bg"><div class="water-bar-fill" style="width:0%"></div></div>
           </div>
         </div>
@@ -228,11 +311,11 @@
               <span class="weight-icon">⚖️</span>
               <h3>Váha</h3>
             </div>
-            <button class="btn-edit-extra">✏️</button>
+            <button class="btn-edit-extra" aria-label="Upravit váhu">✏️</button>
           </div>
           <div class="weight-vals">
-            <span class="weight-current">75,6 kg</span>
-            <span class="weight-target">cíl 70 kg</span>
+            <span class="weight-current">—</span>
+            <span class="weight-target">cíl — kg</span>
           </div>
         </div>
       </div>
@@ -241,7 +324,8 @@
 
     <!-- ================= ADD FOOD SCREEN (Wizard Flow) ================= -->
     <section id="screen-add" class="app-screen">
-      <!-- WIZARD STEP 1: SELECT CATEGORY -->
+
+      <!-- STEP 1: SELECT CATEGORY -->
       <div id="add-wizard-step-1" class="wizard-step active">
         <header class="screen-header">
           <h1 class="screen-title">Do jaké kategorie?</h1>
@@ -252,7 +336,7 @@
             <span class="cat-wiz-name">Snídaně</span>
           </button>
           <button class="category-wizard-btn" data-category="Morning snack">
-            <span class="cat-wiz-icon">🥪</span>
+            <span class="cat-wiz-icon">🥐</span>
             <span class="cat-wiz-name">Dopolední svačina</span>
           </button>
           <button class="category-wizard-btn" data-category="Lunch">
@@ -260,7 +344,7 @@
             <span class="cat-wiz-name">Oběd</span>
           </button>
           <button class="category-wizard-btn" data-category="Afternoon snack">
-            <span class="cat-wiz-icon">🥪</span>
+            <span class="cat-wiz-icon">🍎</span>
             <span class="cat-wiz-name">Odpolední svačina</span>
           </button>
           <button class="category-wizard-btn" data-category="Dinner">
@@ -268,73 +352,75 @@
             <span class="cat-wiz-name">Večeře</span>
           </button>
           <button class="category-wizard-btn" data-category="Second dinner">
-            <span class="cat-wiz-icon">🍽️</span>
+            <span class="cat-wiz-icon">🌙</span>
             <span class="cat-wiz-name">Druhá večeře</span>
           </button>
         </div>
       </div>
 
-      <!-- WIZARD STEP 2: DETAILS & INPUT METHODS -->
+      <!-- STEP 2: INPUT -->
       <div id="add-wizard-step-2" class="wizard-step">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; margin-top: 10px;">
-          <button id="btn-wizard-back" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass-subtle); border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-primary); font-size: 16px; transition: background 0.2s;">←</button>
-          <h2 id="wizard-category-title" style="font-size: 20px; font-weight: 800; letter-spacing: -0.3px; color: var(--color-primary);">Přidat do: Snídaně</h2>
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px; margin-top:10px;">
+          <button id="btn-wizard-back">←</button>
+          <h2 id="wizard-category-title">Přidat do: Snídaně</h2>
         </div>
 
-        <!-- 1. Database Search Card -->
-        <div class="dark-card" style="margin-bottom: 14px; padding: 16px 20px; position: relative; z-index: 10;">
-          <div class="form-group" style="margin-bottom: 0; position: relative;">
+        <!-- Database Search -->
+        <div class="dark-card" style="margin-bottom:14px; padding:16px 20px; position:relative; z-index:10;">
+          <div class="form-group" style="margin-bottom:0; position:relative;">
             <label>Rychlé hledání v databázi potravin</label>
-            <div style="display: flex; gap: 8px;">
-              <input type="text" id="input-db-search" placeholder="Zadej název (např. Termix, rohlík...)" style="flex: 1; padding: 12px 14px; font-size: 15px; border-radius: 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); color: #fff;">
-              <button class="btn btn-primary" id="btn-db-search" style="width: auto; padding: 0 16px; font-size: 14px; border-radius: 12px; height: 45px; display: flex; align-items: center; justify-content: center; font-weight: 700;">Hledat</button>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="input-db-search"
+                     placeholder="Zadej název (např. Termix, rohlík...)"
+                     style="flex:1; padding:12px 14px; font-size:15px; border-radius:12px; background:var(--bg-input); border:0.5px solid var(--sep-strong); color:#fff;">
+              <button class="btn btn-primary" id="btn-db-search"
+                      style="width:auto; padding:0 16px; font-size:14px; border-radius:12px; height:46px; font-weight:700;">Hledat</button>
             </div>
-            <div id="db-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; background: rgba(10, 10, 20, 0.98); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); z-index: 100; max-height: 250px; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.6); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); margin-top: 6px;">
-              <!-- Výsledky hledání -->
-            </div>
+            <div id="db-search-results" style="display:none;"></div>
           </div>
         </div>
 
-        <!-- 2. AI Scanner Card -->
-        <div class="dark-card" style="padding: 18px 20px; margin-bottom: 14px; position: relative; z-index: 1;">
-          <label style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; display: block;">AI Analýza (vyfoť jídlo nebo napiš popis)</label>
-          <textarea id="ai-text-input" placeholder="Co jsi jedl? Např.: '150g kuřecí prsa s rýží...'" style="width: 100%; height: 70px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: 12px; padding: 12px; font-size: 15px; color: #fff; resize: none; margin-bottom: 12px;"></textarea>
-          
-          <div class="camera-section" style="margin-bottom: 12px;">
-            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
-            <input type="file" id="gallery-input" accept="image/*" style="display: none;">
-            
-            <div class="photo-placeholder" id="btn-photo-trigger" style="padding: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--border-glass); border-radius: 12px; cursor: pointer; background: rgba(255,255,255,0.02); color: var(--text-secondary); font-size: 13px;">
-              <span style="font-size: 18px;">📸</span>
+        <!-- AI Scanner -->
+        <div class="dark-card" style="padding:18px 20px; margin-bottom:14px; position:relative; z-index:1;">
+          <label style="font-size:13px; color:var(--text-2); margin-bottom:8px; font-weight:600; display:block;">AI Analýza (vyfoť jídlo nebo napiš popis)</label>
+          <textarea id="ai-text-input"
+                    placeholder="Co jsi jedl? Např.: '150g kuřecí prsa s rýží...'"
+                    style="width:100%; height:70px; background:var(--bg-input); border:0.5px solid var(--sep-strong); border-radius:12px; padding:12px; font-size:15px; color:#fff; resize:none; margin-bottom:12px;"></textarea>
+
+          <div class="camera-section" style="margin-bottom:12px;">
+            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display:none;">
+            <input type="file" id="gallery-input" accept="image/*" style="display:none;">
+            <div class="photo-placeholder" id="btn-photo-trigger">
+              <span style="font-size:20px;">📸</span>
               <span>Vyfoť jídlo nebo vyber z galerie</span>
             </div>
-            
-            <div class="photo-preview-container" id="photo-preview-area" style="display: none; position: relative; width: 100%; max-height: 150px; overflow: hidden; border-radius: 12px; border: 1px solid var(--border-glass);">
-              <img id="photo-preview-img" src="" alt="Photo" style="width: 100%; height: 150px; object-fit: cover;">
-              <button class="btn-remove-photo" id="btn-clear-photo" style="position: absolute; right: 8px; top: 8px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 50%; width: 28px; height: 28px; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;">×</button>
+            <div id="photo-preview-area" style="display:none; position:relative; width:100%; max-height:150px; overflow:hidden; border-radius:12px; border:0.5px solid var(--sep-strong);">
+              <img id="photo-preview-img" src="" alt="Náhled fotky" style="width:100%; height:150px; object-fit:cover;">
+              <button id="btn-clear-photo" style="position:absolute; right:8px; top:8px; background:rgba(0,0,0,0.65); color:#fff; border:none; border-radius:50%; width:28px; height:28px; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">×</button>
             </div>
           </div>
-          
-          <button class="btn btn-primary" id="btn-ai-analyze" style="height: 48px; border-radius: 12px;">
-            <span class="btn-text">Analyzovat s Gemini AI</span>
-            <span class="spinner" style="display: none;"></span>
+
+          <button class="btn btn-primary" id="btn-ai-analyze" style="height:48px; border-radius:12px;">
+            <span class="btn-text">Analyzovat s Gemini AI ✨</span>
+            <span class="spinner" style="display:none;"></span>
           </button>
         </div>
 
-        <!-- 3. Barcode Scanner Trigger -->
-        <button class="btn btn-secondary" id="btn-wizard-scan-barcode" type="button" style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.04)); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--color-water); border-radius: var(--radius-md); padding: 16px; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; width: 100%; margin-bottom: 14px; font-weight: 700; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.05);">
-          <span style="font-size: 20px;">📷</span>
+        <!-- Barcode Scan -->
+        <button class="btn" id="btn-wizard-scan-barcode" type="button"
+                style="margin-bottom:14px; padding:16px; display:flex; align-items:center; justify-content:center; gap:10px; font-weight:700;">
+          <span style="font-size:20px;">📷</span>
           <span>Naskenovat čárový kód (EAN)</span>
         </button>
 
-        <!-- 4. Manual Entry Form -->
-        <form class="dark-card" id="manual-food-form" style="padding: 20px;">
-          <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 14px; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center;">
+        <!-- Manual Form -->
+        <form class="dark-card" id="manual-food-form" style="padding:20px;">
+          <h3 style="font-size:14px; font-weight:700; margin-bottom:14px; color:var(--text-2); display:flex; justify-content:space-between; align-items:center;">
             <span>Nebo zadej jídlo ručně</span>
-            <button type="button" id="btn-unlock-form" style="display: none; background: none; border: none; color: var(--color-primary); font-size: 12px; cursor: pointer; font-weight: 600; padding: 4px 8px;">Upravit vše 🔓</button>
+            <button type="button" id="btn-unlock-form" style="display:none;">Upravit vše 🔓</button>
           </h3>
-          
-          <div class="form-group" style="display: none;">
+
+          <div class="form-group" style="display:none;">
             <select id="input-food-category" required>
               <option value="Breakfast">Snídaně</option>
               <option value="Morning snack">Dopolední svačina</option>
@@ -344,15 +430,15 @@
               <option value="Second dinner">Druhá večeře</option>
             </select>
           </div>
-          
+
           <div class="form-group">
             <label>Název jídla</label>
-            <input type="text" id="input-food-name" required>
+            <input type="text" id="input-food-name" required placeholder="Např. Kuřecí prsa">
           </div>
           <div class="form-row-2">
             <div class="form-group">
               <label>Kalorie (kcal)</label>
-              <input type="number" id="input-food-cal" required>
+              <input type="number" id="input-food-cal" required placeholder="0">
             </div>
             <div class="form-group">
               <label>Množství</label>
@@ -362,23 +448,23 @@
           <div class="form-row-3">
             <div class="form-group">
               <label>Bílkoviny (g)</label>
-              <input type="number" id="input-food-p" step="0.1">
+              <input type="number" id="input-food-p" step="0.1" placeholder="0">
             </div>
             <div class="form-group">
               <label>Sacharidy (g)</label>
-              <input type="number" id="input-food-c" step="0.1">
+              <input type="number" id="input-food-c" step="0.1" placeholder="0">
             </div>
             <div class="form-group">
               <label>Tuky (g)</label>
-              <input type="number" id="input-food-f" step="0.1">
+              <input type="number" id="input-food-f" step="0.1" placeholder="0">
             </div>
           </div>
-          <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Přidat jídlo</button>
+          <button type="submit" class="btn btn-primary" style="margin-top:10px;">Přidat jídlo</button>
         </form>
       </div>
     </section>
 
-    <!-- ================= HISTORY & PROGRESS SCREEN ================= -->
+    <!-- ================= HISTORY SCREEN ================= -->
     <section id="screen-history" class="app-screen">
       <header class="screen-header">
         <div>
@@ -387,25 +473,19 @@
         </div>
       </header>
 
-      <div class="segmented-control" id="history-tabs" style="margin-bottom: 16px;">
+      <div class="segmented-control" id="history-tabs" style="margin-bottom:16px;">
         <button class="segment-btn active" id="tab-history-meals">Historie jídel</button>
         <button class="segment-btn" id="tab-history-progress">Váha a progres</button>
       </div>
 
-      <!-- MEALS HISTORY VIEW -->
       <div id="history-meals-view" class="history-sub-view active">
-        <div class="history-list" id="history-container">
-          <!-- Dynamically populated -->
-        </div>
+        <div class="history-list" id="history-container"></div>
       </div>
 
-      <!-- PROGRESS / WEIGHT VIEW -->
-      <div id="history-progress-view" class="history-sub-view" style="display: none;">
+      <div id="history-progress-view" class="history-sub-view" style="display:none;">
         <div class="dark-card">
           <h2>⚖️ Vývoj váhy</h2>
-          <div id="weight-history-list" style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;">
-            <!-- Dynamically populated weight entries -->
-          </div>
+          <div id="weight-history-list" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;"></div>
         </div>
       </div>
     </section>
@@ -418,15 +498,15 @@
 
       <div class="dark-card">
         <h2>Google Gemini API</h2>
-        <div class="form-group">
+        <div class="form-group" style="margin-top:14px;">
           <label>API Klíč</label>
-          <input type="password" id="input-gemini-key">
+          <input type="password" id="input-gemini-key" placeholder="Zadej Gemini API klíč">
         </div>
       </div>
 
       <div class="dark-card">
         <h2>Denní cíle</h2>
-        <div class="form-group">
+        <div class="form-group" style="margin-top:14px;">
           <label>Kalorie (kcal)</label>
           <input type="number" id="input-goal-cal" value="2000">
         </div>
@@ -449,48 +529,51 @@
 
       <div class="dark-card">
         <h2>👤 Účet</h2>
-        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 14px;">
-          Přihlášen jako: <strong id="display-username" style="color: var(--color-primary);">—</strong>
+        <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;">
+          Přihlášen jako: <strong id="display-username" style="color:var(--ios-blue);">—</strong>
         </p>
         <button class="btn btn-secondary" id="btn-sync-cloud">☁️ Synchronizovat s cloudem</button>
-        <div style="height: 10px;"></div>
+        <div style="height:10px;"></div>
         <button class="btn btn-danger" id="btn-logout">Odhlásit se</button>
       </div>
 
       <div class="dark-card danger-card">
         <h2 style="color:var(--color-danger)">Nebezpečná zóna</h2>
-        <button class="btn btn-danger" id="btn-reset-data">Smazat všechna data</button>
+        <div style="margin-top:14px;">
+          <button class="btn btn-danger" id="btn-reset-data">Smazat všechna data</button>
+        </div>
       </div>
-      <div style="text-align: center; margin: 24px 0 10px 0; font-size: 12px; color: var(--text-muted); font-weight: 500;">
-        Verze: 1.0.0 (Cache v17)
+
+      <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
+        Verze: 1.0.0 (Cache v19)
       </div>
     </section>
 
   </main>
 
-  <!-- ================= BOTTOM NAV BAR ================= -->
+  <!-- ================= BOTTOM NAV ================= -->
   <nav class="bottom-nav">
     <div class="nav-items-container">
-      <button class="nav-item active" data-screen="dashboard">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+      <button class="nav-item active" data-screen="dashboard" aria-label="Přehled">
+        <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
         <span>Přehled</span>
       </button>
-      <button class="nav-item" id="nav-progres" data-screen="history">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+      <button class="nav-item" id="nav-progres" data-screen="history" aria-label="Progres">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span>Progres</span>
       </button>
-      <button class="nav-item" id="nav-jidla" data-screen="history">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4v16M7 4v8a4 4 0 0 0 8 0V4M19 4v16"></path></svg>
+      <div class="nav-fab-container">
+        <button class="nav-fab" data-screen="add" aria-label="Přidat jídlo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+      <button class="nav-item" id="nav-jidla" data-screen="history" aria-label="Jídla">
+        <svg viewBox="0 0 24 24"><path d="M11 4v16M7 4v8a4 4 0 0 0 8 0V4M19 4v16"/></svg>
         <span>Jídla</span>
       </button>
-      <button class="nav-item" data-screen="settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      <button class="nav-item" data-screen="settings" aria-label="Nastavení">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Více</span>
-      </button>
-    </div>
-    <div class="nav-fab-container">
-      <button class="nav-fab" data-screen="add">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
       </button>
     </div>
   </nav>
@@ -499,22 +582,22 @@
   <div class="modal-overlay" id="ai-review-modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>AI Analýza</h2>
+        <h2>✨ AI Analýza</h2>
         <button class="modal-close" id="btn-close-modal">×</button>
       </div>
       <div class="modal-body">
-        <p id="ai-modal-subtitle" style="font-size:13px; color: var(--text-secondary); margin-bottom: 14px;"></p>
-        <div id="ai-options-container" class="options-list" style="display: none;"></div>
+        <p id="ai-modal-subtitle" style="font-size:13px; color:var(--text-2); margin-bottom:14px;"></p>
+        <div id="ai-options-container" class="options-list" style="display:none;"></div>
         <div id="ai-detected-list" class="detected-items-list"></div>
-        <div class="modal-summary-card" style="background: rgba(255,255,255,0.04); border-radius: 16px; padding: 14px 16px; margin-top: 12px; border: 1px solid var(--border-glass-subtle);">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-            <span style="color: var(--text-secondary); font-size: 13px;">Celkem:</span>
-            <strong id="modal-summary-cal" style="color: var(--color-calorie); font-size: 16px;">0 kcal</strong>
+        <div class="modal-summary-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="color:var(--text-2); font-size:13px;">Celkem:</span>
+            <strong id="modal-summary-cal" style="color:var(--ring-1); font-size:17px;">0 kcal</strong>
           </div>
-          <div style="display:flex; justify-content:space-between; font-size: 12px; color: var(--text-secondary);">
-            <span>B: <strong id="modal-summary-p" style="color: var(--color-protein);">0</strong>g</span>
-            <span>S: <strong id="modal-summary-c" style="color: var(--color-carbs);">0</strong>g</span>
-            <span>T: <strong id="modal-summary-f" style="color: var(--color-fat);">0</strong>g</span>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-2);">
+            <span>B: <strong id="modal-summary-p" style="color:var(--color-protein);">0</strong>g</span>
+            <span>S: <strong id="modal-summary-c" style="color:var(--color-carbs);">0</strong>g</span>
+            <span>T: <strong id="modal-summary-f" style="color:var(--color-fat);">0</strong>g</span>
           </div>
         </div>
       </div>
@@ -527,25 +610,24 @@
 
   <!-- BARCODE SCANNER MODAL -->
   <div class="modal-overlay" id="barcode-scanner-modal">
-    <div class="modal-content" style="max-width: 420px;">
+    <div class="modal-content" style="max-width:420px;">
       <div class="modal-header">
         <h2>Naskenuj čárový kód</h2>
         <button class="modal-close" id="btn-close-scanner">×</button>
       </div>
-      <div class="modal-body" style="padding: 16px;">
-        <div id="reader" style="width: 100%; border-radius: 16px; overflow: hidden; background: #000; border: 1px solid var(--border-glass);"></div>
-        
-        <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
-          <p style="font-size: 13px; color: var(--text-secondary); text-align: center;">
-            Namiř čárový kód jídla na kameru
-          </p>
-          <div class="qa-divider" style="height: 1px; width: 100%; margin: 8px 0;"></div>
-          <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Nebo zadej čárový kód ručně</label>
-          <div style="display: flex; gap: 8px;">
-            <input type="text" id="input-manual-barcode" placeholder="EAN kód (např. 859...)" style="flex: 1; padding: 10px 14px; font-size: 14px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); color: #fff;">
-            <button class="btn btn-primary" id="btn-search-barcode" style="width: auto; padding: 10px 16px; font-size: 14px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700;">Hledat</button>
+      <div class="modal-body" style="padding:16px;">
+        <div id="reader" style="width:100%; border-radius:16px; overflow:hidden; background:#000;"></div>
+        <div style="margin-top:16px; display:flex; flex-direction:column; gap:8px;">
+          <p style="font-size:13px; color:var(--text-2); text-align:center;">Namiř čárový kód jídla na kameru</p>
+          <div style="height:0.5px; background:var(--sep); margin:8px 0;"></div>
+          <label style="font-size:12px; font-weight:600; color:var(--text-2);">Nebo zadej čárový kód ručně</label>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="input-manual-barcode" placeholder="EAN kód (např. 859...)"
+                   style="flex:1; padding:10px 14px; font-size:14px; border-radius:10px; background:var(--bg-input); border:0.5px solid var(--sep-strong); color:#fff;">
+            <button class="btn btn-primary" id="btn-search-barcode"
+                    style="width:auto; padding:10px 16px; font-size:14px; border-radius:10px; font-weight:700;">Hledat</button>
           </div>
-          <div id="barcode-error" style="color: var(--color-danger); font-size: 12px; display: none; text-align: center; margin-top: 4px;"></div>
+          <div id="barcode-error" style="color:var(--color-danger); font-size:12px; display:none; text-align:center;"></div>
         </div>
       </div>
     </div>
@@ -553,17 +635,18 @@
 
   <!-- WEIGHT UPDATE MODAL -->
   <div class="modal-overlay" id="weight-update-modal">
-    <div class="modal-content" style="max-width: 320px;">
+    <div class="modal-content" style="max-width:360px;">
       <div class="modal-header">
-        <h2>Úprava váhy</h2>
+        <h2>⚖️ Aktuální váha</h2>
         <button class="modal-close" id="btn-close-weight">×</button>
       </div>
-      <div class="modal-body" style="padding: 20px;">
+      <div class="modal-body" style="padding:20px;">
         <div class="form-group">
           <label for="input-current-weight">Aktuální váha (kg)</label>
-          <input type="number" id="input-current-weight" step="0.1" style="width: 100%; padding: 12px; font-size: 16px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); color: #fff;">
+          <input type="number" id="input-current-weight" step="0.1"
+                 style="width:100%; padding:16px; font-size:20px; border-radius:12px; background:var(--bg-input); border:0.5px solid var(--sep-strong); color:#fff; text-align:center; font-weight:700;">
         </div>
-        <button class="btn btn-primary" id="btn-save-weight" style="width: 100%; margin-top: 10px;">Uložit</button>
+        <button class="btn btn-primary" id="btn-save-weight" style="margin-top:10px;">Uložit</button>
       </div>
     </div>
   </div>
