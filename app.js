@@ -201,6 +201,7 @@ function showWizardStep(stepNum) {
     if (stepNum === 1) {
       step1.classList.add('active');
       step2.classList.remove('active');
+      resetManualFoodForm();
     } else {
       step2.classList.add('active');
       step1.classList.remove('active');
@@ -1164,6 +1165,33 @@ function initFormHandlers() {
   document.getElementById('btn-modal-cancel').addEventListener('click', closeModal);
   document.getElementById('btn-modal-confirm').addEventListener('click', saveReviewedItemsToLog);
   
+  // Amount change input listener for auto-recalculation
+  const inputFoodAmount = document.getElementById('input-food-amount');
+  if (inputFoodAmount) {
+    inputFoodAmount.addEventListener('input', () => {
+      if (!currentFormBaseValues) return;
+      
+      const amountVal = inputFoodAmount.value.trim();
+      const multiplier = getQuantityMultiplier(amountVal, currentFormBaseValues.baseUnit);
+      
+      if (!isNaN(multiplier) && multiplier > 0) {
+        document.getElementById('input-food-cal').value = Math.round(currentFormBaseValues.calories * multiplier);
+        document.getElementById('input-food-p').value = Math.round(currentFormBaseValues.protein * multiplier * 10) / 10;
+        document.getElementById('input-food-c').value = Math.round(currentFormBaseValues.carbs * multiplier * 10) / 10;
+        document.getElementById('input-food-f').value = Math.round(currentFormBaseValues.fat * multiplier * 10) / 10;
+      }
+    });
+  }
+  
+  // Unlock Form Fields Button
+  const btnUnlockForm = document.getElementById('btn-unlock-form');
+  if (btnUnlockForm) {
+    btnUnlockForm.addEventListener('click', () => {
+      lockManualFormFields(false);
+      btnUnlockForm.style.display = 'none';
+    });
+  }
+  
   // Handle Manual Log Submission
   manualForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1197,7 +1225,7 @@ function initFormHandlers() {
     });
     
     saveState();
-    manualForm.reset();
+    resetManualFoodForm();
     
     // Go to dashboard
     const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
@@ -1576,6 +1604,96 @@ function init() {
 // ==========================================================================
 // OPEN FOOD FACTS API INTEGRATION
 // ==========================================================================
+let currentFormBaseValues = null;
+
+function isLiquidProduct(p) {
+  if (!p) return false;
+  const name = (p.product_name_cs || p.product_name || "").toLowerCase();
+  const quantity = (p.quantity || "").toLowerCase();
+  const categories = (p.categories || "").toLowerCase();
+  const categoryTags = p.categories_tags || [];
+  
+  if (quantity.includes('ml') || quantity.includes('cl') || quantity.includes('dl') || quantity.includes(' l') || quantity.endsWith('l')) {
+    return true;
+  }
+  
+  if (categoryTags.some(t => t.includes('beverage') || t.includes('drink') || t.includes('napoje') || t.includes('juice') || t.includes('milk'))) {
+    return true;
+  }
+  
+  const liquidKeywords = ['ml', 'napoj', 'nápoj', 'džus', 'dzus', 'pivo', 'víno', 'vino', 'voda', 'limonáda', 'limonada', 'cola', 'kefír', 'kefir', 'mléko', 'mleko', 'syrovátka', 'caj', 'čaj', 'sirup', 'smoothie', 'šťáva', 'stava'];
+  if (liquidKeywords.some(kw => name.includes(kw) || categories.includes(kw))) {
+    const dryKeywords = ['sušené', 'susene', 'prášek', 'prasek', 'zrnková', 'zrnkova', 'mletá', 'mleta', 'koncentrát', 'koncentrat'];
+    if (dryKeywords.some(dkw => name.includes(dkw))) {
+      return false;
+    }
+    return true;
+  }
+  
+  return false;
+}
+
+function parseQuantity(quantityStr, defaultUnit = 'g') {
+  if (!quantityStr) return { value: 100, unit: defaultUnit };
+  
+  const cleaned = quantityStr.replace(',', '.').trim();
+  const match = cleaned.match(/^([\d.]+)\s*([a-zA-Z]*)/);
+  if (!match) return { value: 100, unit: defaultUnit };
+  
+  const value = parseFloat(match[1]);
+  let unit = match[2].toLowerCase();
+  
+  if (!unit) {
+    unit = defaultUnit;
+  }
+  
+  return { value: isNaN(value) ? 100 : value, unit };
+}
+
+function getQuantityMultiplier(quantityStr, baseUnit = 'g') {
+  const parsed = parseQuantity(quantityStr, baseUnit);
+  let value = parsed.value;
+  let unit = parsed.unit;
+  
+  if (unit === 'kg') {
+    value *= 1000;
+    unit = 'g';
+  } else if (unit === 'l') {
+    value *= 1000;
+    unit = 'ml';
+  }
+  
+  return value / 100;
+}
+
+function lockManualFormFields(shouldLock) {
+  const fields = ['input-food-name', 'input-food-cal', 'input-food-p', 'input-food-c', 'input-food-f'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.readOnly = shouldLock;
+      if (shouldLock) {
+        el.classList.add('readonly-field');
+      } else {
+        el.classList.remove('readonly-field');
+      }
+    }
+  });
+}
+
+function resetManualFoodForm() {
+  const form = document.getElementById('manual-food-form');
+  if (form) {
+    form.reset();
+  }
+  currentFormBaseValues = null;
+  lockManualFormFields(false);
+  const unlockBtn = document.getElementById('btn-unlock-form');
+  if (unlockBtn) {
+    unlockBtn.style.display = 'none';
+  }
+}
+
 async function fetchProductByBarcode(barcode) {
   const url = `/api/barcode?code=${barcode}`;
   const response = await fetch(url);
@@ -1588,14 +1706,22 @@ async function fetchProductByBarcode(barcode) {
   }
   
   const p = data.product;
-  const name = p.product_name_cs || p.product_name || "Nezmámý produkt";
+  const name = p.product_name_cs || p.product_name || "Neznámý produkt";
   const brand = p.brands ? ` (${p.brands})` : "";
   
+  const isLiquid = isLiquidProduct(p);
+  const baseUnit = isLiquid ? 'ml' : 'g';
+  const amount = `100${baseUnit}`;
+  
   // Nutrients per 100g (or 100ml)
-  const calories = Math.round(Number(p.nutriments?.['energy-kcal_100g'] || p.nutriments?.['energy-kcal_value'] || 0));
-  const protein = Math.round(Number(p.nutriments?.proteins_100g || 0) * 10) / 10;
-  const carbs = Math.round(Number(p.nutriments?.carbohydrates_100g || 0) * 10) / 10;
-  const fat = Math.round(Number(p.nutriments?.fat_100g || 0) * 10) / 10;
+  const calories = Math.round(Number(
+    p.nutriments?.['energy-kcal_100g'] || 
+    p.nutriments?.['energy-kcal_100ml'] || 
+    p.nutriments?.['energy-kcal_value'] || 0
+  ));
+  const protein = Math.round(Number(p.nutriments?.proteins_100g || p.nutriments?.proteins_100ml || 0) * 10) / 10;
+  const carbs = Math.round(Number(p.nutriments?.carbohydrates_100g || p.nutriments?.carbohydrates_100ml || 0) * 10) / 10;
+  const fat = Math.round(Number(p.nutriments?.fat_100g || p.nutriments?.fat_100ml || 0) * 10) / 10;
   
   return {
     name: name + brand,
@@ -1603,7 +1729,8 @@ async function fetchProductByBarcode(barcode) {
     protein,
     carbs,
     fat,
-    amount: "100g"
+    amount,
+    baseUnit
   };
 }
 
@@ -1621,10 +1748,19 @@ async function searchFoodDatabase(query) {
   return data.products.map(p => {
     const name = p.product_name_cs || p.product_name || "Neznámý produkt";
     const brand = p.brands ? ` (${p.brands})` : "";
-    const calories = Math.round(Number(p.nutriments?.['energy-kcal_100g'] || p.nutriments?.['energy-kcal_value'] || 0));
-    const protein = Math.round(Number(p.nutriments?.proteins_100g || 0) * 10) / 10;
-    const carbs = Math.round(Number(p.nutriments?.carbohydrates_100g || 0) * 10) / 10;
-    const fat = Math.round(Number(p.nutriments?.fat_100g || 0) * 10) / 10;
+    
+    const isLiquid = isLiquidProduct(p);
+    const baseUnit = isLiquid ? 'ml' : 'g';
+    const amount = `100${baseUnit}`;
+    
+    const calories = Math.round(Number(
+      p.nutriments?.['energy-kcal_100g'] || 
+      p.nutriments?.['energy-kcal_100ml'] || 
+      p.nutriments?.['energy-kcal_value'] || 0
+    ));
+    const protein = Math.round(Number(p.nutriments?.proteins_100g || p.nutriments?.proteins_100ml || 0) * 10) / 10;
+    const carbs = Math.round(Number(p.nutriments?.carbohydrates_100g || p.nutriments?.carbohydrates_100ml || 0) * 10) / 10;
+    const fat = Math.round(Number(p.nutriments?.fat_100g || p.nutriments?.fat_100ml || 0) * 10) / 10;
     
     return {
       name: name + brand,
@@ -1632,7 +1768,8 @@ async function searchFoodDatabase(query) {
       protein,
       carbs,
       fat,
-      amount: "100g"
+      amount,
+      baseUnit
     };
   });
 }
@@ -1731,6 +1868,21 @@ function prefillManualFoodForm(product) {
   document.getElementById('input-food-p').value = product.protein;
   document.getElementById('input-food-c').value = product.carbs;
   document.getElementById('input-food-f').value = product.fat;
+  
+  currentFormBaseValues = {
+    calories: product.calories,
+    protein: product.protein,
+    carbs: product.carbs,
+    fat: product.fat,
+    baseUnit: product.baseUnit || (product.amount.endsWith('ml') ? 'ml' : 'g')
+  };
+  
+  lockManualFormFields(true);
+  
+  const unlockBtn = document.getElementById('btn-unlock-form');
+  if (unlockBtn) {
+    unlockBtn.style.display = 'inline-block';
+  }
   
   showToast("Potravina předvyplněna! Uprav množství a ulož. 🍽️");
 }

@@ -887,6 +887,14 @@ input, textarea, button {
   box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.1);
 }
 
+.readonly-field {
+  background-color: rgba(255, 255, 255, 0.01) !important;
+  border-color: rgba(255, 255, 255, 0.03) !important;
+  color: var(--text-muted) !important;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 
