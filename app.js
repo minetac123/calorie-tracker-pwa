@@ -1194,6 +1194,9 @@ function saveReviewedItemsToLog() {
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   
+  const categorySelect = document.getElementById('input-food-category');
+  const categoryStr = categorySelect ? categorySelect.value : 'Breakfast';
+  
   tempDetectedItems.forEach(item => {
     appState.logs[todayStr].push({
       id: Date.now() + Math.random().toString(36).substr(2, 5),
@@ -1203,9 +1206,12 @@ function saveReviewedItemsToLog() {
       calories: Math.round(Number(item.calories || 0)),
       protein: Math.round(Number(item.protein || 0) * 10) / 10,
       carbs: Math.round(Number(item.carbs || 0) * 10) / 10,
-      fat: Math.round(Number(item.fat || 0) * 10) / 10
+      fat: Math.round(Number(item.fat || 0) * 10) / 10,
+      category: categoryStr
     });
   });
+  
+  const numAdded = tempDetectedItems.length;
   
   saveState();
   closeModal();
@@ -1218,7 +1224,7 @@ function saveReviewedItemsToLog() {
   const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
   if (dashTab) dashTab.click();
   
-  showToast(`${tempDetectedItems.length} jídel přidáno!`);
+  showToast(`${numAdded} jídel přidáno!`);
 }
 
 function closeModal() {
@@ -1627,30 +1633,36 @@ function init() {
 
   // Weight edit button
   const weightEditBtn = document.querySelector('.weight-card .btn-edit-extra');
-  if (weightEditBtn) {
-    weightEditBtn.addEventListener('click', () => {
-      const currentVal = prompt("Zadej svou aktuální váhu (kg):", appState.weight);
-      if (currentVal !== null) {
-        const parsedCurrent = parseFloat(currentVal.replace(',', '.'));
-        if (!isNaN(parsedCurrent) && parsedCurrent > 0) {
-          appState.weight = parsedCurrent;
-          
-          const todayStr = getTodayDateString();
-          appState.weightLogs = appState.weightLogs.filter(log => log.date !== todayStr);
-          appState.weightLogs.push({ date: todayStr, weight: parsedCurrent });
-          appState.weightLogs.sort((a, b) => b.date.localeCompare(a.date));
+  const weightModal = document.getElementById('weight-update-modal');
+  const btnCloseWeight = document.getElementById('btn-close-weight');
+  const inputCurrentWeight = document.getElementById('input-current-weight');
+  const btnSaveWeight = document.getElementById('btn-save-weight');
 
-          const targetVal = prompt("Zadej svou cílovou váhu (kg):", appState.weightTarget);
-          if (targetVal !== null) {
-            const parsedTarget = parseFloat(targetVal.replace(',', '.'));
-            if (!isNaN(parsedTarget) && parsedTarget > 0) {
-              appState.weightTarget = parsedTarget;
-            }
-          }
-          saveState();
-          renderDashboard();
-          showToast("Váha aktualizována! ⚖️");
-        }
+  if (weightEditBtn && weightModal) {
+    weightEditBtn.addEventListener('click', () => {
+      inputCurrentWeight.value = appState.weight;
+      weightModal.classList.add('active');
+    });
+
+    const closeWeightModal = () => weightModal.classList.remove('active');
+    if (btnCloseWeight) btnCloseWeight.addEventListener('click', closeWeightModal);
+    
+    if (btnSaveWeight) btnSaveWeight.addEventListener('click', () => {
+      const parsedCurrent = parseFloat(inputCurrentWeight.value);
+      if (!isNaN(parsedCurrent) && parsedCurrent > 0) {
+        appState.weight = parsedCurrent;
+        
+        const todayStr = getTodayDateString();
+        appState.weightLogs = appState.weightLogs.filter(log => log.date !== todayStr);
+        appState.weightLogs.push({ date: todayStr, weight: parsedCurrent });
+        appState.weightLogs.sort((a, b) => b.date.localeCompare(a.date));
+
+        saveState();
+        renderDashboard();
+        showToast("Váha aktualizována! ⚖️");
+        closeWeightModal();
+      } else {
+        alert("Zadejte platnou váhu.");
       }
     });
   }
