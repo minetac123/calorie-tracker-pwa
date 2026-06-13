@@ -194,24 +194,48 @@ function updateCalendarRow() {
   calendarRow.innerHTML = html;
 }
 
+function showWizardStep(stepNum) {
+  const step1 = document.getElementById('add-wizard-step-1');
+  const step2 = document.getElementById('add-wizard-step-2');
+  if (step1 && step2) {
+    if (stepNum === 1) {
+      step1.classList.add('active');
+      step2.classList.remove('active');
+    } else {
+      step2.classList.add('active');
+      step1.classList.remove('active');
+    }
+  }
+}
+
+function setWizardCategory(categoryId) {
+  const categorySelect = document.getElementById('input-food-category');
+  if (categorySelect) {
+    categorySelect.value = categoryId;
+  }
+  
+  const titleEl = document.getElementById('wizard-category-title');
+  if (titleEl) {
+    const categoryNames = {
+      'Breakfast': 'Snídaně',
+      'Morning snack': 'Dopolední svačina',
+      'Lunch': 'Oběd',
+      'Afternoon snack': 'Odpolední svačina',
+      'Dinner': 'Večeře',
+      'Second dinner': 'Druhá večeře'
+    };
+    titleEl.innerText = `Přidat do: ${categoryNames[categoryId] || categoryId}`;
+  }
+}
+
 window.navigateToManualAddFood = function(categoryId) {
-  // Find the fab and click it to go to screen-add
   const fab = document.querySelector('.nav-fab');
   if (fab) {
     fab.click();
   }
   
-  // Find manual tab button and click it
-  const manualTabBtn = document.getElementById('tab-btn-manual');
-  if (manualTabBtn) {
-    manualTabBtn.click();
-  }
-  
-  // Set dropdown value
-  const categorySelect = document.getElementById('input-food-category');
-  if (categorySelect) {
-    categorySelect.value = categoryId;
-  }
+  setWizardCategory(categoryId);
+  showWizardStep(2);
 };
 
 
@@ -663,21 +687,7 @@ function initNavigation() {
         } else if (targetScreenId === 'screen-settings') {
           renderSettings();
         } else if (targetScreenId === 'screen-add') {
-          // Pre-select category based on current time
-          const now = new Date();
-          const hour = now.getHours();
-          let categoryId = 'Breakfast';
-          if (hour >= 5 && hour < 10) categoryId = 'Breakfast';
-          else if (hour >= 10 && hour < 12) categoryId = 'Morning snack';
-          else if (hour >= 12 && hour < 15) categoryId = 'Lunch';
-          else if (hour >= 15 && hour < 18) categoryId = 'Afternoon snack';
-          else if (hour >= 18 && hour < 22) categoryId = 'Dinner';
-          else categoryId = 'Second dinner';
-          
-          const categorySelect = document.getElementById('input-food-category');
-          if (categorySelect) {
-            categorySelect.value = categoryId;
-          }
+          showWizardStep(1);
         }
       } else {
         screen.classList.remove('active');
@@ -707,38 +717,59 @@ function initNavigation() {
   const qaCamera = document.getElementById('qa-camera');
   const qaMic = document.getElementById('qa-mic');
   
-  if (qaAdd) qaAdd.addEventListener('click', () => switchScreen('screen-add'));
-  if (qaCamera) qaCamera.addEventListener('click', () => {
+  if (qaAdd) qaAdd.addEventListener('click', () => {
+    const now = new Date();
+    const hour = now.getHours();
+    let categoryId = 'Breakfast';
+    if (hour >= 5 && hour < 10) categoryId = 'Breakfast';
+    else if (hour >= 10 && hour < 12) categoryId = 'Morning snack';
+    else if (hour >= 12 && hour < 15) categoryId = 'Lunch';
+    else if (hour >= 15 && hour < 18) categoryId = 'Afternoon snack';
+    else if (hour >= 18 && hour < 22) categoryId = 'Dinner';
+    else categoryId = 'Second dinner';
+    
     switchScreen('screen-add');
+    setWizardCategory(categoryId);
+    showWizardStep(2);
+  });
+  
+  if (qaCamera) qaCamera.addEventListener('click', () => {
+    const now = new Date();
+    const hour = now.getHours();
+    let categoryId = 'Breakfast';
+    if (hour >= 5 && hour < 10) categoryId = 'Breakfast';
+    else if (hour >= 10 && hour < 12) categoryId = 'Morning snack';
+    else if (hour >= 12 && hour < 15) categoryId = 'Lunch';
+    else if (hour >= 15 && hour < 18) categoryId = 'Afternoon snack';
+    else if (hour >= 18 && hour < 22) categoryId = 'Dinner';
+    else categoryId = 'Second dinner';
+    
+    switchScreen('screen-add');
+    setWizardCategory(categoryId);
+    showWizardStep(2);
+    
     const photoTrigger = document.getElementById('btn-photo-trigger');
     if (photoTrigger) photoTrigger.click();
   });
-  if (qaMic) qaMic.addEventListener('click', () => {
-    switchScreen('screen-add');
-    document.getElementById('ai-text-input').focus();
-  });
-
-  // Inner sub-views of "Add Screen" (AI Scanner vs Manual)
-  const aiTabBtn = document.getElementById('tab-btn-ai');
-  const manualTabBtn = document.getElementById('tab-btn-manual');
-  const aiSubView = document.getElementById('sub-view-ai');
-  const manualSubView = document.getElementById('sub-view-manual');
   
-  if (aiTabBtn && manualTabBtn) {
-    aiTabBtn.addEventListener('click', () => {
-      aiTabBtn.classList.add('active');
-      manualTabBtn.classList.remove('active');
-      aiSubView.classList.add('active');
-      manualSubView.classList.remove('active');
-    });
+  if (qaMic) qaMic.addEventListener('click', () => {
+    const now = new Date();
+    const hour = now.getHours();
+    let categoryId = 'Breakfast';
+    if (hour >= 5 && hour < 10) categoryId = 'Breakfast';
+    else if (hour >= 10 && hour < 12) categoryId = 'Morning snack';
+    else if (hour >= 12 && hour < 15) categoryId = 'Lunch';
+    else if (hour >= 15 && hour < 18) categoryId = 'Afternoon snack';
+    else if (hour >= 18 && hour < 22) categoryId = 'Dinner';
+    else categoryId = 'Second dinner';
     
-    manualTabBtn.addEventListener('click', () => {
-      manualTabBtn.classList.add('active');
-      aiTabBtn.classList.remove('active');
-      manualSubView.classList.add('active');
-      aiSubView.classList.remove('active');
-    });
-  }
+    switchScreen('screen-add');
+    setWizardCategory(categoryId);
+    showWizardStep(2);
+    
+    const textInput = document.getElementById('ai-text-input');
+    if (textInput) textInput.focus();
+  });
   
   // Settings view Toggle Gemini key visibility
   const btnToggleKey = document.getElementById('btn-toggle-key');
@@ -1465,6 +1496,7 @@ function init() {
   initFormHandlers();
   initAuthHandlers();
   initBarcodeAndSearch();
+  initWizard();
 
   // Logout button
   const logoutBtn = document.getElementById('btn-logout');
@@ -1683,13 +1715,11 @@ function stopBarcodeScanner() {
 }
 
 function prefillManualFoodForm(product) {
-  // Switch to Manual Add Screen
+  // Switch to Add Screen (step 2)
   const fab = document.querySelector('.nav-fab');
   if (fab) fab.click();
   
-  // Open manual tab
-  const manualTabBtn = document.getElementById('tab-btn-manual');
-  if (manualTabBtn) manualTabBtn.click();
+  showWizardStep(2);
   
   // Set values
   document.getElementById('input-food-name').value = product.name;
@@ -1820,11 +1850,39 @@ function initBarcodeAndSearch() {
       }
     });
     
-    // Hide results when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('#input-db-search') && !e.target.closest('#btn-db-search') && !e.target.closest('#db-search-results')) {
-        dbResultsContainer.style.display = 'none';
-      }
+  // Hide results when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#input-db-search') && !e.target.closest('#btn-db-search') && !e.target.closest('#db-search-results')) {
+      dbResultsContainer.style.display = 'none';
+    }
+  });
+  }
+}
+
+function initWizard() {
+  // Category Wizard Buttons
+  const categoryWizardBtns = document.querySelectorAll('.category-wizard-btn');
+  categoryWizardBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const categoryId = btn.getAttribute('data-category');
+      setWizardCategory(categoryId);
+      showWizardStep(2);
+    });
+  });
+
+  // Wizard Back Button
+  const btnWizardBack = document.getElementById('btn-wizard-back');
+  if (btnWizardBack) {
+    btnWizardBack.addEventListener('click', () => {
+      showWizardStep(1);
+    });
+  }
+
+  // Wizard Barcode Scanner Button
+  const btnWizardScanBarcode = document.getElementById('btn-wizard-scan-barcode');
+  if (btnWizardScanBarcode) {
+    btnWizardScanBarcode.addEventListener('click', () => {
+      startBarcodeScanner();
     });
   }
 }

@@ -1274,4 +1274,83 @@ input, textarea, button {
   border: 1px solid var(--border-glass) !important;
 }
 
+/* ==========================================================================
+   ADD FOOD WIZARD FLOW
+   ========================================================================== */
+.wizard-step {
+  display: none;
+  width: 100%;
+}
+
+.wizard-step.active {
+  display: flex;
+  flex-direction: column;
+  animation: slideWizard 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideWizard {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.category-wizard-btn {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.category-wizard-btn:hover, .category-wizard-btn:focus {
+  background: var(--bg-card-hover);
+  border-color: rgba(52, 211, 153, 0.4);
+  box-shadow: 0 4px 20px rgba(52, 211, 153, 0.08);
+}
+
+.category-wizard-btn:active {
+  transform: scale(0.96);
+}
+
+.cat-wiz-icon {
+  font-size: 32px;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
+}
+
+.cat-wiz-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+  letter-spacing: -0.1px;
+}
+
+#btn-wizard-back:active {
+  transform: scale(0.9);
+}
+#btn-wizard-back:hover {
+  background: rgba(255,255,255,0.1) !important;
+}
+
+
 

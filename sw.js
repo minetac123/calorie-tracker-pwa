@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fitai-cache-v9';
+const CACHE_NAME = 'fitai-cache-v10';
 const ASSETS = [
   '/index.html',
   '/styles.css',

@@ -238,45 +238,50 @@
 
     </section>
 
-    <!-- ================= ADD FOOD SCREEN (Reused logic, styled simply) ================= -->
+    <!-- ================= ADD FOOD SCREEN (Wizard Flow) ================= -->
     <section id="screen-add" class="app-screen">
-      <header class="screen-header">
-        <h1 class="screen-title">Přidat jídlo</h1>
-      </header>
-
-      <div class="segmented-control">
-        <button class="segment-btn active" id="tab-btn-ai">AI Skener</button>
-        <button class="segment-btn" id="tab-btn-manual">Ruční zápis</button>
-      </div>
-
-      <!-- AI SCANNER -->
-      <div id="sub-view-ai" class="add-sub-view active">
-        <div class="dark-card">
-          <textarea id="ai-text-input" placeholder="Co jsi jedl? Např.: 'Oběd: 150g kuřecí prsa...'"></textarea>
-          <div class="camera-section">
-            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
-            <input type="file" id="gallery-input" accept="image/*" style="display: none;">
-            
-            <div class="photo-placeholder" id="btn-photo-trigger">
-              <div class="photo-icon">📸</div>
-              <span>Vyfoť jídlo nebo vyber z galerie</span>
-            </div>
-            
-            <div class="photo-preview-container" id="photo-preview-area" style="display: none;">
-              <img id="photo-preview-img" src="" alt="Photo">
-              <button class="btn-remove-photo" id="btn-clear-photo">×</button>
-            </div>
-          </div>
-          <button class="btn btn-primary" id="btn-ai-analyze">
-            <span class="btn-text">Analyzovat s Gemini AI</span>
-            <span class="spinner" style="display: none;"></span>
+      <!-- WIZARD STEP 1: SELECT CATEGORY -->
+      <div id="add-wizard-step-1" class="wizard-step active">
+        <header class="screen-header">
+          <h1 class="screen-title">Do jaké kategorie?</h1>
+        </header>
+        <div class="category-grid">
+          <button class="category-wizard-btn" data-category="Breakfast">
+            <span class="cat-wiz-icon">🥣</span>
+            <span class="cat-wiz-name">Snídaně</span>
+          </button>
+          <button class="category-wizard-btn" data-category="Morning snack">
+            <span class="cat-wiz-icon">🥪</span>
+            <span class="cat-wiz-name">Dopolední svačina</span>
+          </button>
+          <button class="category-wizard-btn" data-category="Lunch">
+            <span class="cat-wiz-icon">🍛</span>
+            <span class="cat-wiz-name">Oběd</span>
+          </button>
+          <button class="category-wizard-btn" data-category="Afternoon snack">
+            <span class="cat-wiz-icon">🥪</span>
+            <span class="cat-wiz-name">Odpolední svačina</span>
+          </button>
+          <button class="category-wizard-btn" data-category="Dinner">
+            <span class="cat-wiz-icon">🍽️</span>
+            <span class="cat-wiz-name">Večeře</span>
+          </button>
+          <button class="category-wizard-btn" data-category="Second dinner">
+            <span class="cat-wiz-icon">🍽️</span>
+            <span class="cat-wiz-name">Druhá večeře</span>
           </button>
         </div>
       </div>
 
-      <!-- MANUAL ENTRY -->
-      <div id="sub-view-manual" class="add-sub-view">
-        <div class="dark-card" style="margin-bottom: 12px; padding: 16px 20px;">
+      <!-- WIZARD STEP 2: DETAILS & INPUT METHODS -->
+      <div id="add-wizard-step-2" class="wizard-step">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px; margin-top: 10px;">
+          <button id="btn-wizard-back" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass-subtle); border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-primary); font-size: 16px; transition: background 0.2s;">←</button>
+          <h2 id="wizard-category-title" style="font-size: 20px; font-weight: 800; letter-spacing: -0.3px; color: var(--color-primary);">Přidat do: Snídaně</h2>
+        </div>
+
+        <!-- 1. Database Search Card -->
+        <div class="dark-card" style="margin-bottom: 14px; padding: 16px 20px;">
           <div class="form-group" style="margin-bottom: 0; position: relative;">
             <label>Rychlé hledání v databázi potravin</label>
             <div style="display: flex; gap: 8px;">
@@ -288,14 +293,44 @@
             </div>
           </div>
         </div>
-        
-        <form class="dark-card" id="manual-food-form">
-          <div class="form-group">
-            <label>Název jídla</label>
-            <input type="text" id="input-food-name" required>
+
+        <!-- 2. AI Scanner Card -->
+        <div class="dark-card" style="padding: 18px 20px; margin-bottom: 14px;">
+          <label style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; font-weight: 600; display: block;">AI Analýza (vyfoť jídlo nebo napiš popis)</label>
+          <textarea id="ai-text-input" placeholder="Co jsi jedl? Např.: '150g kuřecí prsa s rýží...'" style="width: 100%; height: 70px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-glass); border-radius: 12px; padding: 12px; font-size: 15px; color: #fff; resize: none; margin-bottom: 12px;"></textarea>
+          
+          <div class="camera-section" style="margin-bottom: 12px;">
+            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
+            <input type="file" id="gallery-input" accept="image/*" style="display: none;">
+            
+            <div class="photo-placeholder" id="btn-photo-trigger" style="padding: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--border-glass); border-radius: 12px; cursor: pointer; background: rgba(255,255,255,0.02); color: var(--text-secondary); font-size: 13px;">
+              <span style="font-size: 18px;">📸</span>
+              <span>Vyfoť jídlo nebo vyber z galerie</span>
+            </div>
+            
+            <div class="photo-preview-container" id="photo-preview-area" style="display: none; position: relative; width: 100%; max-height: 150px; overflow: hidden; border-radius: 12px; border: 1px solid var(--border-glass);">
+              <img id="photo-preview-img" src="" alt="Photo" style="width: 100%; height: 150px; object-fit: cover;">
+              <button class="btn-remove-photo" id="btn-clear-photo" style="position: absolute; right: 8px; top: 8px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 50%; width: 28px; height: 28px; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;">×</button>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Kategorie</label>
+          
+          <button class="btn btn-primary" id="btn-ai-analyze" style="height: 48px; border-radius: 12px;">
+            <span class="btn-text">Analyzovat s Gemini AI</span>
+            <span class="spinner" style="display: none;"></span>
+          </button>
+        </div>
+
+        <!-- 3. Barcode Scanner Trigger -->
+        <button class="btn btn-secondary" id="btn-wizard-scan-barcode" type="button" style="background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.04)); border: 1px solid rgba(56, 189, 248, 0.25); color: var(--color-water); border-radius: var(--radius-md); padding: 16px; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; width: 100%; margin-bottom: 14px; font-weight: 700; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.05);">
+          <span style="font-size: 20px;">📷</span>
+          <span>Naskenovat čárový kód (EAN)</span>
+        </button>
+
+        <!-- 4. Manual Entry Form -->
+        <form class="dark-card" id="manual-food-form" style="padding: 20px;">
+          <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 14px; color: var(--text-secondary);">Nebo zadej jídlo ručně</h3>
+          
+          <div class="form-group" style="display: none;">
             <select id="input-food-category" required>
               <option value="Breakfast">Snídaně</option>
               <option value="Morning snack">Dopolední svačina</option>
@@ -305,6 +340,11 @@
               <option value="Second dinner">Druhá večeře</option>
             </select>
           </div>
+          
+          <div class="form-group">
+            <label>Název jídla</label>
+            <input type="text" id="input-food-name" required>
+          </div>
           <div class="form-row-2">
             <div class="form-group">
               <label>Kalorie (kcal)</label>
@@ -312,7 +352,7 @@
             </div>
             <div class="form-group">
               <label>Množství</label>
-              <input type="text" id="input-food-amount">
+              <input type="text" id="input-food-amount" placeholder="např. 100g">
             </div>
           </div>
           <div class="form-row-3">
@@ -329,7 +369,7 @@
               <input type="number" id="input-food-f" step="0.1">
             </div>
           </div>
-          <button type="submit" class="btn btn-primary">Přidat</button>
+          <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Přidat jídlo</button>
         </form>
       </div>
     </section>
