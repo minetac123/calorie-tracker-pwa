@@ -96,9 +96,9 @@ function updateDateLabels() {
 function showToast(message) {
   const toast = document.getElementById('toast-notification');
   toast.innerText = message;
-  toast.classList.add('active');
+  toast.classList.add('show');
   setTimeout(() => {
-    toast.classList.remove('active');
+    toast.classList.remove('show');
   }, 2500);
 }
 
@@ -454,51 +454,26 @@ function initNavigation() {
 // ==========================================================================
 function initPhotoHandlers() {
   const photoTrigger = document.getElementById('btn-photo-trigger');
-  const photoPickerSheet = document.getElementById('photo-picker-sheet');
   const cameraInput = document.getElementById('camera-input');
   const galleryInput = document.getElementById('gallery-input');
-  
-  const sheetCameraBtn = document.getElementById('btn-sheet-camera');
-  const sheetGalleryBtn = document.getElementById('btn-sheet-gallery');
-  const sheetCancelBtn = document.getElementById('btn-sheet-cancel');
   
   const previewArea = document.getElementById('photo-preview-area');
   const previewImg = document.getElementById('photo-preview-img');
   const clearPhotoBtn = document.getElementById('btn-clear-photo');
   
-  // Open bottom sheet
-  photoTrigger.addEventListener('click', () => {
-    photoPickerSheet.classList.add('active');
-  });
-  
-  // Close bottom sheet helper
-  function closeSheet() {
-    photoPickerSheet.classList.remove('active');
+  // Clicking the trigger opens gallery picker directly
+  if (photoTrigger) {
+    photoTrigger.addEventListener('click', () => {
+      galleryInput.click();
+    });
   }
-  
-  sheetCancelBtn.addEventListener('click', closeSheet);
-  photoPickerSheet.addEventListener('click', (e) => {
-    if (e.target === photoPickerSheet) closeSheet();
-  });
-  
-  // Handle action triggers
-  sheetCameraBtn.addEventListener('click', () => {
-    closeSheet();
-    cameraInput.click();
-  });
-  
-  sheetGalleryBtn.addEventListener('click', () => {
-    closeSheet();
-    galleryInput.click();
-  });
   
   // Handle image files selection
   function handleImageFile(file) {
     if (!file) return;
     
-    // Check it's an image
     if (!file.type.startsWith('image/')) {
-      alert('Zvolte prosím soubor obrázku.');
+      alert('Please select an image file.');
       return;
     }
     
@@ -826,7 +801,7 @@ function saveReviewedItemsToLog() {
   document.getElementById('btn-clear-photo').click();
   
   // Go to Dashboard
-  const dashTab = document.querySelector('.tab-btn[data-screen="dashboard"]');
+  const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
   if (dashTab) dashTab.click();
   
   showToast(`${tempDetectedItems.length} jídel přidáno!`);

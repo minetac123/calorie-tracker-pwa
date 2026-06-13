@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-title" content="Dine4Fit">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#000000">
+  <meta name="theme-color" content="#050510">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -58,7 +58,13 @@
         
         <div class="center-circle-container">
           <svg class="main-ring" viewBox="0 0 200 200">
-            <!-- Starting at top, going clockwise -->
+            <defs>
+              <linearGradient id="ring-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#fbbf24" />
+                <stop offset="50%" stop-color="#f59e0b" />
+                <stop offset="100%" stop-color="#f97316" />
+              </linearGradient>
+            </defs>
             <circle class="ring-bg" cx="100" cy="100" r="85"></circle>
             <circle class="ring-fill" id="dash-circle-path" cx="100" cy="100" r="85" stroke-dasharray="534" stroke-dashoffset="534"></circle>
           </svg>
@@ -419,7 +425,7 @@
     </div>
     <div class="nav-fab-container">
       <button class="nav-fab" data-screen="add">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
       </button>
     </div>
   </nav>
@@ -432,12 +438,18 @@
         <button class="modal-close" id="btn-close-modal">×</button>
       </div>
       <div class="modal-body">
+        <p id="ai-modal-subtitle" style="font-size:13px; color: var(--text-secondary); margin-bottom: 14px;"></p>
         <div id="ai-options-container" class="options-list" style="display: none;"></div>
         <div id="ai-detected-list" class="detected-items-list"></div>
-        <div class="modal-summary-card">
-          <div class="summary-row">
-            <span>Total:</span>
-            <strong id="modal-summary-cal">0 kcal</strong>
+        <div class="modal-summary-card" style="background: rgba(255,255,255,0.04); border-radius: 16px; padding: 14px 16px; margin-top: 12px; border: 1px solid var(--border-glass-subtle);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+            <span style="color: var(--text-secondary); font-size: 13px;">Total:</span>
+            <strong id="modal-summary-cal" style="color: var(--color-calorie); font-size: 16px;">0 kcal</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size: 12px; color: var(--text-secondary);">
+            <span>P: <strong id="modal-summary-p" style="color: var(--color-protein);">0</strong>g</span>
+            <span>C: <strong id="modal-summary-c" style="color: var(--color-carbs);">0</strong>g</span>
+            <span>F: <strong id="modal-summary-f" style="color: var(--color-fat);">0</strong>g</span>
           </div>
         </div>
       </div>
