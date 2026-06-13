@@ -1,6 +1,5 @@
-const CACHE_NAME = 'fitai-cache-v2';
+const CACHE_NAME = 'fitai-cache-v3';
 const ASSETS = [
-  '/',
   '/index.html',
   '/styles.css',
   '/app.js',
@@ -8,11 +7,34 @@ const ASSETS = [
   '/icon.svg'
 ];
 
+// Helper to strip redirect metadata for iOS Safari PWA compatibility
+function cleanResponse(response) {
+  if (!response || !response.redirected) {
+    return response;
+  }
+  
+  // Rebuild the response object to clear the .redirected flag
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  });
+}
+
 // Install Service Worker and cache all assets
 self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      const cleanPromises = ASSETS.map((url) => {
+        return fetch(url).then((response) => {
+          if (!response.ok) {
+            throw new Error(`Failed to fetch ${url}`);
+          }
+          // Clean redirects before caching
+          return cache.put(url, cleanResponse(response));
+        });
+      });
+      return Promise.all(cleanPromises);
     }).then(() => self.skipWaiting())
   );
 });
@@ -39,20 +61,32 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  let requestToMatch = e.request;
+  const url = new URL(e.request.url);
+  
+  // If requesting root "/", serve "/index.html" from the cache
+  if (url.origin === location.origin && url.pathname === '/') {
+    requestToMatch = new Request('/index.html');
+  }
+
   e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
+    caches.match(requestToMatch).then((cachedResponse) => {
       if (cachedResponse) {
-        return cachedResponse;
+        // Return cleaned response for Safari
+        return cleanResponse(cachedResponse);
       }
+      
       return fetch(e.request).then((response) => {
         // Check if we received a valid response
         if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
 
+        // Clone response to cache it without locking the return stream
         const responseToCache = response.clone();
+        
         caches.open(CACHE_NAME).then((cache) => {
-          cache.put(e.request, responseToCache);
+          cache.put(e.request, cleanResponse(responseToCache));
         });
 
         return response;
