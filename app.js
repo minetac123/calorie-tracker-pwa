@@ -316,28 +316,22 @@ function renderDashboard() {
   const oldPercent = document.getElementById('dash-percent');
   if (oldPercent) oldPercent.innerText = `${percent} %`;
 
-  // ── THREE ACTIVITY RINGS ─────────────────────────────────────────────────
-  // Outer: Calories (circ 534, r=85)
+  // ── TWO ACTIVITY RINGS ─────────────────────────────────────────────────
+  // Outer: Calories (circ 515, r=82)
   const ringPath = document.getElementById('dash-circle-path');
   if (ringPath) {
     const calRatio  = Math.min(1, totalCal / goalCal);
-    ringPath.style.strokeDashoffset = 534 - (534 * calRatio);
+    ringPath.style.strokeDashoffset = 515 - (515 * calRatio);
     ringPath.style.stroke = totalCal > goalCal
       ? 'var(--color-danger)'
       : 'url(#grad-kcal)';
   }
 
-  // Middle: Activity (circ 402, r=64) — currently placeholder 0
-  const actPath = document.getElementById('ring-activity-path');
-  if (actPath) {
-    actPath.style.strokeDashoffset = 402; // activity tracking not yet implemented
-  }
-
-  // Inner: Protein (circ 270, r=43)
+  // Inner: Protein (circ 364, r=58)
   const protPath = document.getElementById('ring-protein-path');
   if (protPath) {
     const pRatio = Math.min(1, totalP / (goalP || 1));
-    protPath.style.strokeDashoffset = 270 - (270 * pRatio);
+    protPath.style.strokeDashoffset = 364 - (364 * pRatio);
   }
 
   // ── MACROS — hidden SVG rings (backward compat) ───────────────────────────

@@ -76,36 +76,25 @@
                 <stop offset="0%" stop-color="#FF6B6B"/>
                 <stop offset="100%" stop-color="#FF375F"/>
               </linearGradient>
-              <linearGradient id="grad-act" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#FFD60A"/>
-                <stop offset="100%" stop-color="#FF9F0A"/>
-              </linearGradient>
               <linearGradient id="grad-prot" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stop-color="#34C759"/>
                 <stop offset="100%" stop-color="#30D158"/>
               </linearGradient>
             </defs>
 
-            <!-- Outer: Calories (r=85, circ≈534) -->
-            <circle class="ring-track ring-track-1" cx="100" cy="100" r="85" stroke-width="14"/>
+            <!-- Outer: Calories (r=82, circ≈515) -->
+            <circle class="ring-track ring-track-1" cx="100" cy="100" r="82" stroke-width="16"/>
             <circle class="ring-progress" id="dash-circle-path"
-                    cx="100" cy="100" r="85" stroke-width="14"
+                    cx="100" cy="100" r="82" stroke-width="16"
                     stroke="url(#grad-kcal)"
-                    stroke-dasharray="534" stroke-dashoffset="534"/>
+                    stroke-dasharray="515" stroke-dashoffset="515"/>
 
-            <!-- Middle: Activity (r=64, circ≈402) -->
-            <circle class="ring-track ring-track-2" cx="100" cy="100" r="64" stroke-width="14"/>
-            <circle class="ring-progress" id="ring-activity-path"
-                    cx="100" cy="100" r="64" stroke-width="14"
-                    stroke="url(#grad-act)"
-                    stroke-dasharray="402" stroke-dashoffset="402"/>
-
-            <!-- Inner: Protein (r=43, circ≈270) -->
-            <circle class="ring-track ring-track-3" cx="100" cy="100" r="43" stroke-width="14"/>
+            <!-- Inner: Protein (r=58, circ≈364) -->
+            <circle class="ring-track ring-track-3" cx="100" cy="100" r="58" stroke-width="16"/>
             <circle class="ring-progress" id="ring-protein-path"
-                    cx="100" cy="100" r="43" stroke-width="14"
+                    cx="100" cy="100" r="58" stroke-width="16"
                     stroke="url(#grad-prot)"
-                    stroke-dasharray="270" stroke-dashoffset="270"/>
+                    stroke-dasharray="364" stroke-dashoffset="364"/>
           </svg>
 
           <div class="rings-center-content">
@@ -125,13 +114,6 @@
             </div>
           </div>
           <div class="rings-legend-item">
-            <div class="legend-dot" style="background: #FF9F0A;"></div>
-            <div class="legend-info">
-              <span class="legend-label">Aktivita</span>
-              <span class="legend-val" id="dash-activities">0</span>
-            </div>
-          </div>
-          <div class="rings-legend-item">
             <div class="legend-dot" style="background: #30D158;"></div>
             <div class="legend-info">
               <span class="legend-label">Bílkoviny</span>
@@ -139,6 +121,8 @@
             </div>
           </div>
         </div>
+        <!-- Hidden compat -->
+        <span id="dash-activities" style="display:none;">0</span>
       </div>
 
       <!-- Hidden: old main-progress-area IDs for JS compat -->
@@ -167,29 +151,14 @@
 
       <!-- Quick Action Bar -->
       <div class="quick-actions-bar">
-        <button class="qa-btn" id="qa-add" aria-label="Přidat jídlo">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          <span class="qa-btn-label">Přidat</span>
-        </button>
-        <div class="qa-divider"></div>
         <button class="qa-btn" id="qa-barcode" aria-label="Čárový kód">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="5" x2="4" y2="19"></line><line x1="8" y1="5" x2="8" y2="19"></line><line x1="12" y1="5" x2="12" y2="19"></line><line x1="16" y1="5" x2="16" y2="19"></line><line x1="20" y1="5" x2="20" y2="19"></line></svg>
           <span class="qa-btn-label">Kód</span>
         </button>
         <div class="qa-divider"></div>
-        <button class="qa-btn" id="qa-mic" aria-label="Hlasový vstup">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-          <span class="qa-btn-label">Hlas</span>
-        </button>
-        <div class="qa-divider"></div>
         <button class="qa-btn" id="qa-camera" aria-label="Fotit jídlo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
           <span class="qa-btn-label">Foto</span>
-        </button>
-        <div class="qa-divider"></div>
-        <button class="qa-btn" id="qa-run" aria-label="Aktivita / Sport">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
-          <span class="qa-btn-label">Aktivita</span>
         </button>
       </div>
 
