@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fitai-cache-v3';
+const CACHE_NAME = 'fitai-cache-v4';
 const ASSETS = [
   '/index.html',
   '/styles.css',
@@ -89,10 +89,11 @@ self.addEventListener('fetch', (e) => {
           cache.put(e.request, cleanResponse(responseToCache));
         });
 
-        return response;
+        // MUST clean response before returning to Safari to avoid PWA crash
+        return cleanResponse(response);
       }).catch(() => {
         if (e.request.mode === 'navigate') {
-          return caches.match('/index.html');
+          return caches.match('/index.html').then(res => res ? cleanResponse(res) : Response.error());
         }
       });
     })

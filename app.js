@@ -122,84 +122,82 @@ function renderDashboard() {
     totalF += Number(item.fat || 0);
   });
   
-  // Round macros to 1 decimal place
   totalP = Math.round(totalP * 10) / 10;
   totalC = Math.round(totalC * 10) / 10;
   totalF = Math.round(totalF * 10) / 10;
   
-  // Goals
   const goalCal = appState.goals.calories;
   const goalP = appState.goals.protein;
   const goalC = appState.goals.carbs;
   const goalF = appState.goals.fat;
   
-  // Calories Remaining Calculation
-  const remainingCal = Math.max(0, goalCal - totalCal);
-  document.getElementById('val-calories-remaining').innerText = remainingCal;
-  document.getElementById('val-calories-stats').innerText = `Snězeno ${totalCal} z ${goalCal}`;
+  // Update Main Dashboard Stats
+  document.getElementById('dash-eaten').innerText = `${totalCal} kcal`;
+  document.getElementById('dash-current').innerText = totalCal;
+  document.getElementById('dash-target').innerText = `/ ${goalCal} kcal`;
   
-  // Animate SVG Circle Ring
-  // Circumference = 502.65
-  const progressRing = document.getElementById('progress-calories');
-  const percent = Math.min(1, totalCal / goalCal);
-  const offset = 502.65 * (1 - percent);
-  progressRing.style.strokeDashoffset = offset;
+  const percent = Math.min(100, Math.round((totalCal / goalCal) * 100));
+  document.getElementById('dash-percent').innerText = `${percent} %`;
   
-  // Red color glow if budget is exceeded
+  // Main Ring SVG Animation (circumference approx 534 for r=85)
+  const ringPath = document.getElementById('dash-circle-path');
+  const ringOffset = 534 - (534 * Math.min(1, totalCal / goalCal));
+  ringPath.style.strokeDashoffset = ringOffset;
+  
   if (totalCal > goalCal) {
-    progressRing.style.stroke = "var(--color-danger)";
+    ringPath.style.stroke = "var(--color-danger)";
+    document.getElementById('dash-percent').style.backgroundColor = "var(--color-danger)";
   } else {
-    progressRing.style.stroke = "var(--color-calorie)";
+    ringPath.style.stroke = "var(--color-calorie)";
+    document.getElementById('dash-percent').style.backgroundColor = "var(--color-calorie)";
   }
   
-  // Render Macro Bars
-  document.getElementById('val-p-current').innerText = totalP;
-  document.getElementById('val-p-target').innerText = goalP;
-  const pPercent = Math.min(100, (totalP / goalP) * 100);
-  document.getElementById('bar-p-fill').style.width = `${pPercent}%`;
+  // Update Macros
+  document.getElementById('val-p-current').innerText = `${totalP} g`;
+  document.getElementById('val-p-target').innerText = `${goalP} g`;
+  const pPct = Math.round((totalP / goalP) * 100);
+  document.getElementById('val-p-pct').innerText = `${Math.min(100, pPct)} %`;
+  document.getElementById('bar-p-fill').style.strokeDashoffset = 100 - Math.min(100, pPct);
   
-  document.getElementById('val-c-current').innerText = totalC;
-  document.getElementById('val-c-target').innerText = goalC;
-  const cPercent = Math.min(100, (totalC / goalC) * 100);
-  document.getElementById('bar-c-fill').style.width = `${cPercent}%`;
+  document.getElementById('val-c-current').innerText = `${totalC} g`;
+  document.getElementById('val-c-target').innerText = `${goalC} g`;
+  const cPct = Math.round((totalC / goalC) * 100);
+  document.getElementById('val-c-pct').innerText = `${Math.min(100, cPct)} %`;
+  document.getElementById('bar-c-fill').style.strokeDashoffset = 100 - Math.min(100, cPct);
   
-  document.getElementById('val-f-current').innerText = totalF;
-  document.getElementById('val-f-target').innerText = goalF;
-  const fPercent = Math.min(100, (totalF / goalF) * 100);
-  document.getElementById('bar-f-fill').style.width = `${fPercent}%`;
+  document.getElementById('val-f-current').innerText = `${totalF} g`;
+  document.getElementById('val-f-target').innerText = `${goalF} g`;
+  const fPct = Math.round((totalF / goalF) * 100);
+  document.getElementById('val-f-pct').innerText = `${Math.min(100, fPct)} %`;
+  document.getElementById('bar-f-fill').style.strokeDashoffset = 100 - Math.min(100, fPct);
   
   // Render Food Timeline List
-  const foodListContainer = document.getElementById('food-list-today');
+  const foodListContainer = document.getElementById('meals-list-container');
   foodListContainer.innerHTML = '';
   
   if (todayFood.length === 0) {
     foodListContainer.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🍳</div>
-        <p>Zatím žádná jídla. Zkus jídlo vyfotit nebo popsat na záložce Záznam!</p>
+      <div style="text-align:center; padding: 20px; color: var(--text-secondary);">
+        No meals logged yet. Use the + button to add!
       </div>`;
   } else {
     todayFood.forEach((item, index) => {
       const row = document.createElement('div');
-      row.className = 'food-item-row';
+      row.className = 'meal-card';
       
       const amountStr = item.amount ? ` • ${item.amount}` : '';
+      const icon = item.name.toLowerCase().includes('drink') ? '💧' : '🍽️';
       
       row.innerHTML = `
-        <div class="food-details">
-          <div class="food-name">${item.name}</div>
-          <div class="food-meta">
-            <span>${item.time || 'Dnes'}${amountStr}</span>
-            <span class="food-macros">
-              <span class="food-macro-dot p"></span>${item.protein || 0}g
-              <span class="food-macro-dot c"></span>${item.carbs || 0}g
-              <span class="food-macro-dot f"></span>${item.fat || 0}g
-            </span>
+        <div class="meal-left">
+          <div class="meal-icon">${icon}</div>
+          <div class="meal-details">
+            <span class="meal-name">${item.name}</span>
+            <span class="meal-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
           </div>
         </div>
-        <div class="food-right">
-          <div class="food-calories">${item.calories} kcal</div>
-          <button class="btn-delete-food" data-index="${index}">×</button>
+        <div class="meal-actions">
+          <button class="btn-more btn-delete-food" data-index="${index}">×</button>
         </div>`;
       
       foodListContainer.appendChild(row);
@@ -351,80 +349,104 @@ function saveSettingsFromUI() {
 // TAB NAVIGATION & SCREEN SWITCHER
 // ==========================================================================
 function initNavigation() {
-  const tabs = document.querySelectorAll('.tab-btn');
+  const tabs = document.querySelectorAll('.nav-item');
   const screens = document.querySelectorAll('.app-screen');
+  const fab = document.querySelector('.nav-fab');
   
+  function switchScreen(targetScreenId) {
+    // Update Tab active states
+    tabs.forEach(t => t.classList.remove('active'));
+    
+    // Find the corresponding tab and activate it, if any
+    const matchingTab = document.querySelector(`.nav-item[data-screen="${targetScreenId.replace('screen-', '')}"]`);
+    if (matchingTab) matchingTab.classList.add('active');
+    
+    // Update Screen active states
+    screens.forEach(screen => {
+      if (screen.id === targetScreenId) {
+        screen.classList.add('active');
+        // Perform screen-specific refresh
+        if (targetScreenId === 'screen-dashboard') {
+          renderDashboard();
+        } else if (targetScreenId === 'screen-history') {
+          renderHistory();
+        } else if (targetScreenId === 'screen-settings') {
+          renderSettings();
+        }
+      } else {
+        screen.classList.remove('active');
+      }
+    });
+  }
+
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      const targetScreenId = `screen-${tab.getAttribute('data-screen')}`;
-      
-      // Update Tab active states
-      tabs.forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      
-      // Update Screen active states
-      screens.forEach(screen => {
-        if (screen.id === targetScreenId) {
-          screen.classList.add('active');
-          // Perform screen-specific refresh
-          if (targetScreenId === 'screen-dashboard') {
-            renderDashboard();
-          } else if (targetScreenId === 'screen-history') {
-            renderHistory();
-          } else if (targetScreenId === 'screen-settings') {
-            renderSettings();
-          }
-        } else {
-          screen.classList.remove('active');
-        }
-      });
+      const screenAttr = tab.getAttribute('data-screen');
+      if (screenAttr) {
+        switchScreen(`screen-${screenAttr}`);
+      }
     });
   });
   
-  // Dashboard Settings Icon Link
-  document.getElementById('btn-to-settings').addEventListener('click', () => {
-    const settingsTab = document.querySelector('.tab-btn[data-screen="settings"]');
-    if (settingsTab) settingsTab.click();
-  });
+  // Floating Action Button Link
+  if (fab) {
+    fab.addEventListener('click', () => {
+      switchScreen('screen-add');
+    });
+  }
   
-  // Quick Add Button Link
-  document.getElementById('btn-quick-add').addEventListener('click', () => {
-    const addTab = document.querySelector('.tab-btn[data-screen="add"]');
-    if (addTab) addTab.click();
+  // Dashboard Quick Action Links
+  const qaAdd = document.getElementById('qa-add');
+  const qaCamera = document.getElementById('qa-camera');
+  const qaMic = document.getElementById('qa-mic');
+  
+  if (qaAdd) qaAdd.addEventListener('click', () => switchScreen('screen-add'));
+  if (qaCamera) qaCamera.addEventListener('click', () => {
+    switchScreen('screen-add');
+    const photoTrigger = document.getElementById('btn-photo-trigger');
+    if (photoTrigger) photoTrigger.click();
+  });
+  if (qaMic) qaMic.addEventListener('click', () => {
+    switchScreen('screen-add');
+    document.getElementById('ai-text-input').focus();
   });
 
-  // Inner sub-views of "Add Screen" (AI Skener vs Ruční zápis)
+  // Inner sub-views of "Add Screen" (AI Scanner vs Manual)
   const aiTabBtn = document.getElementById('tab-btn-ai');
   const manualTabBtn = document.getElementById('tab-btn-manual');
   const aiSubView = document.getElementById('sub-view-ai');
   const manualSubView = document.getElementById('sub-view-manual');
   
-  aiTabBtn.addEventListener('click', () => {
-    aiTabBtn.classList.add('active');
-    manualTabBtn.classList.remove('active');
-    aiSubView.classList.add('active');
-    manualSubView.classList.remove('active');
-  });
-  
-  manualTabBtn.addEventListener('click', () => {
-    manualTabBtn.classList.add('active');
-    aiTabBtn.classList.remove('active');
-    manualSubView.classList.add('active');
-    aiSubView.classList.remove('active');
-  });
+  if (aiTabBtn && manualTabBtn) {
+    aiTabBtn.addEventListener('click', () => {
+      aiTabBtn.classList.add('active');
+      manualTabBtn.classList.remove('active');
+      aiSubView.classList.add('active');
+      manualSubView.classList.remove('active');
+    });
+    
+    manualTabBtn.addEventListener('click', () => {
+      manualTabBtn.classList.add('active');
+      aiTabBtn.classList.remove('active');
+      manualSubView.classList.add('active');
+      aiSubView.classList.remove('active');
+    });
+  }
   
   // Settings view Toggle Gemini key visibility
   const btnToggleKey = document.getElementById('btn-toggle-key');
   const inputKey = document.getElementById('input-gemini-key');
-  btnToggleKey.addEventListener('click', () => {
-    if (inputKey.type === 'password') {
-      inputKey.type = 'text';
-      btnToggleKey.innerText = 'Skrýt';
-    } else {
-      inputKey.type = 'password';
-      btnToggleKey.innerText = 'Zobrazit';
-    }
-  });
+  if (btnToggleKey && inputKey) {
+    btnToggleKey.addEventListener('click', () => {
+      if (inputKey.type === 'password') {
+        inputKey.type = 'text';
+        btnToggleKey.innerText = 'Hide';
+      } else {
+        inputKey.type = 'password';
+        btnToggleKey.innerText = 'Show';
+      }
+    });
+  }
 }
 
 // ==========================================================================

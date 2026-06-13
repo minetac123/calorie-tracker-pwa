@@ -2,7 +2,7 @@
   "name": "FitAI Calorie Tracker",
   "short_name": "FitAI",
   "description": "Chytrý kalorický tracker s umělou inteligencí Gemini.",
-  "start_url": "/index.html",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#09090b",
   "theme_color": "#09090b",
