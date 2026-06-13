@@ -873,3 +873,5 @@ function init() {
 
 // Run app init
 window.addEventListener('DOMContentLoaded', init);
+
+// Build trigger v2
