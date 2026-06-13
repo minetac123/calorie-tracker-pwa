@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
       }
 
       await put(blobPath, JSON.stringify(appData), {
-        access: 'public',
+        access: 'private',
         addRandomSuffix: false
       });
 
