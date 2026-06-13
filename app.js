@@ -511,7 +511,7 @@ function renderDashboard() {
               <span class="meal-sub-name">${item.name}</span>
               <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
             </div>
-            <button class="btn-item-actions" data-id="${item.id}">•••</button>`;
+            <button class="btn-item-actions" data-id="${item.id}">›</button>`;
         }
         
         subItemsContainer.appendChild(subItem);
@@ -522,53 +522,7 @@ function renderDashboard() {
     foodListContainer.appendChild(catWrapper);
   });
   
-  // Add click listeners to edit buttons (sub-details) - only if NOT in combine mode
-  if (!window.combineModeActive) {
-    foodListContainer.querySelectorAll('.meal-sub-details').forEach(el => {
-      el.addEventListener('click', () => {
-        const foodId = el.getAttribute('data-id');
-        const todayStr = getTodayDateString();
-        const logs = appState.logs[todayStr] || [];
-        const item = logs.find(i => i.id === foodId);
-        if (!item) return;
-        
-        const newAmountStr = prompt(`Upravit množství pro: ${item.name}`, item.amount || '100g');
-        if (newAmountStr !== null && newAmountStr.trim() !== '') {
-          const oldParsed = parseQuantity(item.amount || '100g');
-          const newParsed = parseQuantity(newAmountStr, oldParsed.unit);
-          
-          if (oldParsed.value > 0 && newParsed.value >= 0) {
-            const ratio = newParsed.value / oldParsed.value;
-            item.amount = newAmountStr.trim();
-            item.calories = Math.round(item.calories * ratio);
-            item.protein = Math.round(item.protein * ratio * 10) / 10;
-            item.carbs = Math.round(item.carbs * ratio * 10) / 10;
-            item.fat = Math.round(item.fat * ratio * 10) / 10;
-            
-            saveState();
-            renderDashboard();
-            showToast("Množství upraveno! ✏️");
-          } else {
-            alert("Neplatné množství.");
-          }
-        }
-      });
-    });
-
-    // Add click listeners to actions buttons (•••)
-    foodListContainer.querySelectorAll('.btn-item-actions').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const foodId = btn.getAttribute('data-id');
-        const todayStr = getTodayDateString();
-        const logs = appState.logs[todayStr] || [];
-        const item = logs.find(i => i.id === foodId);
-        if (!item) return;
-        
-        openItemActionsSheet(item);
-      });
-    });
-  }
+  // Clicks are handled via event delegation in initItemActionsHandlers()
 
   // Render Water Intake
   const todayWater = appState.water[todayStr] || 0;
@@ -2824,6 +2778,77 @@ function initItemActionsHandlers() {
   
   const btnCombineCancel = document.getElementById('btn-combine-cancel');
   const btnCombineSubmit = document.getElementById('btn-combine-submit');
+
+  // Event delegation for all food list interactions
+  const foodListContainer = document.getElementById('meals-list-container');
+  if (foodListContainer) {
+    foodListContainer.addEventListener('click', (e) => {
+      // 1. Actions button click (circle / chevron)
+      const actionBtn = e.target.closest('.btn-item-actions');
+      if (actionBtn) {
+        e.stopPropagation();
+        const foodId = actionBtn.getAttribute('data-id');
+        const todayStr = getTodayDateString();
+        const logs = appState.logs[todayStr] || [];
+        const item = logs.find(i => i.id === foodId);
+        if (item) {
+          openItemActionsSheet(item);
+        }
+        return;
+      }
+      
+      // 2. Combine checkmark click or item click in combine mode
+      if (window.combineModeActive) {
+        const subItem = e.target.closest('.meal-sub-item');
+        if (subItem) {
+          const checkbox = subItem.querySelector('.combine-checkbox');
+          if (checkbox) {
+            const foodId = checkbox.getAttribute('data-id');
+            const isSel = checkbox.classList.toggle('checked');
+            if (isSel) {
+              window.combineSelectedIds.add(foodId);
+            } else {
+              window.combineSelectedIds.delete(foodId);
+            }
+            updateCombineFloatingBar();
+          }
+        }
+        return;
+      }
+      
+      // 3. Edit amount click (meal sub details)
+      const subDetails = e.target.closest('.meal-sub-details');
+      if (subDetails) {
+        const foodId = subDetails.getAttribute('data-id');
+        const todayStr = getTodayDateString();
+        const logs = appState.logs[todayStr] || [];
+        const item = logs.find(i => i.id === foodId);
+        if (!item) return;
+        
+        const newAmountStr = prompt(`Upravit množství pro: ${item.name}`, item.amount || '100g');
+        if (newAmountStr !== null && newAmountStr.trim() !== '') {
+          const oldParsed = parseQuantity(item.amount || '100g');
+          const newParsed = parseQuantity(newAmountStr, oldParsed.unit);
+          
+          if (oldParsed.value > 0 && newParsed.value >= 0) {
+            const ratio = newParsed.value / oldParsed.value;
+            item.amount = newAmountStr.trim();
+            item.calories = Math.round(item.calories * ratio);
+            item.protein = Math.round(item.protein * ratio * 10) / 10;
+            item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+            item.fat = Math.round(item.fat * ratio * 10) / 10;
+            
+            saveState();
+            renderDashboard();
+            showToast("Množství upraveno! ✏️");
+          } else {
+            alert("Neplatné množství.");
+          }
+        }
+        return;
+      }
+    });
+  }
 
   // Cancel action sheet
   if (btnActCancel) {
