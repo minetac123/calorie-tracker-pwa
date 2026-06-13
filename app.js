@@ -870,6 +870,8 @@ function initNavigation() {
 // ==========================================================================
 function initPhotoHandlers() {
   const photoTrigger = document.getElementById('btn-photo-trigger');
+  const galleryTrigger = document.getElementById('btn-gallery-trigger');
+  const galleryContainer = document.getElementById('gallery-trigger-container');
   const cameraInput = document.getElementById('camera-input');
   const galleryInput = document.getElementById('gallery-input');
   
@@ -877,9 +879,16 @@ function initPhotoHandlers() {
   const previewImg = document.getElementById('photo-preview-img');
   const clearPhotoBtn = document.getElementById('btn-clear-photo');
   
-  // Clicking the trigger opens gallery picker directly
+  // Clicking the main trigger opens camera directly
   if (photoTrigger) {
     photoTrigger.addEventListener('click', () => {
+      cameraInput.click();
+    });
+  }
+  
+  // Clicking the gallery link opens gallery picker
+  if (galleryTrigger) {
+    galleryTrigger.addEventListener('click', () => {
       galleryInput.click();
     });
   }
@@ -901,6 +910,7 @@ function initPhotoHandlers() {
       previewImg.src = currentPhotoBase64;
       previewArea.style.display = 'block';
       photoTrigger.style.display = 'none';
+      if (galleryContainer) galleryContainer.style.display = 'none';
     };
     reader.readAsDataURL(file);
   }
@@ -914,6 +924,7 @@ function initPhotoHandlers() {
     previewImg.src = '';
     previewArea.style.display = 'none';
     photoTrigger.style.display = 'flex';
+    if (galleryContainer) galleryContainer.style.display = 'block';
     cameraInput.value = '';
     galleryInput.value = '';
   });
@@ -1318,11 +1329,10 @@ function initFormHandlers() {
     });
   }
   
-  // Handle Manual Log Submission
-  manualForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    
+  const saveManualFormItem = (redirectToDashboard = true) => {
     const name = document.getElementById('input-food-name').value.trim();
+    if (!name) return;
+    
     const calories = parseInt(document.getElementById('input-food-cal').value) || 0;
     const category = document.getElementById('input-food-category').value;
     const amount = document.getElementById('input-food-amount').value.trim() || '';
@@ -1353,12 +1363,29 @@ function initFormHandlers() {
     saveState();
     resetManualFoodForm();
     
-    // Go to dashboard
-    const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
-    if (dashTab) dashTab.click();
+    showToast(`Přidáno: ${name} ➕`);
     
-    showToast(`Přidáno: ${name}`);
+    if (redirectToDashboard) {
+      const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
+      if (dashTab) dashTab.click();
+    }
+  };
+
+  // Handle Manual Log Submission
+  manualForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveManualFormItem(true);
   });
+  
+  // Handle Add and Write Next Button Click
+  const btnSubmitAndNext = document.getElementById('btn-submit-and-next');
+  if (btnSubmitAndNext) {
+    btnSubmitAndNext.addEventListener('click', () => {
+      if (manualForm.reportValidity()) {
+        saveManualFormItem(false);
+      }
+    });
+  }
   
   // Save Settings Click
   settingsSaveBtn.addEventListener('click', saveSettingsFromUI);
@@ -2314,6 +2341,34 @@ function initBarcodeAndSearch() {
       return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     };
 
+    const addFoodItemDirectly = (product) => {
+      const categorySelect = document.getElementById('input-food-category');
+      const categoryStr = categorySelect ? categorySelect.value : 'Breakfast';
+      
+      const todayStr = getTodayDateString();
+      if (!appState.logs[todayStr]) {
+        appState.logs[todayStr] = [];
+      }
+      
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      appState.logs[todayStr].push({
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+        time: timeStr,
+        name: product.name,
+        amount: product.amount || '100g',
+        calories: Math.round(Number(product.calories || 0)),
+        protein: Math.round(Number(product.protein || 0) * 10) / 10,
+        carbs: Math.round(Number(product.carbs || 0) * 10) / 10,
+        fat: Math.round(Number(product.fat || 0) * 10) / 10,
+        category: categoryStr
+      });
+      
+      saveState();
+      showToast(`Přidáno: ${product.name} (${product.amount || '100g'}) ➕`);
+    };
+
     const renderSearchResults = (localItems, apiItems, showApiError = false) => {
       dbResultsContainer.innerHTML = '';
       
@@ -2333,14 +2388,24 @@ function initBarcodeAndSearch() {
           item.className = 'search-result-item';
           item.style.borderLeft = '3px solid var(--color-primary)';
           item.innerHTML = `
-            <span class="search-result-title" style="font-weight:700;">⭐ ${p.name}</span>
-            <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na 100g)</span>
+            <div class="search-result-info">
+              <span class="search-result-title" style="font-weight:700;">⭐ ${p.name}</span>
+              <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na ${p.amount || '100g'})</span>
+            </div>
+            <button type="button" class="btn-quick-add-food" title="Rychlé přidání">+</button>
           `;
           item.addEventListener('click', () => {
             prefillManualFoodForm(p);
             dbResultsContainer.style.display = 'none';
             inputDbSearch.value = '';
           });
+          const quickAddBtn = item.querySelector('.btn-quick-add-food');
+          if (quickAddBtn) {
+            quickAddBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              addFoodItemDirectly(p);
+            });
+          }
           dbResultsContainer.appendChild(item);
         });
       }
@@ -2367,14 +2432,24 @@ function initBarcodeAndSearch() {
             const item = document.createElement('div');
             item.className = 'search-result-item';
             item.innerHTML = `
-              <span class="search-result-title">${p.name}</span>
-              <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na 100g)</span>
+              <div class="search-result-info">
+                <span class="search-result-title">${p.name}</span>
+                <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na ${p.amount || '100g'})</span>
+              </div>
+              <button type="button" class="btn-quick-add-food" title="Rychlé přidání">+</button>
             `;
             item.addEventListener('click', () => {
               prefillManualFoodForm(p);
               dbResultsContainer.style.display = 'none';
               inputDbSearch.value = '';
             });
+            const quickAddBtn = item.querySelector('.btn-quick-add-food');
+            if (quickAddBtn) {
+              quickAddBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                addFoodItemDirectly(p);
+              });
+            }
             dbResultsContainer.appendChild(item);
           });
         }

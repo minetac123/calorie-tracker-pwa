@@ -1148,3 +1148,27 @@ input, textarea, select, button {
   border-radius: var(--r-lg) !important;
   font-weight: 700 !important;
 }
+
+/* Quick add button in search results list */
+.btn-quick-add-food {
+  background: var(--bg-elevated-3);
+  color: var(--ios-blue);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 22px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 12px;
+  transition: transform 0.1s, background 0.1s;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.btn-quick-add-food:active {
+  transform: scale(0.85);
+  background: var(--sep-strong);
+}

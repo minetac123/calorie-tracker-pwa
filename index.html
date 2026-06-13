@@ -330,7 +330,10 @@
             <input type="file" id="gallery-input" accept="image/*" style="display:none;">
             <div class="photo-placeholder" id="btn-photo-trigger">
               <span style="font-size:20px;">📸</span>
-              <span>Vyfoť jídlo nebo vyber z galerie</span>
+              <span>Vyfoť jídlo</span>
+            </div>
+            <div id="gallery-trigger-container" style="text-align:center; margin-top:8px;">
+              <button type="button" id="btn-gallery-trigger" style="background:none; border:none; color:var(--ios-blue); font-size:13px; font-weight:600; cursor:pointer;">Nebo vybrat z galerie</button>
             </div>
             <div id="photo-preview-area" style="display:none; position:relative; width:100%; max-height:150px; overflow:hidden; border-radius:12px; border:0.5px solid var(--sep-strong);">
               <img id="photo-preview-img" src="" alt="Náhled fotky" style="width:100%; height:150px; object-fit:cover;">
@@ -397,7 +400,10 @@
               <input type="number" id="input-food-f" step="0.1" placeholder="0">
             </div>
           </div>
-          <button type="submit" class="btn btn-primary" style="margin-top:10px;">Přidat jídlo</button>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button type="submit" class="btn btn-primary" id="btn-submit-food" style="flex:1;">Přidat jídlo</button>
+            <button type="button" class="btn btn-secondary" id="btn-submit-and-next" style="flex:1; white-space:nowrap;">Přidat a další</button>
+          </div>
         </form>
       </div>
     </section>
@@ -475,7 +481,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 1.0.0 (Cache v22)
+        Verze: 1.0.0 (Cache v24)
       </div>
     </section>
 
