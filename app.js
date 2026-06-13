@@ -659,7 +659,10 @@ function renderHistory() {
 // UI RENDERING - SETTINGS
 // ==========================================================================
 function renderSettings() {
-  document.getElementById('input-gemini-key').value = appState.apiKey || '';
+  const keyInput = document.getElementById('input-gemini-key');
+  if (keyInput) {
+    keyInput.value = appState.apiKey || '';
+  }
   document.getElementById('input-goal-cal').value = appState.goals.calories || 2000;
   document.getElementById('input-goal-p').value = appState.goals.protein || 130;
   document.getElementById('input-goal-c').value = appState.goals.carbs || 220;
@@ -667,7 +670,8 @@ function renderSettings() {
 }
 
 function saveSettingsFromUI() {
-  const apiKey = document.getElementById('input-gemini-key').value.trim();
+  const keyInput = document.getElementById('input-gemini-key');
+  const apiKey = keyInput ? keyInput.value.trim() : (appState.apiKey || DEFAULT_API_KEY);
   const cTarget = parseInt(document.getElementById('input-goal-cal').value) || 2000;
   const pTarget = parseInt(document.getElementById('input-goal-p').value) || 130;
   const cTargetMac = parseInt(document.getElementById('input-goal-c').value) || 220;
@@ -1769,30 +1773,35 @@ function parseQuantity(quantityStr, defaultUnit = 'g') {
   const match = cleaned.match(/^([\d.]+)\s*([a-zA-Z]*)/);
   if (!match) return { value: 100, unit: defaultUnit };
   
-  const value = parseFloat(match[1]);
+  let value = parseFloat(match[1]);
+  if (isNaN(value)) value = 100;
   let unit = match[2].toLowerCase();
   
   if (!unit) {
     unit = defaultUnit;
   }
   
-  return { value: isNaN(value) ? 100 : value, unit };
-}
-
-function getQuantityMultiplier(quantityStr, baseUnit = 'g') {
-  const parsed = parseQuantity(quantityStr, baseUnit);
-  let value = parsed.value;
-  let unit = parsed.unit;
-  
+  // Normalize units to base grams (g) or milliliters (ml)
   if (unit === 'kg') {
     value *= 1000;
     unit = 'g';
   } else if (unit === 'l') {
     value *= 1000;
     unit = 'ml';
+  } else if (unit === 'dl' || unit === 'dcl') {
+    value *= 100;
+    unit = 'ml';
+  } else if (unit === 'cl') {
+    value *= 10;
+    unit = 'ml';
   }
   
-  return value / 100;
+  return { value, unit };
+}
+
+function getQuantityMultiplier(quantityStr, baseUnit = 'g') {
+  const parsed = parseQuantity(quantityStr, baseUnit);
+  return parsed.value / 100;
 }
 
 function lockManualFormFields(shouldLock) {
