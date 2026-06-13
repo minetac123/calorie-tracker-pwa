@@ -826,8 +826,7 @@ function initNavigation() {
     setWizardCategory(categoryId);
     showWizardStep(2);
     
-    const photoTrigger = document.getElementById('btn-photo-trigger');
-    if (photoTrigger) photoTrigger.click();
+    startCustomCamera();
   });
   
   if (qaMic) qaMic.addEventListener('click', () => {
@@ -868,6 +867,70 @@ function initNavigation() {
 // ==========================================================================
 // CAMERA & PHOTO UPLOAD LOGIC
 // ==========================================================================
+let cameraStream = null;
+
+async function startCustomCamera() {
+  const modal = document.getElementById('custom-camera-modal');
+  const video = document.getElementById('camera-video');
+  if (modal) modal.classList.add('active');
+  
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment",
+        width: { ideal: 1280 },
+        height: { ideal: 960 }
+      },
+      audio: false
+    });
+    if (video) {
+      video.srcObject = cameraStream;
+      video.setAttribute('playsinline', true); // Critical for iOS Safari
+      video.play();
+    }
+  } catch (err) {
+    console.error("Camera access error:", err);
+    alert("Nepodařilo se spustit fotoaparát. Ujisti se, že jsi povolil(a) přístup ke kameře.");
+    stopCustomCamera();
+  }
+}
+
+function stopCustomCamera() {
+  const modal = document.getElementById('custom-camera-modal');
+  if (modal) modal.classList.remove('active');
+  const video = document.getElementById('camera-video');
+  if (video) video.srcObject = null;
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+}
+
+function captureCustomCameraPhoto() {
+  const video = document.getElementById('camera-video');
+  if (!video || !cameraStream) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  currentPhotoBase64 = dataUrl;
+  
+  const previewArea = document.getElementById('photo-preview-area');
+  const previewImg = document.getElementById('photo-preview-img');
+  const photoTrigger = document.getElementById('btn-photo-trigger');
+  const galleryContainer = document.getElementById('gallery-trigger-container');
+  
+  if (previewImg) previewImg.src = currentPhotoBase64;
+  if (previewArea) previewArea.style.display = 'block';
+  if (photoTrigger) photoTrigger.style.display = 'none';
+  if (galleryContainer) galleryContainer.style.display = 'none';
+  
+  stopCustomCamera();
+  showToast("Fotka zachycena! 📸");
+}
+
 function initPhotoHandlers() {
   const photoTrigger = document.getElementById('btn-photo-trigger');
   const galleryTrigger = document.getElementById('btn-gallery-trigger');
@@ -879,10 +942,21 @@ function initPhotoHandlers() {
   const previewImg = document.getElementById('photo-preview-img');
   const clearPhotoBtn = document.getElementById('btn-clear-photo');
   
-  // Clicking the main trigger opens camera directly
+  // Custom camera listeners
+  const btnCloseCustomCamera = document.getElementById('btn-close-custom-camera');
+  if (btnCloseCustomCamera) {
+    btnCloseCustomCamera.addEventListener('click', stopCustomCamera);
+  }
+  
+  const btnCameraCapture = document.getElementById('btn-camera-capture');
+  if (btnCameraCapture) {
+    btnCameraCapture.addEventListener('click', captureCustomCameraPhoto);
+  }
+
+  // Clicking the main trigger opens custom camera directly
   if (photoTrigger) {
     photoTrigger.addEventListener('click', () => {
-      cameraInput.click();
+      startCustomCamera();
     });
   }
   
