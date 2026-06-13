@@ -1577,7 +1577,7 @@ function init() {
 // OPEN FOOD FACTS API INTEGRATION
 // ==========================================================================
 async function fetchProductByBarcode(barcode) {
-  const url = `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`;
+  const url = `/api/barcode?code=${barcode}`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Chyba sítě při dotazu do databáze (${response.status})`);
@@ -1588,7 +1588,7 @@ async function fetchProductByBarcode(barcode) {
   }
   
   const p = data.product;
-  const name = p.product_name_cs || p.product_name || "Neznámý produkt";
+  const name = p.product_name_cs || p.product_name || "Nezmámý produkt";
   const brand = p.brands ? ` (${p.brands})` : "";
   
   // Nutrients per 100g (or 100ml)
@@ -1608,8 +1608,7 @@ async function fetchProductByBarcode(barcode) {
 }
 
 async function searchFoodDatabase(query) {
-  // Use Czech language priority subdomain cs.openfoodfacts.org
-  const url = `https://cs.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=10`;
+  const url = `/api/search?q=${encodeURIComponent(query)}`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error("Chyba vyhledávání v databázi.");
@@ -1706,11 +1705,15 @@ function stopBarcodeScanner() {
   }
   
   if (html5QrScanner) {
-    html5QrScanner.stop().then(() => {
-      console.log("Scanner stopped.");
-    }).catch(err => {
-      console.error("Error stopping scanner", err);
-    });
+    try {
+      html5QrScanner.stop().then(() => {
+        console.log("Scanner stopped.");
+      }).catch(err => {
+        console.warn("Promise catch: Error stopping scanner", err);
+      });
+    } catch (err) {
+      console.warn("Sync catch: Error stopping scanner", err);
+    }
   }
 }
 
