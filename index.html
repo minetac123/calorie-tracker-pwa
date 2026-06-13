@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="cs">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Dine4Fit Clone</title>
+  <title>FitAI – Kalorický Tracker</title>
   
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Dine4Fit">
+  <meta name="apple-mobile-web-app-title" content="FitAI">
   <link rel="apple-touch-icon" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#050510">
@@ -23,18 +23,54 @@
 
   <main class="app-container">
     
+    <!-- ================= LOGIN SCREEN ================= -->
+    <section id="screen-login" class="app-screen active">
+      <div class="login-hero">
+        <div class="login-logo">🍎</div>
+        <h1 class="login-title">FitAI</h1>
+        <p class="login-subtitle">Tvůj chytrý kalorický tracker</p>
+      </div>
+
+      <div class="dark-card login-card">
+        <div class="segmented-control" id="auth-tabs">
+          <button class="segment-btn active" id="tab-login">Přihlášení</button>
+          <button class="segment-btn" id="tab-register">Registrace</button>
+        </div>
+
+        <div class="form-group">
+          <label>Uživatelské jméno</label>
+          <input type="text" id="auth-username" autocomplete="username" autocapitalize="none">
+        </div>
+        <div class="form-group">
+          <label>Heslo</label>
+          <input type="password" id="auth-password" autocomplete="current-password">
+        </div>
+
+        <div id="auth-error" style="color: var(--color-danger); font-size: 13px; margin-bottom: 12px; display: none;"></div>
+
+        <button class="btn btn-primary" id="btn-auth-submit">
+          <span class="btn-text" id="auth-btn-text">Přihlásit se</span>
+          <span class="spinner" id="auth-spinner" style="display: none;"></span>
+        </button>
+      </div>
+
+      <p style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 16px;">
+        Data se ukládají do cloudu<br>a jsou dostupná na všech zařízeních
+      </p>
+    </section>
+
     <!-- ================= DASHBOARD SCREEN ================= -->
-    <section id="screen-dashboard" class="app-screen active">
+    <section id="screen-dashboard" class="app-screen">
       
       <!-- Top Calendar Row -->
       <div class="calendar-row">
-        <div class="cal-day"><span>Mon</span><div class="cal-circle active-goal">8</div></div>
-        <div class="cal-day"><span>Tue</span><div class="cal-circle active-goal">9</div></div>
-        <div class="cal-day"><span>Wed</span><div class="cal-circle active-goal">10</div></div>
-        <div class="cal-day"><span>Thu</span><div class="cal-circle active-goal">11</div></div>
-        <div class="cal-day"><span>Fri</span><div class="cal-circle active-goal">12</div></div>
+        <div class="cal-day"><span>Po</span><div class="cal-circle active-goal">8</div></div>
+        <div class="cal-day"><span>Út</span><div class="cal-circle active-goal">9</div></div>
+        <div class="cal-day"><span>St</span><div class="cal-circle active-goal">10</div></div>
+        <div class="cal-day"><span>Čt</span><div class="cal-circle active-goal">11</div></div>
+        <div class="cal-day"><span>Pá</span><div class="cal-circle active-goal">12</div></div>
         <div class="cal-day current">
-          <span class="cal-current-label">Today</span>
+          <span class="cal-current-label">Dnes</span>
           <div class="cal-circle current-day">
             <svg class="cal-arc" viewBox="0 0 36 36">
               <circle class="arc-bg" cx="18" cy="18" r="16"></circle>
@@ -43,7 +79,7 @@
             <span class="cal-date">13</span>
           </div>
         </div>
-        <div class="cal-day"><span>Sun</span><div class="cal-circle future">14</div></div>
+        <div class="cal-day"><span>Ne</span><div class="cal-circle future">14</div></div>
       </div>
 
       <!-- Main Circle Area -->
@@ -53,7 +89,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4v16M7 4v8a4 4 0 0 0 8 0V4M19 4v16"></path></svg>
           </div>
           <div class="stat-value" id="dash-eaten">0 kcal</div>
-          <div class="stat-label">Eaten</div>
+          <div class="stat-label">Snězeno</div>
         </div>
         
         <div class="center-circle-container">
@@ -73,7 +109,7 @@
             <div class="ring-sub-val" id="dash-target">/ 2000 kcal</div>
             <div class="ring-percent" id="dash-percent">0 %</div>
           </div>
-          <div class="streak-badge">🏆 1 days in a row</div>
+          <div class="streak-badge">🏆 1 den v řadě</div>
         </div>
 
         <div class="side-stat right">
@@ -81,7 +117,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5V3M16.2 7.8l1.4-1.4M19 12h2M16.2 16.2l1.4 1.4M12 19v2M7.8 16.2l-1.4 1.4M5 12H3M7.8 7.8L6.4 6.4"></path></svg>
           </div>
           <div class="stat-value" id="dash-activities">0 kcal</div>
-          <div class="stat-label">Activities</div>
+          <div class="stat-label">Aktivity</div>
         </div>
       </div>
 
@@ -111,13 +147,13 @@
       <!-- Nutrients Card -->
       <div class="nutrients-card">
         <div class="nutrients-header">
-          <h2>Nutrients</h2>
+          <h2>Živiny</h2>
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
         </div>
         <div class="nutrients-grid">
           <!-- Protein -->
           <div class="nutr-col">
-            <div class="nutr-title">Protein</div>
+            <div class="nutr-title">Bílkoviny</div>
             <div class="nutr-val" id="val-p-current">0 g</div>
             <div class="nutr-ring-container">
               <svg viewBox="0 0 36 36">
@@ -130,7 +166,7 @@
           </div>
           <!-- Carbs -->
           <div class="nutr-col">
-            <div class="nutr-title">Carbs</div>
+            <div class="nutr-title">Sacharidy</div>
             <div class="nutr-val" id="val-c-current">0 g</div>
             <div class="nutr-ring-container">
               <svg viewBox="0 0 36 36">
@@ -143,7 +179,7 @@
           </div>
           <!-- Fat -->
           <div class="nutr-col">
-            <div class="nutr-title">Fat</div>
+            <div class="nutr-title">Tuky</div>
             <div class="nutr-val" id="val-f-current">0 g</div>
             <div class="nutr-ring-container">
               <svg viewBox="0 0 36 36">
@@ -160,8 +196,8 @@
       <!-- Menu Section -->
       <div class="menu-section">
         <div class="menu-header">
-          <h2>Menu</h2>
-          <span class="analysis-link">Analysis</span>
+          <h2>Jídelníček</h2>
+          <span class="analysis-link">Analýza</span>
         </div>
         
         <div class="meals-list" id="meals-list-container">
@@ -170,7 +206,7 @@
             <div class="meal-left">
               <div class="meal-icon">🥣</div>
               <div class="meal-details">
-                <span class="meal-name">Breakfast</span>
+                <span class="meal-name">Snídaně</span>
                 <span class="meal-macros" id="macros-Breakfast"></span>
               </div>
             </div>
@@ -184,7 +220,7 @@
             <div class="meal-left">
               <div class="meal-icon">🥪</div>
               <div class="meal-details">
-                <span class="meal-name">Morning snack</span>
+                <span class="meal-name">Dopolední svačina</span>
                 <span class="meal-macros" id="macros-Morning-snack"></span>
               </div>
             </div>
@@ -198,7 +234,7 @@
             <div class="meal-left">
               <div class="meal-icon">🍛</div>
               <div class="meal-details">
-                <span class="meal-name">Lunch</span>
+                <span class="meal-name">Oběd</span>
                 <span class="meal-macros" id="macros-Lunch"></span>
               </div>
             </div>
@@ -212,7 +248,7 @@
             <div class="meal-left">
               <div class="meal-icon">🥪</div>
               <div class="meal-details">
-                <span class="meal-name">Afternoon snack</span>
+                <span class="meal-name">Odpolední svačina</span>
                 <span class="meal-macros" id="macros-Afternoon-snack"></span>
               </div>
             </div>
@@ -226,7 +262,7 @@
             <div class="meal-left">
               <div class="meal-icon">🍽️</div>
               <div class="meal-details">
-                <span class="meal-name">Dinner</span>
+                <span class="meal-name">Večeře</span>
                 <span class="meal-macros" id="macros-Dinner"></span>
               </div>
             </div>
@@ -240,7 +276,7 @@
             <div class="meal-left">
               <div class="meal-icon">🍽️</div>
               <div class="meal-details">
-                <span class="meal-name">Second dinner</span>
+                <span class="meal-name">Druhá večeře</span>
                 <span class="meal-macros" id="macros-Second-dinner"></span>
               </div>
             </div>
@@ -258,13 +294,13 @@
           <div class="extra-card-header">
             <div class="extra-card-title">
               <span class="water-icon">💧</span>
-              <h3>Drinking regime</h3>
+              <h3>Pitný režim</h3>
             </div>
             <button class="btn-add-extra water-add">+</button>
           </div>
           <div class="water-progress-area">
             <span class="water-current">0 l</span>
-            <span class="water-target">from 3 l</span>
+            <span class="water-target">z 3 l</span>
             <div class="water-bar-bg"><div class="water-bar-fill" style="width:0%"></div></div>
           </div>
         </div>
@@ -273,7 +309,7 @@
           <div class="extra-card-header">
             <div class="extra-card-title">
               <span class="weight-icon">⚖️</span>
-              <h3>Weight</h3>
+              <h3>Váha</h3>
             </div>
             <button class="btn-edit-extra">✏️</button>
           </div>
@@ -289,25 +325,25 @@
     <!-- ================= ADD FOOD SCREEN (Reused logic, styled simply) ================= -->
     <section id="screen-add" class="app-screen">
       <header class="screen-header">
-        <h1 class="screen-title">Add Food</h1>
+        <h1 class="screen-title">Přidat jídlo</h1>
       </header>
 
       <div class="segmented-control">
-        <button class="segment-btn active" id="tab-btn-ai">AI Scanner</button>
-        <button class="segment-btn" id="tab-btn-manual">Manual</button>
+        <button class="segment-btn active" id="tab-btn-ai">AI Skener</button>
+        <button class="segment-btn" id="tab-btn-manual">Ruční zápis</button>
       </div>
 
       <!-- AI SCANNER -->
       <div id="sub-view-ai" class="add-sub-view active">
         <div class="dark-card">
-          <textarea id="ai-text-input" placeholder="What did you eat? E.g.: 'Lunch: 150g chicken breast...'"></textarea>
+          <textarea id="ai-text-input" placeholder="Co jsi jedl? Např.: 'Oběd: 150g kuřecí prsa...'"></textarea>
           <div class="camera-section">
             <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
             <input type="file" id="gallery-input" accept="image/*" style="display: none;">
             
             <div class="photo-placeholder" id="btn-photo-trigger">
               <div class="photo-icon">📸</div>
-              <span>Take photo or choose from gallery</span>
+              <span>Vyfoť jídlo nebo vyber z galerie</span>
             </div>
             
             <div class="photo-preview-container" id="photo-preview-area" style="display: none;">
@@ -316,7 +352,7 @@
             </div>
           </div>
           <button class="btn btn-primary" id="btn-ai-analyze">
-            <span class="btn-text">Analyze with Gemini AI</span>
+            <span class="btn-text">Analyzovat s Gemini AI</span>
             <span class="spinner" style="display: none;"></span>
           </button>
         </div>
@@ -326,34 +362,34 @@
       <div id="sub-view-manual" class="add-sub-view">
         <form class="dark-card" id="manual-food-form">
           <div class="form-group">
-            <label>Food Name</label>
+            <label>Název jídla</label>
             <input type="text" id="input-food-name" required>
           </div>
           <div class="form-row-2">
             <div class="form-group">
-              <label>Calories (kcal)</label>
+              <label>Kalorie (kcal)</label>
               <input type="number" id="input-food-cal" required>
             </div>
             <div class="form-group">
-              <label>Amount</label>
+              <label>Množství</label>
               <input type="text" id="input-food-amount">
             </div>
           </div>
           <div class="form-row-3">
             <div class="form-group">
-              <label>Protein (g)</label>
+              <label>Bílkoviny (g)</label>
               <input type="number" id="input-food-p" step="0.1">
             </div>
             <div class="form-group">
-              <label>Carbs (g)</label>
+              <label>Sacharidy (g)</label>
               <input type="number" id="input-food-c" step="0.1">
             </div>
             <div class="form-group">
-              <label>Fat (g)</label>
+              <label>Tuky (g)</label>
               <input type="number" id="input-food-f" step="0.1">
             </div>
           </div>
-          <button type="submit" class="btn btn-primary">Add</button>
+          <button type="submit" class="btn btn-primary">Přidat</button>
         </form>
       </div>
     </section>
@@ -361,43 +397,53 @@
     <!-- ================= SETTINGS SCREEN ================= -->
     <section id="screen-settings" class="app-screen">
       <header class="screen-header">
-        <h1 class="screen-title">Settings</h1>
+        <h1 class="screen-title">Nastavení</h1>
       </header>
 
       <div class="dark-card">
         <h2>Google Gemini API</h2>
         <div class="form-group">
-          <label>API Key</label>
+          <label>API Klíč</label>
           <input type="password" id="input-gemini-key">
         </div>
       </div>
 
       <div class="dark-card">
-        <h2>Daily Goals</h2>
+        <h2>Denní cíle</h2>
         <div class="form-group">
-          <label>Calories (kcal)</label>
+          <label>Kalorie (kcal)</label>
           <input type="number" id="input-goal-cal" value="2000">
         </div>
         <div class="form-row-3">
           <div class="form-group">
-            <label>Protein (g)</label>
+            <label>Bílkoviny (g)</label>
             <input type="number" id="input-goal-p" value="130">
           </div>
           <div class="form-group">
-            <label>Carbs (g)</label>
+            <label>Sacharidy (g)</label>
             <input type="number" id="input-goal-c" value="220">
           </div>
           <div class="form-group">
-            <label>Fat (g)</label>
+            <label>Tuky (g)</label>
             <input type="number" id="input-goal-f" value="65">
           </div>
         </div>
-        <button class="btn btn-secondary" id="btn-save-settings">Save Settings</button>
+        <button class="btn btn-secondary" id="btn-save-settings">Uložit nastavení</button>
+      </div>
+
+      <div class="dark-card">
+        <h2>👤 Účet</h2>
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 14px;">
+          Přihlášen jako: <strong id="display-username" style="color: var(--color-primary);">—</strong>
+        </p>
+        <button class="btn btn-secondary" id="btn-sync-cloud">☁️ Synchronizovat s cloudem</button>
+        <div style="height: 10px;"></div>
+        <button class="btn btn-danger" id="btn-logout">Odhlásit se</button>
       </div>
 
       <div class="dark-card danger-card">
-        <h2 style="color:var(--color-danger)">Danger Zone</h2>
-        <button class="btn btn-danger" id="btn-reset-data">Clear all data</button>
+        <h2 style="color:var(--color-danger)">Nebezpečná zóna</h2>
+        <button class="btn btn-danger" id="btn-reset-data">Smazat všechna data</button>
       </div>
     </section>
 
@@ -408,19 +454,19 @@
     <div class="nav-items-container">
       <button class="nav-item active" data-screen="dashboard">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-        <span>Overview</span>
+        <span>Přehled</span>
       </button>
       <button class="nav-item">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
-        <span>Progress</span>
+        <span>Progres</span>
       </button>
       <button class="nav-item">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4v16M7 4v8a4 4 0 0 0 8 0V4M19 4v16"></path></svg>
-        <span>Meals</span>
+        <span>Jídla</span>
       </button>
       <button class="nav-item" data-screen="settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-        <span>More</span>
+        <span>Více</span>
       </button>
     </div>
     <div class="nav-fab-container">
@@ -434,7 +480,7 @@
   <div class="modal-overlay" id="ai-review-modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>AI Analysis</h2>
+        <h2>AI Analýza</h2>
         <button class="modal-close" id="btn-close-modal">×</button>
       </div>
       <div class="modal-body">
@@ -443,24 +489,24 @@
         <div id="ai-detected-list" class="detected-items-list"></div>
         <div class="modal-summary-card" style="background: rgba(255,255,255,0.04); border-radius: 16px; padding: 14px 16px; margin-top: 12px; border: 1px solid var(--border-glass-subtle);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-            <span style="color: var(--text-secondary); font-size: 13px;">Total:</span>
+            <span style="color: var(--text-secondary); font-size: 13px;">Celkem:</span>
             <strong id="modal-summary-cal" style="color: var(--color-calorie); font-size: 16px;">0 kcal</strong>
           </div>
           <div style="display:flex; justify-content:space-between; font-size: 12px; color: var(--text-secondary);">
-            <span>P: <strong id="modal-summary-p" style="color: var(--color-protein);">0</strong>g</span>
-            <span>C: <strong id="modal-summary-c" style="color: var(--color-carbs);">0</strong>g</span>
-            <span>F: <strong id="modal-summary-f" style="color: var(--color-fat);">0</strong>g</span>
+            <span>B: <strong id="modal-summary-p" style="color: var(--color-protein);">0</strong>g</span>
+            <span>S: <strong id="modal-summary-c" style="color: var(--color-carbs);">0</strong>g</span>
+            <span>T: <strong id="modal-summary-f" style="color: var(--color-fat);">0</strong>g</span>
           </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="btn-modal-cancel">Cancel</button>
-        <button class="btn btn-primary" id="btn-modal-confirm">Save</button>
+        <button class="btn btn-secondary" id="btn-modal-cancel">Zrušit</button>
+        <button class="btn btn-primary" id="btn-modal-confirm">Uložit</button>
       </div>
     </div>
   </div>
 
-  <div class="toast" id="toast-notification">Added successfully!</div>
+  <div class="toast" id="toast-notification">Úspěšně přidáno!</div>
   <div class="safe-area-bottom"></div>
 
   <script src="/app.js"></script>

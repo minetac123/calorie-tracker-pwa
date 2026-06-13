@@ -178,7 +178,7 @@ function renderDashboard() {
   if (todayFood.length === 0) {
     foodListContainer.innerHTML = `
       <div style="text-align:center; padding: 20px; color: var(--text-secondary);">
-        No meals logged yet. Use the + button to add!
+        Zatím žádná jídla. Přidej je tlačítkem +!
       </div>`;
   } else {
     todayFood.forEach((item, index) => {
@@ -440,10 +440,10 @@ function initNavigation() {
     btnToggleKey.addEventListener('click', () => {
       if (inputKey.type === 'password') {
         inputKey.type = 'text';
-        btnToggleKey.innerText = 'Hide';
+        btnToggleKey.innerText = 'Skrýt';
       } else {
         inputKey.type = 'password';
-        btnToggleKey.innerText = 'Show';
+        btnToggleKey.innerText = 'Zobrazit';
       }
     });
   }
@@ -473,7 +473,7 @@ function initPhotoHandlers() {
     if (!file) return;
     
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file.');
+      alert('Zvol prosím soubor obrázku.');
       return;
     }
     
@@ -917,6 +917,214 @@ function initFormHandlers() {
 }
 
 // ==========================================================================
+// AUTHENTICATION & CLOUD SYNC
+// ==========================================================================
+let authMode = 'login'; // 'login' or 'register'
+
+function getSession() {
+  const username = localStorage.getItem('fitai_username');
+  const token = localStorage.getItem('fitai_token');
+  if (username && token) return { username, token };
+  return null;
+}
+
+function setSession(username, token) {
+  localStorage.setItem('fitai_username', username);
+  localStorage.setItem('fitai_token', token);
+}
+
+function clearSession() {
+  localStorage.removeItem('fitai_username');
+  localStorage.removeItem('fitai_token');
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.innerText = msg;
+  el.style.display = 'block';
+}
+
+function hideAuthError() {
+  document.getElementById('auth-error').style.display = 'none';
+}
+
+function initAuthHandlers() {
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  const submitBtn = document.getElementById('btn-auth-submit');
+  const btnText = document.getElementById('auth-btn-text');
+
+  tabLogin.addEventListener('click', () => {
+    authMode = 'login';
+    tabLogin.classList.add('active');
+    tabRegister.classList.remove('active');
+    btnText.innerText = 'Přihlásit se';
+    hideAuthError();
+  });
+
+  tabRegister.addEventListener('click', () => {
+    authMode = 'register';
+    tabRegister.classList.add('active');
+    tabLogin.classList.remove('active');
+    btnText.innerText = 'Zaregistrovat se';
+    hideAuthError();
+  });
+
+  submitBtn.addEventListener('click', async () => {
+    const username = document.getElementById('auth-username').value.trim();
+    const password = document.getElementById('auth-password').value;
+    const spinner = document.getElementById('auth-spinner');
+    const btnTextEl = document.getElementById('auth-btn-text');
+
+    hideAuthError();
+
+    if (!username || !password) {
+      showAuthError('Vyplň uživatelské jméno a heslo');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    btnTextEl.innerText = authMode === 'login' ? 'Přihlašuji...' : 'Registruji...';
+    spinner.style.display = 'inline-block';
+
+    try {
+      const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        showAuthError(data.error || 'Něco se pokazilo');
+        return;
+      }
+
+      // Success! Save session
+      setSession(data.username, data.token);
+
+      // If login returned cloud data, merge it
+      if (data.appData) {
+        // Cloud data takes priority — merge logs
+        const cloudState = data.appData;
+        if (cloudState.goals) appState.goals = cloudState.goals;
+        if (cloudState.apiKey) appState.apiKey = cloudState.apiKey;
+        if (cloudState.logs) {
+          // Merge: keep all dates, cloud wins on conflicts
+          Object.keys(cloudState.logs).forEach(dateKey => {
+            appState.logs[dateKey] = cloudState.logs[dateKey];
+          });
+        }
+        saveState();
+      }
+
+      // Switch to dashboard
+      showAppAfterLogin();
+      showToast(`Vítej, ${data.username}! 👋`);
+
+    } catch (err) {
+      console.error('Auth error:', err);
+      showAuthError('Chyba připojení k serveru');
+    } finally {
+      submitBtn.disabled = false;
+      btnTextEl.innerText = authMode === 'login' ? 'Přihlásit se' : 'Zaregistrovat se';
+      spinner.style.display = 'none';
+    }
+  });
+
+  // Allow Enter key to submit
+  document.getElementById('auth-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitBtn.click();
+  });
+}
+
+async function syncToCloud() {
+  const session = getSession();
+  if (!session) return;
+
+  try {
+    const dataToSync = {
+      goals: appState.goals,
+      logs: appState.logs,
+      apiKey: appState.apiKey
+    };
+
+    await fetch('/api/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.token}`
+      },
+      body: JSON.stringify(dataToSync)
+    });
+  } catch (err) {
+    console.error('Cloud sync error:', err);
+  }
+}
+
+async function syncFromCloud() {
+  const session = getSession();
+  if (!session) return;
+
+  try {
+    const resp = await fetch('/api/sync', {
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await resp.json();
+
+    if (data.success && data.appData) {
+      const cloudState = data.appData;
+      if (cloudState.goals) appState.goals = cloudState.goals;
+      if (cloudState.apiKey) appState.apiKey = cloudState.apiKey;
+      if (cloudState.logs) {
+        Object.keys(cloudState.logs).forEach(dateKey => {
+          appState.logs[dateKey] = cloudState.logs[dateKey];
+        });
+      }
+      saveState();
+      renderDashboard();
+      showToast('☁️ Data synchronizována z cloudu');
+    }
+  } catch (err) {
+    console.error('Cloud load error:', err);
+  }
+}
+
+function doLogout() {
+  clearSession();
+  // Show login, hide everything else
+  document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-login').classList.add('active');
+  document.querySelector('.bottom-nav').style.display = 'none';
+  document.getElementById('auth-username').value = '';
+  document.getElementById('auth-password').value = '';
+}
+
+function showAppAfterLogin() {
+  const session = getSession();
+
+  // Update username display
+  const usernameDisplay = document.getElementById('display-username');
+  if (usernameDisplay && session) {
+    usernameDisplay.innerText = session.username;
+  }
+
+  // Switch screens
+  document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-dashboard').classList.add('active');
+  document.querySelector('.bottom-nav').style.display = 'flex';
+
+  // Reset nav active state
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const dashNav = document.querySelector('.nav-item[data-screen="dashboard"]');
+  if (dashNav) dashNav.classList.add('active');
+
+  renderDashboard();
+}
+
+// ==========================================================================
 // APPLICATION INITIALIZATION
 // ==========================================================================
 function init() {
@@ -925,10 +1133,36 @@ function init() {
   initNavigation();
   initPhotoHandlers();
   initFormHandlers();
-  
-  // Initial Dashboard Render
-  renderDashboard();
-  
+  initAuthHandlers();
+
+  // Logout button
+  const logoutBtn = document.getElementById('btn-logout');
+  if (logoutBtn) logoutBtn.addEventListener('click', doLogout);
+
+  // Manual sync button
+  const syncBtn = document.getElementById('btn-sync-cloud');
+  if (syncBtn) syncBtn.addEventListener('click', syncFromCloud);
+
+  // Check if already logged in
+  const session = getSession();
+  if (session) {
+    showAppAfterLogin();
+    // Background cloud sync
+    syncFromCloud();
+  } else {
+    // Show login screen, hide nav
+    document.querySelector('.bottom-nav').style.display = 'none';
+  }
+
+  // Auto-sync to cloud after saving food
+  const originalSaveState = saveState;
+  saveState = function() {
+    originalSaveState();
+    // Debounced cloud sync
+    clearTimeout(window._syncTimeout);
+    window._syncTimeout = setTimeout(syncToCloud, 2000);
+  };
+
   // Start Service Worker registration
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -941,5 +1175,3 @@ function init() {
 
 // Run app init
 window.addEventListener('DOMContentLoaded', init);
-
-// Build trigger v2
