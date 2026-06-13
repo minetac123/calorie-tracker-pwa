@@ -93,6 +93,121 @@ function getTodayDateString() {
   return `${year}-${month}-${day}`;
 }
 
+function getDateString(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getFoodCategory(item) {
+  if (item.category) return item.category;
+  
+  if (item.time) {
+    const [hourStr] = item.time.split(':');
+    const hour = parseInt(hourStr);
+    if (!isNaN(hour)) {
+      if (hour >= 5 && hour < 10) return 'Breakfast';
+      if (hour >= 10 && hour < 12) return 'Morning snack';
+      if (hour >= 12 && hour < 15) return 'Lunch';
+      if (hour >= 15 && hour < 18) return 'Afternoon snack';
+      if (hour >= 18 && hour < 22) return 'Dinner';
+      return 'Second dinner';
+    }
+  }
+  return 'Breakfast';
+}
+
+function updateCalendarRow() {
+  const calendarRow = document.querySelector('.calendar-row');
+  if (!calendarRow) return;
+  
+  const today = new Date();
+  const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday...
+  const dayDiff = currentDay === 0 ? 6 : currentDay - 1;
+  
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - dayDiff);
+  
+  const dayLabels = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
+  
+  let html = '';
+  
+  for (let i = 0; i < 7; i++) {
+    const dayDate = new Date(monday);
+    dayDate.setDate(monday.getDate() + i);
+    
+    const dateStr = getDateString(dayDate);
+    const dayNum = dayDate.getDate();
+    
+    const isToday = dayDate.getDate() === today.getDate() &&
+                    dayDate.getMonth() === today.getMonth() &&
+                    dayDate.getFullYear() === today.getFullYear();
+                    
+    if (isToday) {
+      // Calculate today's eaten percent
+      const todayFood = appState.logs[dateStr] || [];
+      let todayCal = 0;
+      todayFood.forEach(item => todayCal += Number(item.calories || 0));
+      const goalCal = appState.goals.calories;
+      const percent = Math.min(100, Math.round((todayCal / goalCal) * 100));
+      const strokeDashoffset = 100 - percent;
+      
+      html += `
+        <div class="cal-day current">
+          <span class="cal-current-label">Dnes</span>
+          <div class="cal-circle current-day">
+            <svg class="cal-arc" viewBox="0 0 36 36">
+              <circle class="arc-bg" cx="18" cy="18" r="16"></circle>
+              <circle class="arc-fill" cx="18" cy="18" r="16" stroke-dasharray="100" stroke-dashoffset="${strokeDashoffset}"></circle>
+            </svg>
+            <span class="cal-date">${dayNum}</span>
+          </div>
+        </div>`;
+    } else {
+      const hasLogs = appState.logs[dateStr] && appState.logs[dateStr].length > 0;
+      let circleClass = 'future';
+      if (hasLogs) {
+        // Calculate calories eaten
+        let dayCal = 0;
+        appState.logs[dateStr].forEach(item => dayCal += Number(item.calories || 0));
+        if (dayCal > 0) {
+          circleClass = 'active-goal';
+        }
+      }
+      
+      html += `
+        <div class="cal-day">
+          <span>${dayLabels[i]}</span>
+          <div class="cal-circle ${circleClass}">${dayNum}</div>
+        </div>`;
+    }
+  }
+  
+  calendarRow.innerHTML = html;
+}
+
+window.navigateToManualAddFood = function(categoryId) {
+  // Find the fab and click it to go to screen-add
+  const fab = document.querySelector('.nav-fab');
+  if (fab) {
+    fab.click();
+  }
+  
+  // Find manual tab button and click it
+  const manualTabBtn = document.getElementById('tab-btn-manual');
+  if (manualTabBtn) {
+    manualTabBtn.click();
+  }
+  
+  // Set dropdown value
+  const categorySelect = document.getElementById('input-food-category');
+  if (categorySelect) {
+    categorySelect.value = categoryId;
+  }
+};
+
+
 function formatCzechDate(dateStr) {
   const [year, month, day] = dateStr.split('-');
   const dateObj = new Date(year, month - 1, day);
@@ -122,6 +237,7 @@ function showToast(message) {
 // UI RENDERING - DASHBOARD
 // ==========================================================================
 function renderDashboard() {
+  updateCalendarRow();
   const todayStr = getTodayDateString();
   const todayFood = appState.logs[todayStr] || [];
   
@@ -191,42 +307,84 @@ function renderDashboard() {
   const foodListContainer = document.getElementById('meals-list-container');
   foodListContainer.innerHTML = '';
   
-  if (todayFood.length === 0) {
-    foodListContainer.innerHTML = `
-      <div style="text-align:center; padding: 20px; color: var(--text-secondary);">
-        Zatím žádná jídla. Přidej je tlačítkem +!
-      </div>`;
-  } else {
-    todayFood.forEach((item, index) => {
-      const row = document.createElement('div');
-      row.className = 'meal-card';
-      
-      const amountStr = item.amount ? ` • ${item.amount}` : '';
-      const icon = item.name.toLowerCase().includes('drink') ? '💧' : '🍽️';
-      
-      row.innerHTML = `
-        <div class="meal-left">
-          <div class="meal-icon">${icon}</div>
-          <div class="meal-details">
-            <span class="meal-name">${item.name}</span>
-            <span class="meal-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
-          </div>
-        </div>
-        <div class="meal-actions">
-          <button class="btn-more btn-delete-food" data-index="${index}">×</button>
-        </div>`;
-      
-      foodListContainer.appendChild(row);
+  const categories = [
+    { id: 'Breakfast', name: 'Snídaně', icon: '🥣' },
+    { id: 'Morning snack', name: 'Dopolední svačina', icon: '🥪' },
+    { id: 'Lunch', name: 'Oběd', icon: '🍛' },
+    { id: 'Afternoon snack', name: 'Odpolední svačina', icon: '🥪' },
+    { id: 'Dinner', name: 'Večeře', icon: '🍽️' },
+    { id: 'Second dinner', name: 'Druhá večeře', icon: '🍽️' }
+  ];
+  
+  categories.forEach(cat => {
+    const catItems = todayFood.filter(item => getFoodCategory(item) === cat.id);
+    
+    // Calculate category totals
+    let catCal = 0;
+    let catP = 0;
+    let catC = 0;
+    let catF = 0;
+    
+    catItems.forEach(item => {
+      catCal += Number(item.calories || 0);
+      catP += Number(item.protein || 0);
+      catC += Number(item.carbs || 0);
+      catF += Number(item.fat || 0);
     });
     
-    // Add event listeners to delete buttons
-    foodListContainer.querySelectorAll('.btn-delete-food').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const index = parseInt(e.target.getAttribute('data-index'));
-        deleteFoodItem(index);
-      });
+    catCal = Math.round(catCal);
+    catP = Math.round(catP * 10) / 10;
+    catC = Math.round(catC * 10) / 10;
+    catF = Math.round(catF * 10) / 10;
+    
+    // Macros string
+    let macroStr = '';
+    if (catItems.length > 0) {
+      macroStr = `${catCal} kcal (B:${catP}g S:${catC}g T:${catF}g)`;
+    }
+    
+    const catCard = document.createElement('div');
+    catCard.className = 'meal-card category-header';
+    
+    catCard.innerHTML = `
+      <div class="meal-left">
+        <div class="meal-icon">${cat.icon}</div>
+        <div class="meal-details">
+          <span class="meal-name">${cat.name}</span>
+          <span class="meal-macros">${macroStr}</span>
+        </div>
+      </div>
+      <div class="meal-actions">
+        <button class="btn-add-meal" onclick="window.navigateToManualAddFood('${cat.id}')">+</button>
+      </div>`;
+      
+    foodListContainer.appendChild(catCard);
+    
+    // Now render items in this category
+    catItems.forEach(item => {
+      const subItem = document.createElement('div');
+      subItem.className = 'meal-sub-item';
+      
+      const amountStr = item.amount ? ` • ${item.amount}` : '';
+      
+      subItem.innerHTML = `
+        <div class="meal-sub-details">
+          <span class="meal-sub-name">${item.name}</span>
+          <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+        </div>
+        <button class="btn-delete-sub-food" data-id="${item.id}">×</button>`;
+        
+      foodListContainer.appendChild(subItem);
     });
-  }
+  });
+  
+  // Add click listeners to delete buttons
+  foodListContainer.querySelectorAll('.btn-delete-sub-food').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const foodId = e.target.getAttribute('data-id');
+      deleteFoodItem(foodId);
+    });
+  });
 
   // Render Water Intake
   const todayWater = appState.water[todayStr] || 0;
@@ -245,20 +403,23 @@ function renderDashboard() {
   if (weightTargetEl) weightTargetEl.innerText = `cíl ${appState.weightTarget.toString().replace('.', ',')} kg`;
 }
 
-function deleteFoodItem(index) {
+function deleteFoodItem(id) {
   const todayStr = getTodayDateString();
   if (appState.logs[todayStr]) {
-    const deletedName = appState.logs[todayStr][index].name;
-    appState.logs[todayStr].splice(index, 1);
-    
-    // Clean up empty day lists
-    if (appState.logs[todayStr].length === 0) {
-      delete appState.logs[todayStr];
+    const itemIndex = appState.logs[todayStr].findIndex(item => item.id === id);
+    if (itemIndex !== -1) {
+      const deletedName = appState.logs[todayStr][itemIndex].name;
+      appState.logs[todayStr].splice(itemIndex, 1);
+      
+      // Clean up empty day lists
+      if (appState.logs[todayStr].length === 0) {
+        delete appState.logs[todayStr];
+      }
+      
+      saveState();
+      renderDashboard();
+      showToast(`Smazáno: ${deletedName}`);
     }
-    
-    saveState();
-    renderDashboard();
-    showToast(`Smazáno: ${deletedName}`);
   }
 }
 
@@ -494,6 +655,22 @@ function initNavigation() {
           renderHistory();
         } else if (targetScreenId === 'screen-settings') {
           renderSettings();
+        } else if (targetScreenId === 'screen-add') {
+          // Pre-select category based on current time
+          const now = new Date();
+          const hour = now.getHours();
+          let categoryId = 'Breakfast';
+          if (hour >= 5 && hour < 10) categoryId = 'Breakfast';
+          else if (hour >= 10 && hour < 12) categoryId = 'Morning snack';
+          else if (hour >= 12 && hour < 15) categoryId = 'Lunch';
+          else if (hour >= 15 && hour < 18) categoryId = 'Afternoon snack';
+          else if (hour >= 18 && hour < 22) categoryId = 'Dinner';
+          else categoryId = 'Second dinner';
+          
+          const categorySelect = document.getElementById('input-food-category');
+          if (categorySelect) {
+            categorySelect.value = categoryId;
+          }
         }
       } else {
         screen.classList.remove('active');
@@ -955,6 +1132,7 @@ function initFormHandlers() {
     
     const name = document.getElementById('input-food-name').value.trim();
     const calories = parseInt(document.getElementById('input-food-cal').value) || 0;
+    const category = document.getElementById('input-food-category').value;
     const amount = document.getElementById('input-food-amount').value.trim() || '';
     const protein = parseFloat(document.getElementById('input-food-p').value) || 0;
     const carbs = parseFloat(document.getElementById('input-food-c').value) || 0;
@@ -969,21 +1147,22 @@ function initFormHandlers() {
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     
     appState.logs[todayStr].push({
-      id: Date.now().toString(36),
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
       time: timeStr,
       name,
       amount,
       calories,
       protein,
       carbs,
-      fat
+      fat,
+      category
     });
     
     saveState();
     manualForm.reset();
     
     // Go to dashboard
-    const dashTab = document.querySelector('.tab-btn[data-screen="dashboard"]');
+    const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
     if (dashTab) dashTab.click();
     
     showToast(`Přidáno: ${name}`);
@@ -1001,7 +1180,7 @@ function initFormHandlers() {
       showToast("Data aplikace byla vymazána.");
       
       // Navigate to dashboard
-      const dashTab = document.querySelector('.tab-btn[data-screen="dashboard"]');
+      const dashTab = document.querySelector('.nav-item[data-screen="dashboard"]');
       if (dashTab) dashTab.click();
     }
   });

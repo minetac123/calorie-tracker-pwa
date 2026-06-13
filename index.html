@@ -109,7 +109,6 @@
             <div class="ring-sub-val" id="dash-target">/ 2000 kcal</div>
             <div class="ring-percent" id="dash-percent">0 %</div>
           </div>
-          <div class="streak-badge">🏆 1 den v řadě</div>
         </div>
 
         <div class="side-stat right">
@@ -201,90 +200,7 @@
         </div>
         
         <div class="meals-list" id="meals-list-container">
-          <!-- Breakfast -->
-          <div class="meal-card" data-meal="Breakfast">
-            <div class="meal-left">
-              <div class="meal-icon">🥣</div>
-              <div class="meal-details">
-                <span class="meal-name">Snídaně</span>
-                <span class="meal-macros" id="macros-Breakfast"></span>
-              </div>
-            </div>
-            <div class="meal-actions">
-              <button class="btn-more">•••</button>
-              <button class="btn-add-meal">+</button>
-            </div>
-          </div>
-          <!-- Morning snack -->
-          <div class="meal-card" data-meal="Morning snack">
-            <div class="meal-left">
-              <div class="meal-icon">🥪</div>
-              <div class="meal-details">
-                <span class="meal-name">Dopolední svačina</span>
-                <span class="meal-macros" id="macros-Morning-snack"></span>
-              </div>
-            </div>
-            <div class="meal-actions">
-              <button class="btn-more">•••</button>
-              <button class="btn-add-meal">+</button>
-            </div>
-          </div>
-          <!-- Lunch -->
-          <div class="meal-card" data-meal="Lunch">
-            <div class="meal-left">
-              <div class="meal-icon">🍛</div>
-              <div class="meal-details">
-                <span class="meal-name">Oběd</span>
-                <span class="meal-macros" id="macros-Lunch"></span>
-              </div>
-            </div>
-            <div class="meal-actions">
-              <button class="btn-more">•••</button>
-              <button class="btn-add-meal">+</button>
-            </div>
-          </div>
-          <!-- Afternoon snack -->
-          <div class="meal-card" data-meal="Afternoon snack">
-            <div class="meal-left">
-              <div class="meal-icon">🥪</div>
-              <div class="meal-details">
-                <span class="meal-name">Odpolední svačina</span>
-                <span class="meal-macros" id="macros-Afternoon-snack"></span>
-              </div>
-            </div>
-            <div class="meal-actions">
-              <button class="btn-more">•••</button>
-              <button class="btn-add-meal">+</button>
-            </div>
-          </div>
-          <!-- Dinner -->
-          <div class="meal-card" data-meal="Dinner">
-            <div class="meal-left">
-              <div class="meal-icon">🍽️</div>
-              <div class="meal-details">
-                <span class="meal-name">Večeře</span>
-                <span class="meal-macros" id="macros-Dinner"></span>
-              </div>
-            </div>
-            <div class="meal-actions">
-              <button class="btn-more">•••</button>
-              <button class="btn-add-meal">+</button>
-            </div>
-          </div>
-          <!-- Second dinner -->
-          <div class="meal-card" data-meal="Second dinner">
-            <div class="meal-left">
-              <div class="meal-icon">🍽️</div>
-              <div class="meal-details">
-                <span class="meal-name">Druhá večeře</span>
-                <span class="meal-macros" id="macros-Second-dinner"></span>
-              </div>
-            </div>
-            <div class="meal-actions">
-              <button class="btn-more">•••</button>
-              <button class="btn-add-meal">+</button>
-            </div>
-          </div>
+          <!-- Dynamicky načítané položky jídelníčku podle kategorií -->
         </div>
       </div>
 
@@ -364,6 +280,17 @@
           <div class="form-group">
             <label>Název jídla</label>
             <input type="text" id="input-food-name" required>
+          </div>
+          <div class="form-group">
+            <label>Kategorie</label>
+            <select id="input-food-category" required>
+              <option value="Breakfast">Snídaně</option>
+              <option value="Morning snack">Dopolední svačina</option>
+              <option value="Lunch">Oběd</option>
+              <option value="Afternoon snack">Odpolední svačina</option>
+              <option value="Dinner">Večeře</option>
+              <option value="Second dinner">Druhá večeře</option>
+            </select>
           </div>
           <div class="form-row-2">
             <div class="form-group">
