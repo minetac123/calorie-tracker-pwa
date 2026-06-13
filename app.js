@@ -1760,16 +1760,19 @@ function initBarcodeAndSearch() {
         return;
       }
       
+      console.log('Vyhledávám čárový kód:', barcode);
       if (errorEl) errorEl.style.display = 'none';
       btnSearchBarcode.disabled = true;
       btnSearchBarcode.innerText = "Hledám...";
       
       try {
         const product = await fetchProductByBarcode(barcode);
+        console.log('Produkt nalezen:', product);
         stopBarcodeScanner();
         prefillManualFoodForm(product);
       } catch (err) {
-        console.error(err);
+        console.error('Chyba vyhledávání čárového kódu:', err);
+        alert("Chyba vyhledávání čárového kódu: " + err.message);
         if (errorEl) {
           errorEl.innerText = err.message || "Chyba při vyhledávání.";
           errorEl.style.display = 'block';
