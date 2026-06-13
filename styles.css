@@ -1250,3 +1250,66 @@ input:focus, textarea:focus {
   transform: translate(-50%, 0);
   opacity: 1;
 }
+
+/* ==========================================================================
+   AI SCANNER MULTI-CHOICES STYLING
+   ========================================================================== */
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.option-card {
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.option-card:active {
+  transform: scale(0.98);
+}
+
+.option-card.active {
+  background-color: rgba(16, 185, 129, 0.08);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+}
+
+.option-card-left {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  gap: 2px;
+}
+
+.option-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.option-card-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.option-card-cal {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--color-calorie);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.option-card.active .option-card-cal {
+  color: var(--color-primary);
+}
+

@@ -17,6 +17,8 @@ let appState = {
 // Temporary store for AI scanning review
 let tempDetectedItems = [];
 let currentPhotoBase64 = null;
+let currentGeminiData = null; // Store full response from Gemini
+let selectedOptionIndex = 0;  // Currently selected option index
 
 // ==========================================================================
 // STORAGE FUNCTIONS
@@ -514,30 +516,16 @@ async function callGeminiAPI(textPrompt, imageBase64) {
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${appState.apiKey}`;
   
-  const systemInstructionText = `Jsi expert na výživu a nutriční hodnoty. Tvým úkolem je analyzovat vstup uživatele (který může být textový popis jídla, obrázek jídla, nebo obojí) a vrátit strukturovaná data o jídlech a jejich nutričních hodnotách v přesném formátu JSON.
+  const systemInstructionText = `Jsi expert na výživu a nutriční hodnoty. Tvým úkolem je analyzovat vstup uživatele a vrátit strukturovaná data o jídlech a jejich nutričních hodnotách v přesném formátu JSON.
 
 Pravidla pro výstup:
 1. Musíš vrátit pouze validní JSON objekt. Žádný doprovodný text, žádné markdown obaly (nepoužívej \`\`\`json ... \`\`\`).
-2. Pokud uživatel popsal/vyfotil více jídel nebo položek, rozděl je do pole "items".
-3. U každé položky uveď:
-   - "name": český jasný název suroviny/jídla (např. "Kuřecí prsa grilovaná", "Bramborová kaše", "Banán")
-   - "amount": odhadované množství v gramech nebo kusech (např. "150g", "1 střední kus", "200ml")
-   - "calories": odhadovaná energetická hodnota v kcal (celé číslo)
-   - "protein": bílkoviny v gramech (číslo)
-   - "carbs": sacharidy v gramech (číslo)
-   - "fat": tuky v gramech (číslo)
-4. V objektu musí být také souhrn v klíči "total":
-   - "calories": celkový součet kalorií
-   - "protein": celkový součet bílkovin
-   - "carbs": celkový součet sacharidů
-   - "fat": celkový součet tuků
-5. Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať JSON s prázdným polem "items" a nulovými hodnotami v "total".
-
-Formát JSON, který MUSÍŠ přesně dodržet:
+2. Pokud uživatel zadal POUZE TEXT, odhadni nutriční hodnoty a uveď seznam jídel v poli "items" (formát type "text_result"):
 {
+  "type": "text_result",
   "items": [
     {
-      "name": "Název jídla",
+      "name": "český název jídla/suroviny",
       "amount": "100g",
       "calories": 120,
       "protein": 5.5,
@@ -551,7 +539,33 @@ Formát JSON, který MUSÍŠ přesně dodržet:
     "carbs": 12.0,
     "fat": 3.2
   }
-}`;
+}
+
+3. Pokud uživatel nahrál OBRÁZEK (volitelně doplněný textem), odhadni, co je na fotce. Protože z fotky nelze přesně určit suroviny, navrhni přesně 3 NEJPRAVDĚPODOBNĚJŠÍ varianty jídla (např. 1. odlehčená/zdravější verze, 2. standardní verze, 3. kaloričtější verze s omáčkou/olejem apod.). Vrať JSON v tomto formátu (formát type "image_choices"):
+{
+  "type": "image_choices",
+  "choices": [
+    {
+      "option_name": "Název 1. varianty (např. Grilované kuřecí prso s rýží a salátem)",
+      "items": [
+        { "name": "Kuřecí prsa grilovaná", "amount": "150g", "calories": 165, "protein": 31.0, "carbs": 0.0, "fat": 3.6 }
+      ],
+      "total": { "calories": 165, "protein": 31.0, "carbs": 0.0, "fat": 3.6 }
+    },
+    {
+      "option_name": "Název 2. varianty (např. Smažený kuřecí řízek s bramborovou kaší)",
+      "items": [ ... ],
+      "total": { ... }
+    },
+    {
+      "option_name": "Název 3. varianty (např. Kuřecí na kari se smetanou a rýží)",
+      "items": [ ... ],
+      "total": { ... }
+    }
+  ]
+}
+
+Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdný text_result s nulovými hodnotami.`;
 
   // Assemble Gemini Parts
   const parts = [];
@@ -578,7 +592,7 @@ Formát JSON, který MUSÍŠ přesně dodržet:
       }
     });
     
-    parts.push({ text: "Odhadni názvy, váhy a nutriční hodnoty (bílkoviny, sacharidy, tuky a kalorie) pro všechna jídla zobrazená na fotce." });
+    parts.push({ text: "Odhadni 3 nejčastější varianty jídla zobrazeného na fotce a rozepiš je podle pravidel." });
   }
 
   const payload = {
@@ -642,7 +656,64 @@ Formát JSON, který MUSÍŠ přesně dodržet:
 // AI REVIEW MODAL CONTROLS
 // ==========================================================================
 function openReviewModal(geminiData) {
-  tempDetectedItems = geminiData.items || [];
+  currentGeminiData = geminiData;
+  selectedOptionIndex = 0;
+  
+  const optionsContainer = document.getElementById('ai-options-container');
+  const modalSubtitle = document.getElementById('ai-modal-subtitle');
+  
+  if (geminiData.type === 'image_choices' && geminiData.choices && geminiData.choices.length > 0) {
+    optionsContainer.style.display = 'flex';
+    optionsContainer.innerHTML = '';
+    
+    // Set subtitle text
+    modalSubtitle.innerText = "Vyber si jednu ze 3 variant odhadu AI a zkontroluj ji:";
+    
+    // Initialize with first choice's items (deep clone)
+    tempDetectedItems = JSON.parse(JSON.stringify(geminiData.choices[0].items));
+    
+    // Render options list cards
+    geminiData.choices.forEach((choice, index) => {
+      const card = document.createElement('div');
+      card.className = `option-card${index === 0 ? ' active' : ''}`;
+      card.setAttribute('data-index', index);
+      
+      const itemWord = choice.items.length === 1 ? 'položka' : (choice.items.length < 5 ? 'položky' : 'položek');
+      
+      card.innerHTML = `
+        <div class="option-card-left">
+          <span class="option-card-title">${choice.option_name}</span>
+          <span class="option-card-subtitle">${choice.items.length} ${itemWord}</span>
+        </div>
+        <span class="option-card-cal">${choice.total.calories} kcal</span>
+      `;
+      
+      card.addEventListener('click', () => {
+        selectedOptionIndex = index;
+        
+        // Toggle active class on cards
+        optionsContainer.querySelectorAll('.option-card').forEach((c, idx) => {
+          c.classList.toggle('active', idx === index);
+        });
+        
+        // Load items of chosen option
+        tempDetectedItems = JSON.parse(JSON.stringify(geminiData.choices[index].items));
+        
+        // Re-render items
+        renderReviewModal();
+      });
+      
+      optionsContainer.appendChild(card);
+    });
+  } else {
+    // Hide option selector if it is a text-only scan
+    optionsContainer.style.display = 'none';
+    modalSubtitle.innerText = "Prověř a uprav položky, které Gemini AI rozpoznala:";
+    
+    // Use simple items array
+    tempDetectedItems = geminiData.items || [];
+  }
+  
   renderReviewModal();
   document.getElementById('ai-review-modal').classList.add('active');
 }

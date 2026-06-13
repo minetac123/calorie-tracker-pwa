@@ -307,7 +307,10 @@
         <button class="modal-close" id="btn-close-modal">×</button>
       </div>
       <div class="modal-body">
-        <p class="modal-subtitle">Prověř a uprav položky, které Gemini AI rozpoznala:</p>
+        <!-- AI Multiple Options Selector -->
+        <div id="ai-options-container" class="options-list" style="display: none;"></div>
+
+        <p class="modal-subtitle" id="ai-modal-subtitle">Prověř a uprav položky, které Gemini AI rozpoznala:</p>
         
         <div id="ai-detected-list" class="detected-items-list">
           <!-- Dynamically filled with food items -->
