@@ -2107,7 +2107,16 @@ function initBarcodeAndSearch() {
     { name: "Tvaroh měkký odtučněný", calories: 68, protein: 12, carbs: 4, fat: 0.1, amount: "100g", baseUnit: "g" },
     { name: "Šunka nejvyšší jakosti (kuřecí)", calories: 98, protein: 19, carbs: 1, fat: 2, amount: "100g", baseUnit: "g" },
     { name: "Mozzarella (125g)", calories: 300, protein: 22, carbs: 1, fat: 22, amount: "125g", baseUnit: "g" },
-    { name: "Cottage sýr (bílý)", calories: 98, protein: 11, carbs: 3, fat: 4.5, amount: "100g", baseUnit: "g" }
+    { name: "Cottage sýr (bílý)", calories: 98, protein: 11, carbs: 3, fat: 4.5, amount: "100g", baseUnit: "g" },
+    { name: "Mandarinka (čerstvá)", calories: 53, protein: 0.8, carbs: 13.3, fat: 0.3, amount: "100g", baseUnit: "g" },
+    { name: "Párek (kuřecí/vepřový)", calories: 250, protein: 12, carbs: 2, fat: 22, amount: "100g", baseUnit: "g" },
+    { name: "Sýr Gouda 48%", calories: 356, protein: 23, carbs: 0, fat: 29, amount: "100g", baseUnit: "g" },
+    { name: "Pivo (světlé výčepní 10°)", calories: 37, protein: 0.3, carbs: 3.1, fat: 0, amount: "100ml", baseUnit: "ml" },
+    { name: "Pivo (světlý ležák 12°)", calories: 44, protein: 0.4, carbs: 3.8, fat: 0, amount: "100ml", baseUnit: "ml" },
+    { name: "Víno (bílé suché)", calories: 73, protein: 0.1, carbs: 2, fat: 0, amount: "100ml", baseUnit: "ml" },
+    { name: "Čokoláda mléčná", calories: 535, protein: 7.5, carbs: 59, fat: 30, amount: "100g", baseUnit: "g" },
+    { name: "Med", calories: 304, protein: 0.3, carbs: 82, fat: 0, amount: "100g", baseUnit: "g" },
+    { name: "Marmeláda/Džem", calories: 250, protein: 0.5, carbs: 60, fat: 0.1, amount: "100g", baseUnit: "g" }
   ];
 
   if (btnDbSearch && inputDbSearch && dbResultsContainer) {
@@ -2234,8 +2243,8 @@ function initBarcodeAndSearch() {
         renderSearchResults(currentLocalMatches, products, false);
       } catch (err) {
         if (err.name === 'AbortError') return;
-        console.error(err);
-        // Only show error if we have no local matches
+        console.error('API Error:', err);
+        // Only show error if we have ZERO local matches
         renderSearchResults(currentLocalMatches, [], currentLocalMatches.length === 0);
       } finally {
         btnDbSearch.disabled = false;
