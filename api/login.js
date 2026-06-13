@@ -1,11 +1,8 @@
 const { list } = require('@vercel/blob');
+const crypto = require('crypto');
 
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + '_fitai_salt_2026');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + '_fitai_salt_2026').digest('hex');
 }
 
 function generateToken(username) {
@@ -45,7 +42,7 @@ module.exports = async function handler(req, res) {
     const userData = await userResp.json();
 
     // Verify password
-    const hashedPassword = await hashPassword(password);
+    const hashedPassword = hashPassword(password);
     if (userData.password !== hashedPassword) {
       return res.status(401).json({ error: 'Špatné heslo' });
     }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fitai-cache-v5';
+const CACHE_NAME = 'fitai-cache-v6';
 const ASSETS = [
   '/index.html',
   '/styles.css',
@@ -56,13 +56,19 @@ self.addEventListener('activate', (e) => {
 
 // Fetch events
 self.addEventListener('fetch', (e) => {
-  // Ignore Gemini API calls and external URLs
-  if (e.request.url.includes('generativelanguage.googleapis.com')) {
+  const url = new URL(e.request.url);
+
+  // Ignore Vercel Serverless API calls and Gemini API calls
+  if (url.pathname.startsWith('/api/') || e.request.url.includes('generativelanguage.googleapis.com')) {
+    return;
+  }
+
+  // Only handle GET requests (Cache API doesn't support POST, etc.)
+  if (e.request.method !== 'GET') {
     return;
   }
 
   let requestToMatch = e.request;
-  const url = new URL(e.request.url);
   
   // If requesting root "/", serve "/index.html" from the cache
   if (url.origin === location.origin && url.pathname === '/') {

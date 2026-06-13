@@ -43,6 +43,18 @@ function loadState() {
       if (!appState.logs) {
         appState.logs = {};
       }
+      if (!appState.water) {
+        appState.water = {};
+      }
+      if (appState.weight === undefined) {
+        appState.weight = 75.6;
+      }
+      if (appState.weightTarget === undefined) {
+        appState.weightTarget = 70.0;
+      }
+      if (!appState.weightLogs) {
+        appState.weightLogs = [];
+      }
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
       resetState();
@@ -61,7 +73,11 @@ function resetState() {
       carbs: 220,
       fat: 65
     },
-    logs: {}
+    logs: {},
+    water: {},
+    weight: 75.6,
+    weightTarget: 70.0,
+    weightLogs: []
   };
   saveState();
 }
@@ -211,6 +227,22 @@ function renderDashboard() {
       });
     });
   }
+
+  // Render Water Intake
+  const todayWater = appState.water[todayStr] || 0;
+  const targetWater = 3; // default target 3 liters
+  const waterPct = Math.min(100, Math.round((todayWater / targetWater) * 100));
+  
+  const waterCurrentEl = document.querySelector('.water-current');
+  const waterBarFillEl = document.querySelector('.water-bar-fill');
+  if (waterCurrentEl) waterCurrentEl.innerText = `${todayWater.toFixed(2).replace('.', ',')} l`;
+  if (waterBarFillEl) waterBarFillEl.style.width = `${waterPct}%`;
+
+  // Render Weight
+  const weightCurrentEl = document.querySelector('.weight-card .weight-current');
+  const weightTargetEl = document.querySelector('.weight-card .weight-target');
+  if (weightCurrentEl) weightCurrentEl.innerText = `${appState.weight.toString().replace('.', ',')} kg`;
+  if (weightTargetEl) weightTargetEl.innerText = `cíl ${appState.weightTarget.toString().replace('.', ',')} kg`;
 }
 
 function deleteFoodItem(index) {
@@ -235,83 +267,126 @@ function deleteFoodItem(index) {
 // ==========================================================================
 function renderHistory() {
   const historyContainer = document.getElementById('history-container');
-  historyContainer.innerHTML = '';
-  
-  // Sort log dates descending
-  const dates = Object.keys(appState.logs).sort().reverse();
-  
-  if (dates.length === 0) {
-    historyContainer.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📅</div>
-        <p>Žádná historie. Zapiš si první jídlo dnes!</p>
-      </div>`;
-    return;
-  }
-  
-  dates.forEach(dateStr => {
-    const dailyItems = appState.logs[dateStr] || [];
+  if (historyContainer) {
+    historyContainer.innerHTML = '';
     
-    let totalCal = 0;
-    let totalP = 0;
-    let totalC = 0;
-    let totalF = 0;
+    // Sort log dates descending
+    const dates = Object.keys(appState.logs).sort().reverse();
     
-    dailyItems.forEach(item => {
-      totalCal += Number(item.calories || 0);
-      totalP += Number(item.protein || 0);
-      totalC += Number(item.carbs || 0);
-      totalF += Number(item.fat || 0);
-    });
-    
-    totalP = Math.round(totalP * 10) / 10;
-    totalC = Math.round(totalC * 10) / 10;
-    totalF = Math.round(totalF * 10) / 10;
-    
-    const card = document.createElement('div');
-    card.className = 'card history-day-card';
-    
-    // Check if it is today
-    const displayName = dateStr === getTodayDateString() ? 'Dnes' : formatCzechDate(dateStr);
-    
-    let foodListHtml = '';
-    dailyItems.forEach(item => {
-      const amountStr = item.amount ? ` (${item.amount})` : '';
-      foodListHtml += `
-        <div class="history-food-item">
-          <span class="history-food-name">${item.name}${amountStr}</span>
-          <span class="history-food-cal">${item.calories} kcal</span>
+    if (dates.length === 0) {
+      historyContainer.innerHTML = `
+        <div class="empty-state" style="padding: 20px 0;">
+          <div class="empty-icon">📅</div>
+          <p>Žádná historie. Zapiš si první jídlo dnes!</p>
         </div>`;
-    });
-    
-    card.innerHTML = `
-      <div class="history-day-header">
-        <div class="history-day-info">
-          <div class="history-day-title">${displayName}</div>
-          <div class="history-day-summary-row">
-            <div class="history-day-macros">
-              <span>B: ${totalP}g</span>
-              <span>S: ${totalC}g</span>
-              <span>T: ${totalF}g</span>
+    } else {
+      dates.forEach(dateStr => {
+        const dailyItems = appState.logs[dateStr] || [];
+        
+        let totalCal = 0;
+        let totalP = 0;
+        let totalC = 0;
+        let totalF = 0;
+        
+        dailyItems.forEach(item => {
+          totalCal += Number(item.calories || 0);
+          totalP += Number(item.protein || 0);
+          totalC += Number(item.carbs || 0);
+          totalF += Number(item.fat || 0);
+        });
+        
+        totalP = Math.round(totalP * 10) / 10;
+        totalC = Math.round(totalC * 10) / 10;
+        totalF = Math.round(totalF * 10) / 10;
+        
+        const card = document.createElement('div');
+        card.className = 'dark-card history-day-card';
+        
+        // Check if it is today
+        const displayName = dateStr === getTodayDateString() ? 'Dnes' : formatCzechDate(dateStr);
+        
+        let foodListHtml = '';
+        dailyItems.forEach(item => {
+          const amountStr = item.amount ? ` (${item.amount})` : '';
+          foodListHtml += `
+            <div class="history-food-item">
+              <span class="history-food-name">${item.name}${amountStr}</span>
+              <span class="history-food-cal">${item.calories} kcal</span>
+            </div>`;
+        });
+        
+        card.innerHTML = `
+          <div class="history-day-header">
+            <div class="history-day-info">
+              <div class="history-day-title">${displayName}</div>
+              <div class="history-day-summary-row">
+                <div class="history-day-macros">
+                  <span>B: ${totalP}g</span>
+                  <span>S: ${totalC}g</span>
+                  <span>T: ${totalF}g</span>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span class="history-day-cal">${totalCal} kcal</span>
+              <span class="history-day-arrow">▶</span>
             </div>
           </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <span class="history-day-cal">${totalCal} kcal</span>
-          <span class="history-day-arrow">▶</span>
-        </div>
-      </div>
-      <div class="history-day-details">
-        ${foodListHtml}
-      </div>`;
+          <div class="history-day-details">
+            ${foodListHtml}
+          </div>`;
+        
+        // Click toggle expand
+        card.querySelector('.history-day-header').addEventListener('click', () => {
+          card.classList.toggle('expanded');
+        });
+        
+        historyContainer.appendChild(card);
+      });
+    }
+  }
+
+  // Render weight logs
+  const weightContainer = document.getElementById('weight-history-list');
+  if (weightContainer) {
+    weightContainer.innerHTML = '';
+    const weightLogs = appState.weightLogs || [];
     
-    // Click toggle expand
-    card.querySelector('.history-day-header').addEventListener('click', () => {
-      card.classList.toggle('expanded');
-    });
-    
-    historyContainer.appendChild(card);
-  });
+    if (weightLogs.length === 0) {
+      weightContainer.innerHTML = `
+        <div class="empty-state" style="padding: 20px 0; text-align: center;">
+          <div class="empty-icon">⚖️</div>
+          <p style="color: var(--text-secondary); font-size: 14px; margin-top: 8px;">Zatím žádné záznamy o váze.</p>
+        </div>`;
+    } else {
+      weightLogs.forEach((log, index) => {
+        const item = document.createElement('div');
+        item.className = 'weight-history-item';
+        item.innerHTML = `
+          <span class="weight-history-date">${formatCzechDate(log.date)}</span>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span class="weight-history-val">${log.weight.toString().replace('.', ',')} kg</span>
+            <button class="btn-delete-weight" data-index="${index}" style="background:none; border:none; color:var(--color-danger); cursor:pointer; font-size: 16px;">×</button>
+          </div>
+        `;
+        
+        item.querySelector('.btn-delete-weight').addEventListener('click', () => {
+          if (confirm("Opravdu chceš smazat tento záznam o váze?")) {
+            appState.weightLogs.splice(index, 1);
+            if (index === 0) {
+              appState.weight = appState.weightLogs.length > 0 ? appState.weightLogs[0].weight : 75.6;
+            }
+            saveState();
+            renderDashboard();
+            renderHistory();
+            showToast("Záznam o váze smazán.");
+          }
+        });
+        
+        weightContainer.appendChild(item);
+      });
+    }
+  }
 }
 
 // ==========================================================================
@@ -353,12 +428,58 @@ function initNavigation() {
   const screens = document.querySelectorAll('.app-screen');
   const fab = document.querySelector('.nav-fab');
   
-  function switchScreen(targetScreenId) {
+  // History screen inner tabs
+  const tabHistoryMeals = document.getElementById('tab-history-meals');
+  const tabHistoryProgress = document.getElementById('tab-history-progress');
+  const viewHistoryMeals = document.getElementById('history-meals-view');
+  const viewHistoryProgress = document.getElementById('history-progress-view');
+  const historyTitle = document.getElementById('history-screen-title');
+
+  function showHistoryTab(tabType) {
+    if (!tabHistoryMeals || !tabHistoryProgress) return;
+    if (tabType === 'meals') {
+      tabHistoryMeals.classList.add('active');
+      tabHistoryProgress.classList.remove('active');
+      if (viewHistoryMeals) {
+        viewHistoryMeals.classList.add('active');
+        viewHistoryMeals.style.display = 'block';
+      }
+      if (viewHistoryProgress) {
+        viewHistoryProgress.classList.remove('active');
+        viewHistoryProgress.style.display = 'none';
+      }
+      if (historyTitle) historyTitle.innerText = "Moje historie";
+    } else {
+      tabHistoryProgress.classList.add('active');
+      tabHistoryMeals.classList.remove('active');
+      if (viewHistoryProgress) {
+        viewHistoryProgress.classList.add('active');
+        viewHistoryProgress.style.display = 'block';
+      }
+      if (viewHistoryMeals) {
+        viewHistoryMeals.classList.remove('active');
+        viewHistoryMeals.style.display = 'none';
+      }
+      if (historyTitle) historyTitle.innerText = "Vývoj váhy";
+    }
+  }
+
+  if (tabHistoryMeals && tabHistoryProgress) {
+    tabHistoryMeals.addEventListener('click', () => showHistoryTab('meals'));
+    tabHistoryProgress.addEventListener('click', () => showHistoryTab('progress'));
+  }
+  
+  function switchScreen(targetScreenId, tabType) {
     // Update Tab active states
     tabs.forEach(t => t.classList.remove('active'));
     
     // Find the corresponding tab and activate it, if any
-    const matchingTab = document.querySelector(`.nav-item[data-screen="${targetScreenId.replace('screen-', '')}"]`);
+    let matchingTab;
+    if (targetScreenId === 'screen-history') {
+      matchingTab = document.getElementById(tabType === 'progress' ? 'nav-progres' : 'nav-jidla');
+    } else {
+      matchingTab = document.querySelector(`.nav-item[data-screen="${targetScreenId.replace('screen-', '')}"]`);
+    }
     if (matchingTab) matchingTab.classList.add('active');
     
     // Update Screen active states
@@ -369,6 +490,7 @@ function initNavigation() {
         if (targetScreenId === 'screen-dashboard') {
           renderDashboard();
         } else if (targetScreenId === 'screen-history') {
+          showHistoryTab(tabType || 'meals');
           renderHistory();
         } else if (targetScreenId === 'screen-settings') {
           renderSettings();
@@ -383,7 +505,8 @@ function initNavigation() {
     tab.addEventListener('click', () => {
       const screenAttr = tab.getAttribute('data-screen');
       if (screenAttr) {
-        switchScreen(`screen-${screenAttr}`);
+        const tabType = tab.id === 'nav-progres' ? 'progress' : 'meals';
+        switchScreen(`screen-${screenAttr}`, tabType);
       }
     });
   });
@@ -1017,6 +1140,14 @@ function initAuthHandlers() {
             appState.logs[dateKey] = cloudState.logs[dateKey];
           });
         }
+        if (cloudState.water) {
+          Object.keys(cloudState.water).forEach(dateKey => {
+            appState.water[dateKey] = cloudState.water[dateKey];
+          });
+        }
+        if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
+        if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
+        if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
         saveState();
       }
 
@@ -1048,7 +1179,11 @@ async function syncToCloud() {
     const dataToSync = {
       goals: appState.goals,
       logs: appState.logs,
-      apiKey: appState.apiKey
+      apiKey: appState.apiKey,
+      water: appState.water,
+      weight: appState.weight,
+      weightTarget: appState.weightTarget,
+      weightLogs: appState.weightLogs
     };
 
     await fetch('/api/sync', {
@@ -1083,6 +1218,15 @@ async function syncFromCloud() {
           appState.logs[dateKey] = cloudState.logs[dateKey];
         });
       }
+      if (cloudState.water) {
+        Object.keys(cloudState.water).forEach(dateKey => {
+          appState.water[dateKey] = cloudState.water[dateKey];
+        });
+      }
+      if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
+      if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
+      if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
+      
       saveState();
       renderDashboard();
       showToast('☁️ Data synchronizována z cloudu');
@@ -1142,6 +1286,51 @@ function init() {
   // Manual sync button
   const syncBtn = document.getElementById('btn-sync-cloud');
   if (syncBtn) syncBtn.addEventListener('click', syncFromCloud);
+
+  // Water Intake add button
+  const waterAddBtn = document.querySelector('.water-add');
+  if (waterAddBtn) {
+    waterAddBtn.addEventListener('click', () => {
+      const todayStr = getTodayDateString();
+      if (!appState.water[todayStr]) {
+        appState.water[todayStr] = 0;
+      }
+      appState.water[todayStr] += 0.25;
+      saveState();
+      renderDashboard();
+      showToast("Voda přidána (+250 ml) 💧");
+    });
+  }
+
+  // Weight edit button
+  const weightEditBtn = document.querySelector('.weight-card .btn-edit-extra');
+  if (weightEditBtn) {
+    weightEditBtn.addEventListener('click', () => {
+      const currentVal = prompt("Zadej svou aktuální váhu (kg):", appState.weight);
+      if (currentVal !== null) {
+        const parsedCurrent = parseFloat(currentVal.replace(',', '.'));
+        if (!isNaN(parsedCurrent) && parsedCurrent > 0) {
+          appState.weight = parsedCurrent;
+          
+          const todayStr = getTodayDateString();
+          appState.weightLogs = appState.weightLogs.filter(log => log.date !== todayStr);
+          appState.weightLogs.push({ date: todayStr, weight: parsedCurrent });
+          appState.weightLogs.sort((a, b) => b.date.localeCompare(a.date));
+
+          const targetVal = prompt("Zadej svou cílovou váhu (kg):", appState.weightTarget);
+          if (targetVal !== null) {
+            const parsedTarget = parseFloat(targetVal.replace(',', '.'));
+            if (!isNaN(parsedTarget) && parsedTarget > 0) {
+              appState.weightTarget = parsedTarget;
+            }
+          }
+          saveState();
+          renderDashboard();
+          showToast("Váha aktualizována! ⚖️");
+        }
+      }
+    });
+  }
 
   // Check if already logged in
   const session = getSession();
