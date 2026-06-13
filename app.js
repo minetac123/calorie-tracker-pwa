@@ -1822,9 +1822,9 @@ async function fetchProductByBarcode(barcode) {
   };
 }
 
-async function searchFoodDatabase(query) {
+async function searchFoodDatabase(query, signal) {
   const url = `/api/search?q=${encodeURIComponent(query)}`;
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   if (!response.ok) {
     throw new Error("Chyba vyhledávání v databázi.");
   }
@@ -2058,68 +2058,217 @@ function initBarcodeAndSearch() {
   const btnDbSearch = document.getElementById('btn-db-search');
   const dbResultsContainer = document.getElementById('db-search-results');
   
+  const LOCAL_COMMON_FOODS = [
+    { name: "Jablko (čerstvé)", calories: 52, protein: 0.3, carbs: 14, fat: 0.2, amount: "100g", baseUnit: "g" },
+    { name: "Banán (čerstvý)", calories: 89, protein: 1.1, carbs: 23, fat: 0.3, amount: "100g", baseUnit: "g" },
+    { name: "Vejce (slepičí, vařené)", calories: 155, protein: 13, carbs: 1.1, fat: 11, amount: "100g", baseUnit: "g" },
+    { name: "Vejce (slepičí, 1 kus ~ 50g)", calories: 78, protein: 6.5, carbs: 0.6, fat: 5.5, amount: "50g", baseUnit: "g" },
+    { name: "Kuřecí prsa (syrová)", calories: 120, protein: 22.5, carbs: 0, fat: 2.6, amount: "100g", baseUnit: "g" },
+    { name: "Kuřecí prsa (vařená/pečená)", calories: 165, protein: 31, carbs: 0, fat: 3.6, amount: "100g", baseUnit: "g" },
+    { name: "Rýže basmati (vařená)", calories: 130, protein: 2.7, carbs: 28, fat: 0.3, amount: "100g", baseUnit: "g" },
+    { name: "Rýže basmati (v suchém stavu)", calories: 350, protein: 7.5, carbs: 77, fat: 1, amount: "100g", baseUnit: "g" },
+    { name: "Brambory (vařené)", calories: 87, protein: 1.9, carbs: 20, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Brambory (pečené)", calories: 93, protein: 2.5, carbs: 21, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Rohlík (bílý standardní, 1 ks ~ 43g)", calories: 135, protein: 4, carbs: 25.5, fat: 1.5, amount: "43g", baseUnit: "g" },
+    { name: "Rohlík (bílý, 100g)", calories: 310, protein: 9, carbs: 59, fat: 3.5, amount: "100g", baseUnit: "g" },
+    { name: "Chléb Šumava", calories: 247, protein: 7.2, carbs: 50, fat: 1.2, amount: "100g", baseUnit: "g" },
+    { name: "Máslo (82% tuku)", calories: 717, protein: 0.8, carbs: 0.1, fat: 81, amount: "100g", baseUnit: "g" },
+    { name: "Polotučné mléko (1.5%)", calories: 47, protein: 3.3, carbs: 4.8, fat: 1.5, amount: "100ml", baseUnit: "ml" },
+    { name: "Plnotučné mléko (3.5%)", calories: 64, protein: 3.2, carbs: 4.7, fat: 3.5, amount: "100ml", baseUnit: "ml" },
+    { name: "Tvaroh polotučný (ve vaničce)", calories: 104, protein: 11, carbs: 4, fat: 3.5, amount: "100g", baseUnit: "g" },
+    { name: "Tvaroh odtučněný (ve vaničce)", calories: 68, protein: 12, carbs: 4, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Tvaroh tučný (ve vaničce)", calories: 141, protein: 9.5, carbs: 3.5, fat: 9, amount: "100g", baseUnit: "g" },
+    { name: "Eidamský sýr 30% t.v.s.", calories: 270, protein: 30, carbs: 1.5, fat: 15, amount: "100g", baseUnit: "g" },
+    { name: "Eidamský sýr 45% t.v.s.", calories: 340, protein: 26, carbs: 1.5, fat: 25, amount: "100g", baseUnit: "g" },
+    { name: "Šunka nejvyšší jakosti (vepřová)", calories: 110, protein: 19, carbs: 1, fat: 3, amount: "100g", baseUnit: "g" },
+    { name: "Bílý jogurt Klasik (2.7% tuku)", calories: 62, protein: 4.2, carbs: 5.2, fat: 2.7, amount: "100g", baseUnit: "g" },
+    { name: "Řecký jogurt 0% tuku", calories: 57, protein: 10, carbs: 3.6, fat: 0, amount: "100g", baseUnit: "g" },
+    { name: "Ovesné vločky jemné", calories: 372, protein: 13, carbs: 59, fat: 7, amount: "100g", baseUnit: "g" },
+    { name: "Špagety / Těstoviny (vařené)", calories: 158, protein: 5.8, carbs: 31, fat: 0.9, amount: "100g", baseUnit: "g" },
+    { name: "Těstoviny pšeničné (v suchém stavu)", calories: 360, protein: 12.5, carbs: 72, fat: 1.5, amount: "100g", baseUnit: "g" },
+    { name: "Okurka hadová (čerstvá)", calories: 15, protein: 0.7, carbs: 2.6, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Rajče (čerstvé)", calories: 18, protein: 0.9, carbs: 3.9, fat: 0.2, amount: "100g", baseUnit: "g" },
+    { name: "Hovězí maso zadní (syrové)", calories: 134, protein: 21, carbs: 0, fat: 5.5, amount: "100g", baseUnit: "g" },
+    { name: "Vepřová panenka (syrová)", calories: 120, protein: 21, carbs: 0, fat: 4, amount: "100g", baseUnit: "g" },
+    { name: "Tuňák ve vlastní šťávě (konzerva)", calories: 116, protein: 26, carbs: 0, fat: 1, amount: "100g", baseUnit: "g" },
+    { name: "Losos filet (čerstvý, syrový)", calories: 208, protein: 20, carbs: 0, fat: 13, amount: "100g", baseUnit: "g" },
+    { name: "Olivový olej extra panenský", calories: 884, protein: 0, carbs: 0, fat: 100, amount: "100g", baseUnit: "g" },
+    { name: "Voda (kohoutková/balená)", calories: 0, protein: 0, carbs: 0, fat: 0, amount: "100ml", baseUnit: "ml" },
+    { name: "Káva černá (bez cukru)", calories: 2, protein: 0.1, carbs: 0, fat: 0, amount: "100ml", baseUnit: "ml" },
+    { name: "Avokádo (čerstvé)", calories: 160, protein: 2, carbs: 8.5, fat: 14.7, amount: "100g", baseUnit: "g" },
+    { name: "Mandle (přírodní)", calories: 579, protein: 21, carbs: 22, fat: 49, amount: "100g", baseUnit: "g" },
+    { name: "Vlašské ořechy", calories: 654, protein: 15, carbs: 14, fat: 65, amount: "100g", baseUnit: "g" },
+    { name: "Hruška (čerstvá)", calories: 57, protein: 0.4, carbs: 15, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Pomeranč (čerstvý)", calories: 47, protein: 0.9, carbs: 12, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Jahody (čerstvé)", calories: 32, protein: 0.7, carbs: 7.7, fat: 0.3, amount: "100g", baseUnit: "g" },
+    { name: "Borůvky (čerstvé)", calories: 57, protein: 0.7, carbs: 14, fat: 0.3, amount: "100g", baseUnit: "g" },
+    { name: "Whey Protein (80%)", calories: 390, protein: 80, carbs: 6, fat: 5, amount: "100g", baseUnit: "g" },
+    { name: "Olej řepkový", calories: 884, protein: 0, carbs: 0, fat: 100, amount: "100g", baseUnit: "g" },
+    { name: "Tvaroh měkký odtučněný", calories: 68, protein: 12, carbs: 4, fat: 0.1, amount: "100g", baseUnit: "g" },
+    { name: "Šunka nejvyšší jakosti (kuřecí)", calories: 98, protein: 19, carbs: 1, fat: 2, amount: "100g", baseUnit: "g" },
+    { name: "Mozzarella (125g)", calories: 300, protein: 22, carbs: 1, fat: 22, amount: "125g", baseUnit: "g" },
+    { name: "Cottage sýr (bílý)", calories: 98, protein: 11, carbs: 3, fat: 4.5, amount: "100g", baseUnit: "g" }
+  ];
+
   if (btnDbSearch && inputDbSearch && dbResultsContainer) {
-    const handleDbSearch = async () => {
-      const query = inputDbSearch.value.trim();
-      if (!query) {
-        alert("Zadej hledaný název potraviny.");
+    let activeSearchController = null;
+    let currentLocalMatches = [];
+
+    const debounce = (func, wait) => {
+      let timeout;
+      return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func(...args), wait);
+      };
+    };
+
+    const removeDiacritics = (str) => {
+      return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    };
+
+    const renderSearchResults = (localItems, apiItems, showApiError = false) => {
+      dbResultsContainer.innerHTML = '';
+      
+      if (localItems.length === 0 && apiItems.length === 0) {
+        if (showApiError) {
+          dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--color-danger); font-size:14px;">Chyba při komunikaci s online databází.</div>`;
+        } else {
+          dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--text-secondary); font-size:14px;">Nebyly nalezeny žádné potraviny.</div>`;
+        }
         return;
       }
       
-      btnDbSearch.disabled = true;
-      btnDbSearch.innerText = "Vyhledávám...";
-      dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--text-secondary); font-size:14px;">Hledám potraviny v databázi...</div>`;
-      dbResultsContainer.style.display = 'block';
-      
-      try {
-        const products = await searchFoodDatabase(query);
-        dbResultsContainer.innerHTML = '';
-        
-        if (products.length === 0) {
-          dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--text-secondary); font-size:14px;">Nebyly nalezeny žádné potraviny.</div>`;
-          return;
-        }
-        
-        products.forEach(p => {
+      // Render local items
+      if (localItems.length > 0) {
+        localItems.forEach(p => {
           const item = document.createElement('div');
           item.className = 'search-result-item';
+          item.style.borderLeft = '3px solid var(--color-primary)';
           item.innerHTML = `
-            <span class="search-result-title">${p.name}</span>
+            <span class="search-result-title" style="font-weight:700;">⭐ ${p.name}</span>
             <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na 100g)</span>
           `;
-          
           item.addEventListener('click', () => {
             prefillManualFoodForm(p);
             dbResultsContainer.style.display = 'none';
             inputDbSearch.value = '';
           });
-          
           dbResultsContainer.appendChild(item);
         });
+      }
+      
+      // Render API items
+      if (apiItems.length > 0) {
+        const localNames = new Set(localItems.map(l => removeDiacritics(l.name)));
+        const uniqueApi = apiItems.filter(a => !localNames.has(removeDiacritics(a.name)));
         
+        if (uniqueApi.length > 0) {
+          if (localItems.length > 0) {
+            const divider = document.createElement('div');
+            divider.style.padding = '8px 16px 4px';
+            divider.style.fontSize = '11px';
+            divider.style.fontWeight = '700';
+            divider.style.color = 'var(--text-muted)';
+            divider.style.textTransform = 'uppercase';
+            divider.style.letterSpacing = '0.5px';
+            divider.innerText = "Další výsledky z databáze";
+            dbResultsContainer.appendChild(divider);
+          }
+          
+          uniqueApi.forEach(p => {
+            const item = document.createElement('div');
+            item.className = 'search-result-item';
+            item.innerHTML = `
+              <span class="search-result-title">${p.name}</span>
+              <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na 100g)</span>
+            `;
+            item.addEventListener('click', () => {
+              prefillManualFoodForm(p);
+              dbResultsContainer.style.display = 'none';
+              inputDbSearch.value = '';
+            });
+            dbResultsContainer.appendChild(item);
+          });
+        }
+      }
+    };
+
+    const performSearch = async (query, forceImmediate = false) => {
+      const trimmed = query.trim();
+      if (!trimmed) {
+        dbResultsContainer.style.display = 'none';
+        dbResultsContainer.innerHTML = '';
+        currentLocalMatches = [];
+        return;
+      }
+      
+      const normQuery = removeDiacritics(trimmed);
+      currentLocalMatches = LOCAL_COMMON_FOODS.filter(item => 
+        removeDiacritics(item.name).includes(normQuery)
+      );
+      
+      // Instantly show local results
+      renderSearchResults(currentLocalMatches, []);
+      dbResultsContainer.style.display = 'block';
+      
+      if (trimmed.length < 2) {
+        return;
+      }
+      
+      // Abort active fetch if any
+      if (activeSearchController) {
+        activeSearchController.abort();
+      }
+      activeSearchController = new AbortController();
+      const { signal } = activeSearchController;
+      
+      if (!forceImmediate) {
+        btnDbSearch.innerText = "Hledám...";
+      } else {
+        btnDbSearch.disabled = true;
+        btnDbSearch.innerText = "Hledám...";
+      }
+      
+      try {
+        const products = await searchFoodDatabase(trimmed, signal);
+        renderSearchResults(currentLocalMatches, products, false);
       } catch (err) {
+        if (err.name === 'AbortError') return;
         console.error(err);
-        dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--color-danger); font-size:14px;">Chyba při komunikaci s databází.</div>`;
+        // Only show error if we have no local matches
+        renderSearchResults(currentLocalMatches, [], currentLocalMatches.length === 0);
       } finally {
         btnDbSearch.disabled = false;
         btnDbSearch.innerText = "Hledat";
       }
     };
-    
-    btnDbSearch.addEventListener('click', handleDbSearch);
+
+    const debouncedSearch = debounce((q) => performSearch(q, false), 300);
+
+    inputDbSearch.addEventListener('input', (e) => {
+      const q = e.target.value;
+      debouncedSearch(q);
+    });
+
+    const handleImmediateSearch = () => {
+      const q = inputDbSearch.value;
+      performSearch(q, true);
+    };
+
+    btnDbSearch.addEventListener('click', handleImmediateSearch);
     inputDbSearch.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        handleDbSearch();
+        handleImmediateSearch();
       }
     });
     
-  // Hide results when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('#input-db-search') && !e.target.closest('#btn-db-search') && !e.target.closest('#db-search-results')) {
-      dbResultsContainer.style.display = 'none';
-    }
-  });
+    // Hide results when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#input-db-search') && !e.target.closest('#btn-db-search') && !e.target.closest('#db-search-results')) {
+        dbResultsContainer.style.display = 'none';
+      }
+    });
   }
 }
 
