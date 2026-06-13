@@ -156,7 +156,7 @@ function updateCalendarRow() {
       const todayFood = appState.logs[dateStr] || [];
       let todayCal = 0;
       todayFood.forEach(item => todayCal += Number(item.calories || 0));
-      const goalCal = appState.goals.calories;
+      const goalCal = appState.goals.calories || 2000;
       const percent = Math.min(100, Math.round((todayCal / goalCal) * 100));
       const strokeDashoffset = 100 - percent;
       
@@ -290,7 +290,7 @@ function renderDashboard() {
   totalC = Math.round(totalC * 10) / 10;
   totalF = Math.round(totalF * 10) / 10;
   
-  const goalCal = appState.goals.calories;
+  const goalCal = appState.goals.calories || 2000;
   const goalP = appState.goals.protein;
   const goalC = appState.goals.carbs;
   const goalF = appState.goals.fat;
@@ -400,7 +400,7 @@ function renderDashboard() {
       const amountStr = item.amount ? ` • ${item.amount}` : '';
       
       subItem.innerHTML = `
-        <div class="meal-sub-details">
+        <div class="meal-sub-details" style="cursor: pointer;" data-id="${item.id}" title="Klikni pro úpravu množství">
           <span class="meal-sub-name">${item.name}</span>
           <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
         </div>
@@ -410,6 +410,38 @@ function renderDashboard() {
     });
   });
   
+  // Add click listeners to edit buttons (sub-details)
+  foodListContainer.querySelectorAll('.meal-sub-details').forEach(el => {
+    el.addEventListener('click', () => {
+      const foodId = el.getAttribute('data-id');
+      const todayStr = getTodayDateString();
+      const logs = appState.logs[todayStr] || [];
+      const item = logs.find(i => i.id === foodId);
+      if (!item) return;
+      
+      const newAmountStr = prompt(`Upravit množství pro: ${item.name}`, item.amount || '100g');
+      if (newAmountStr !== null && newAmountStr.trim() !== '') {
+        const oldParsed = parseQuantity(item.amount || '100g');
+        const newParsed = parseQuantity(newAmountStr, oldParsed.unit);
+        
+        if (oldParsed.value > 0 && newParsed.value >= 0) {
+          const ratio = newParsed.value / oldParsed.value;
+          item.amount = newAmountStr.trim();
+          item.calories = Math.round(item.calories * ratio);
+          item.protein = Math.round(item.protein * ratio * 10) / 10;
+          item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+          item.fat = Math.round(item.fat * ratio * 10) / 10;
+          
+          saveState();
+          renderDashboard();
+          showToast("Množství upraveno! ✏️");
+        } else {
+          alert("Neplatné množství.");
+        }
+      }
+    });
+  });
+
   // Add click listeners to delete buttons
   foodListContainer.querySelectorAll('.btn-delete-sub-food').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -991,6 +1023,22 @@ Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdn�
 // ==========================================================================
 // AI REVIEW MODAL CONTROLS
 // ==========================================================================
+function attachBaseValues(items) {
+  items.forEach(item => {
+    if (!item._baseAmountUnit) {
+      const parsed = parseQuantity(item.amount || '100g');
+      item._baseAmountVal = parsed.value || 1; // prevent div by zero
+      item._baseAmountUnit = parsed.unit;
+      
+      item._baseCal = (Number(item.calories) || 0) / item._baseAmountVal;
+      item._baseP = (Number(item.protein) || 0) / item._baseAmountVal;
+      item._baseC = (Number(item.carbs) || 0) / item._baseAmountVal;
+      item._baseF = (Number(item.fat) || 0) / item._baseAmountVal;
+    }
+  });
+  return items;
+}
+
 function openReviewModal(geminiData) {
   currentGeminiData = geminiData;
   selectedOptionIndex = 0;
@@ -1006,7 +1054,7 @@ function openReviewModal(geminiData) {
     modalSubtitle.innerText = "Vyber si jednu ze 3 variant odhadu AI a zkontroluj ji:";
     
     // Initialize with first choice's items (deep clone)
-    tempDetectedItems = JSON.parse(JSON.stringify(geminiData.choices[0].items));
+    tempDetectedItems = attachBaseValues(JSON.parse(JSON.stringify(geminiData.choices[0].items)));
     
     // Render options list cards
     geminiData.choices.forEach((choice, index) => {
@@ -1033,7 +1081,7 @@ function openReviewModal(geminiData) {
         });
         
         // Load items of chosen option
-        tempDetectedItems = JSON.parse(JSON.stringify(geminiData.choices[index].items));
+        tempDetectedItems = attachBaseValues(JSON.parse(JSON.stringify(geminiData.choices[index].items)));
         
         // Re-render items
         renderReviewModal();
@@ -1047,41 +1095,50 @@ function openReviewModal(geminiData) {
     modalSubtitle.innerText = "Prověř a uprav položky, které Gemini AI rozpoznala:";
     
     // Use simple items array
-    tempDetectedItems = geminiData.items || [];
+    tempDetectedItems = attachBaseValues(JSON.parse(JSON.stringify(geminiData.items || [])));
   }
   
   renderReviewModal();
   document.getElementById('ai-review-modal').classList.add('active');
 }
 
-function renderReviewModal() {
-  const listContainer = document.getElementById('ai-detected-list');
-  listContainer.innerHTML = '';
-  
+function updateAiModalTotals() {
   let totalCal = 0;
   let totalP = 0;
   let totalC = 0;
   let totalF = 0;
+  
+  tempDetectedItems.forEach(item => {
+    totalCal += Number(item.calories || 0);
+    totalP += Number(item.protein || 0);
+    totalC += Number(item.carbs || 0);
+    totalF += Number(item.fat || 0);
+  });
+  
+  document.getElementById('modal-summary-cal').innerText = `${totalCal} kcal`;
+  document.getElementById('modal-summary-p').innerText = Math.round(totalP * 10) / 10;
+  document.getElementById('modal-summary-c').innerText = Math.round(totalC * 10) / 10;
+  document.getElementById('modal-summary-f').innerText = Math.round(totalF * 10) / 10;
+}
+
+function renderReviewModal() {
+  const listContainer = document.getElementById('ai-detected-list');
+  listContainer.innerHTML = '';
 
   if (tempDetectedItems.length === 0) {
     listContainer.innerHTML = `<p class="empty-state">AI nerozpoznala žádná jídla. Zkus jiný popis/fotku.</p>`;
   } else {
     tempDetectedItems.forEach((item, index) => {
-      totalCal += Number(item.calories || 0);
-      totalP += Number(item.protein || 0);
-      totalC += Number(item.carbs || 0);
-      totalF += Number(item.fat || 0);
-
       const div = document.createElement('div');
       div.className = 'detected-item';
       div.innerHTML = `
         <div class="detected-item-left">
           <span class="detected-item-name">${item.name}</span>
-          <span class="detected-item-amount">${item.amount || 'Neznámé množství'}</span>
-          <span class="detected-item-macros">B: ${item.protein}g • S: ${item.carbs}g • T: ${item.fat}g</span>
+          <input type="text" class="detected-item-amount-input" data-index="${index}" value="${item.amount || '100g'}" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff; border-radius: 6px; padding: 4px 8px; font-size: 13px; width: 80px; margin-top: 4px; margin-bottom: 4px;">
+          <span class="detected-item-macros" id="ai-macro-${index}">B: ${item.protein}g • S: ${item.carbs}g • T: ${item.fat}g</span>
         </div>
         <div class="detected-item-right">
-          <span class="detected-item-cal">${item.calories} kcal</span>
+          <span class="detected-item-cal" id="ai-cal-${index}">${item.calories} kcal</span>
           <button class="btn-remove-detected" data-index="${index}">×</button>
         </div>`;
       
@@ -1095,13 +1152,31 @@ function renderReviewModal() {
         renderReviewModal();
       });
     });
+
+    listContainer.querySelectorAll('.detected-item-amount-input').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'));
+        const item = tempDetectedItems[idx];
+        const newVal = e.target.value;
+        item.amount = newVal;
+        
+        const parsed = parseQuantity(newVal, item._baseAmountUnit);
+        
+        item.calories = Math.round(item._baseCal * parsed.value);
+        item.protein = Math.round(item._baseP * parsed.value * 10) / 10;
+        item.carbs = Math.round(item._baseC * parsed.value * 10) / 10;
+        item.fat = Math.round(item._baseF * parsed.value * 10) / 10;
+        
+        document.getElementById(`ai-cal-${idx}`).innerText = `${item.calories} kcal`;
+        document.getElementById(`ai-macro-${idx}`).innerText = `B: ${item.protein}g • S: ${item.carbs}g • T: ${item.fat}g`;
+        
+        updateAiModalTotals();
+      });
+    });
   }
 
   // Update totals in Modal
-  document.getElementById('modal-summary-cal').innerText = `${totalCal} kcal`;
-  document.getElementById('modal-summary-p').innerText = Math.round(totalP * 10) / 10;
-  document.getElementById('modal-summary-c').innerText = Math.round(totalC * 10) / 10;
-  document.getElementById('modal-summary-f').innerText = Math.round(totalF * 10) / 10;
+  updateAiModalTotals();
 }
 
 function saveReviewedItemsToLog() {
@@ -1483,6 +1558,7 @@ async function syncFromCloud() {
 
 function doLogout() {
   clearSession();
+  resetState(); // Vyčistí lokální stav a localStorage, cloud sync se nespustí kvůli clearSession
   // Show login, hide everything else
   document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-login').classList.add('active');
@@ -1855,11 +1931,18 @@ function stopBarcodeScanner() {
 }
 
 function prefillManualFoodForm(product) {
+  // Preserve category
+  const categorySelect = document.getElementById('input-food-category');
+  const currentCat = categorySelect ? categorySelect.value : 'Breakfast';
+
   // Switch to Add Screen (step 2)
-  const fab = document.querySelector('.nav-fab');
-  if (fab) fab.click();
-  
-  showWizardStep(2);
+  if (window.navigateToManualAddFood) {
+    window.navigateToManualAddFood(currentCat);
+  } else {
+    const fab = document.querySelector('.nav-fab');
+    if (fab) fab.click();
+    showWizardStep(2);
+  }
   
   // Set values
   document.getElementById('input-food-name').value = product.name;
@@ -1892,6 +1975,17 @@ function initBarcodeAndSearch() {
   const qaBarcode = document.getElementById('qa-barcode');
   if (qaBarcode) {
     qaBarcode.addEventListener('click', () => {
+      const now = new Date();
+      const hour = now.getHours();
+      let categoryId = 'Breakfast';
+      if (hour >= 5 && hour < 10) categoryId = 'Breakfast';
+      else if (hour >= 10 && hour < 12) categoryId = 'Morning snack';
+      else if (hour >= 12 && hour < 15) categoryId = 'Lunch';
+      else if (hour >= 15 && hour < 18) categoryId = 'Afternoon snack';
+      else if (hour >= 18 && hour < 22) categoryId = 'Dinner';
+      else categoryId = 'Second dinner';
+      
+      setWizardCategory(categoryId);
       startBarcodeScanner();
     });
   }
