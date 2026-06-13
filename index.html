@@ -481,7 +481,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 1.0.0 (Cache v25)
+        Verze: 1.0.0 (Cache v27)
       </div>
     </section>
 
@@ -598,6 +598,62 @@
       <div style="display:flex; justify-content:center; align-items:center; width:100%; margin-bottom:10px;">
         <button type="button" id="btn-camera-capture" style="width:70px; height:70px; border-radius:50%; background:#fff; border:5px solid #222; cursor:pointer; box-shadow:0 0 12px rgba(255,255,255,0.4);"></button>
       </div>
+    </div>
+  </div>
+
+  <!-- ITEM ACTIONS SHEET (iOS Action Sheet) -->
+  <div class="modal-overlay" id="item-actions-sheet">
+    <div class="modal-content" style="border-radius: 24px 24px 0 0; background: var(--bg-elevated); padding-bottom: 24px;">
+      <div style="padding: 18px 20px; text-align: center; border-bottom: 0.5px solid var(--sep);">
+        <strong id="action-sheet-title" style="font-size: 15px; color: var(--text-2);">Název jídla</strong>
+      </div>
+      <div style="display:flex; flex-direction:column; padding: 16px 16px 10px; gap: 8px;">
+        <button type="button" class="action-sheet-btn" id="btn-act-combine">🍲 Vytvořit kombinované jídlo</button>
+        <button type="button" class="action-sheet-btn" id="btn-act-copy">📋 Zkopírovat jídlo</button>
+        <button type="button" class="action-sheet-btn" id="btn-act-move">➡️ Přemístit na jiný den</button>
+        <button type="button" class="action-sheet-btn" id="btn-act-favorite">⭐ Přidat do oblíbených</button>
+        <div style="height: 4px;"></div>
+        <button type="button" class="action-sheet-btn" id="btn-act-delete" style="color: var(--color-danger); font-weight: 700; background: rgba(255, 55, 95, 0.1);">🗑️ Smazat položku</button>
+        <div style="height: 4px;"></div>
+        <button type="button" class="action-sheet-btn" id="btn-act-cancel" style="background: var(--bg-elevated-3); font-weight: 700; border-radius: 12px; margin-top: 4px;">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- COPY/MOVE DATE MODAL -->
+  <div class="modal-overlay" id="copy-move-modal">
+    <div class="modal-content" style="max-width:360px; border-radius:20px; margin: auto;">
+      <div class="modal-header">
+        <h2 id="copy-move-modal-title">Zkopírovat jídlo</h2>
+        <button class="modal-close" id="btn-close-copy-move">×</button>
+      </div>
+      <div class="modal-body" style="padding:20px; display:flex; flex-direction:column; gap:14px;">
+        <div class="form-group">
+          <label>Datum</label>
+          <input type="date" id="copy-move-date" style="width:100%; padding:12px; border-radius:10px; background:var(--bg-input); border:0.5px solid var(--sep-strong); color:#fff; font-size:16px;">
+        </div>
+        <div class="form-group">
+          <label>Kategorie</label>
+          <select id="copy-move-category" style="width:100%; padding:12px; border-radius:10px; background:var(--bg-input); border:0.5px solid var(--sep-strong); color:#fff; font-size:16px;">
+            <option value="Breakfast">Snídaně</option>
+            <option value="Morning snack">Dopolední svačina</option>
+            <option value="Lunch">Oběd</option>
+            <option value="Afternoon snack">Odpolední svačina</option>
+            <option value="Dinner">Večeře</option>
+            <option value="Second dinner">Druhá večeře</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="btn-save-copy-move" style="margin-top:10px;">Potvrdit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMBINE FLOATING BAR -->
+  <div id="combine-floating-bar" style="position:fixed; bottom:96px; left:50%; transform:translateX(-50%); width:min(calc(100% - 32px), 400px); z-index:200; display:none; justify-content:space-between; align-items:center; padding:14px 20px; box-shadow:0 8px 32px rgba(0,0,0,0.5); border:0.5px solid var(--sep-strong); background:rgba(28,28,30,0.96); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border-radius:16px; transition: all 0.3s ease;">
+    <span style="font-size:14px; font-weight:600; color:#fff;">Vybráno: <strong id="combine-count" style="color:var(--ios-blue);">0</strong> položek</span>
+    <div style="display:flex; gap:10px;">
+      <button type="button" id="btn-combine-cancel" class="btn btn-secondary" style="height:36px; padding:0 12px; font-size:13px; margin:0; width:auto; border-radius:8px;">Zrušit</button>
+      <button type="button" id="btn-combine-submit" class="btn btn-primary" style="height:36px; padding:0 12px; font-size:13px; margin:0; width:auto; border-radius:8px;">Sloučit</button>
     </div>
   </div>
 

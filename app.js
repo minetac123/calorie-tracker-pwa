@@ -11,7 +11,9 @@ let appState = {
     carbs: 220,
     fat: 65
   },
-  logs: {} // Format: { "YYYY-MM-DD": [ { id, time, name, amount, calories, protein, carbs, fat }, ... ] }
+  logs: {}, // Format: { "YYYY-MM-DD": [ { id, time, name, amount, calories, protein, carbs, fat }, ... ] }
+  favorites: [],
+  collapsedCats: {}
 };
 
 // Temporary store for AI scanning review
@@ -19,6 +21,11 @@ let tempDetectedItems = [];
 let currentPhotoBase64 = null;
 let currentGeminiData = null; // Store full response from Gemini
 let selectedOptionIndex = 0;  // Currently selected option index
+
+window.combineModeActive = false;
+window.combineSelectedIds = new Set();
+window.activeActionItem = null;
+window.copyMoveActionType = 'copy';
 
 // ==========================================================================
 // STORAGE FUNCTIONS
@@ -62,6 +69,12 @@ function loadState() {
       if (!appState.weightLogs) {
         appState.weightLogs = [];
       }
+      if (!appState.favorites) {
+        appState.favorites = [];
+      }
+      if (!appState.collapsedCats) {
+        appState.collapsedCats = {};
+      }
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
       resetState();
@@ -84,7 +97,9 @@ function resetState() {
     water: {},
     weight: 75.6,
     weightTarget: 70.0,
-    weightLogs: []
+    weightLogs: [],
+    favorites: [],
+    collapsedCats: {}
   };
   saveState();
 }
@@ -416,14 +431,22 @@ function renderDashboard() {
       macroStr = `${catCal} kcal (B:${catP}g S:${catC}g T:${catF}g)`;
     }
     
+    const isCollapsed = appState.collapsedCats && appState.collapsedCats[cat.id];
+    const chevron = isCollapsed ? '▶' : '▼';
+    
+    const catWrapper = document.createElement('div');
+    catWrapper.className = `meal-category-wrapper ${isCollapsed ? 'collapsed' : ''}`;
+    catWrapper.setAttribute('data-category-id', cat.id);
+    
     const catCard = document.createElement('div');
     catCard.className = 'meal-card category-header';
+    catCard.style.cursor = 'pointer';
     
     catCard.innerHTML = `
       <div class="meal-left">
         <div class="meal-icon">${cat.icon}</div>
         <div class="meal-details">
-          <span class="meal-name">${cat.name}</span>
+          <span class="meal-name">${cat.name} <span class="collapse-chevron" style="font-size:10px; color:var(--text-3); margin-left:4px;">${chevron}</span></span>
           <span class="meal-macros">${macroStr}</span>
         </div>
       </div>
@@ -431,65 +454,121 @@ function renderDashboard() {
         <button class="btn-add-meal" onclick="window.navigateToManualAddFood('${cat.id}')">+</button>
       </div>`;
       
-    foodListContainer.appendChild(catCard);
-    
-    // Now render items in this category
-    catItems.forEach(item => {
-      const subItem = document.createElement('div');
-      subItem.className = 'meal-sub-item';
-      
-      const amountStr = item.amount ? ` • ${item.amount}` : '';
-      
-      subItem.innerHTML = `
-        <div class="meal-sub-details" style="cursor: pointer;" data-id="${item.id}" title="Klikni pro úpravu množství">
-          <span class="meal-sub-name">${item.name}</span>
-          <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
-        </div>
-        <button class="btn-delete-sub-food" data-id="${item.id}">×</button>`;
-        
-      foodListContainer.appendChild(subItem);
+    catCard.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-add-meal')) return;
+      toggleCategoryCollapse(cat.id);
     });
+    
+    catWrapper.appendChild(catCard);
+    
+    const subItemsContainer = document.createElement('div');
+    subItemsContainer.className = 'meal-sub-items-container';
+    if (isCollapsed) {
+      subItemsContainer.style.display = 'none';
+    }
+    
+    if (catItems.length === 0) {
+      const emptyDiv = document.createElement('div');
+      emptyDiv.className = 'meal-sub-item empty-category-state';
+      emptyDiv.style.color = 'var(--text-3)';
+      emptyDiv.style.fontSize = '13px';
+      emptyDiv.style.padding = '12px 16px';
+      emptyDiv.style.borderTop = '0.5px solid var(--sep)';
+      emptyDiv.innerText = 'Žádné jídlo';
+      subItemsContainer.appendChild(emptyDiv);
+    } else {
+      catItems.forEach(item => {
+        const subItem = document.createElement('div');
+        subItem.className = 'meal-sub-item';
+        
+        const amountStr = item.amount ? ` • ${item.amount}` : '';
+        
+        if (window.combineModeActive) {
+          const isChecked = window.combineSelectedIds && window.combineSelectedIds.has(item.id);
+          const checkedClass = isChecked ? 'checked' : '';
+          subItem.innerHTML = `
+            <div class="combine-checkbox ${checkedClass}" data-id="${item.id}"></div>
+            <div class="meal-sub-details" style="cursor: pointer; flex: 1;" data-id="${item.id}">
+              <span class="meal-sub-name">${item.name}</span>
+              <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+            </div>`;
+            
+          subItem.addEventListener('click', () => {
+            const checkbox = subItem.querySelector('.combine-checkbox');
+            if (checkbox) {
+              const isSel = checkbox.classList.toggle('checked');
+              if (isSel) {
+                window.combineSelectedIds.add(item.id);
+              } else {
+                window.combineSelectedIds.delete(item.id);
+              }
+              updateCombineFloatingBar();
+            }
+          });
+        } else {
+          subItem.innerHTML = `
+            <div class="meal-sub-details" style="cursor: pointer; flex: 1;" data-id="${item.id}" title="Klikni pro úpravu množství">
+              <span class="meal-sub-name">${item.name}</span>
+              <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+            </div>
+            <button class="btn-item-actions" data-id="${item.id}">•••</button>`;
+        }
+        
+        subItemsContainer.appendChild(subItem);
+      });
+    }
+    
+    catWrapper.appendChild(subItemsContainer);
+    foodListContainer.appendChild(catWrapper);
   });
   
-  // Add click listeners to edit buttons (sub-details)
-  foodListContainer.querySelectorAll('.meal-sub-details').forEach(el => {
-    el.addEventListener('click', () => {
-      const foodId = el.getAttribute('data-id');
-      const todayStr = getTodayDateString();
-      const logs = appState.logs[todayStr] || [];
-      const item = logs.find(i => i.id === foodId);
-      if (!item) return;
-      
-      const newAmountStr = prompt(`Upravit množství pro: ${item.name}`, item.amount || '100g');
-      if (newAmountStr !== null && newAmountStr.trim() !== '') {
-        const oldParsed = parseQuantity(item.amount || '100g');
-        const newParsed = parseQuantity(newAmountStr, oldParsed.unit);
+  // Add click listeners to edit buttons (sub-details) - only if NOT in combine mode
+  if (!window.combineModeActive) {
+    foodListContainer.querySelectorAll('.meal-sub-details').forEach(el => {
+      el.addEventListener('click', () => {
+        const foodId = el.getAttribute('data-id');
+        const todayStr = getTodayDateString();
+        const logs = appState.logs[todayStr] || [];
+        const item = logs.find(i => i.id === foodId);
+        if (!item) return;
         
-        if (oldParsed.value > 0 && newParsed.value >= 0) {
-          const ratio = newParsed.value / oldParsed.value;
-          item.amount = newAmountStr.trim();
-          item.calories = Math.round(item.calories * ratio);
-          item.protein = Math.round(item.protein * ratio * 10) / 10;
-          item.carbs = Math.round(item.carbs * ratio * 10) / 10;
-          item.fat = Math.round(item.fat * ratio * 10) / 10;
+        const newAmountStr = prompt(`Upravit množství pro: ${item.name}`, item.amount || '100g');
+        if (newAmountStr !== null && newAmountStr.trim() !== '') {
+          const oldParsed = parseQuantity(item.amount || '100g');
+          const newParsed = parseQuantity(newAmountStr, oldParsed.unit);
           
-          saveState();
-          renderDashboard();
-          showToast("Množství upraveno! ✏️");
-        } else {
-          alert("Neplatné množství.");
+          if (oldParsed.value > 0 && newParsed.value >= 0) {
+            const ratio = newParsed.value / oldParsed.value;
+            item.amount = newAmountStr.trim();
+            item.calories = Math.round(item.calories * ratio);
+            item.protein = Math.round(item.protein * ratio * 10) / 10;
+            item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+            item.fat = Math.round(item.fat * ratio * 10) / 10;
+            
+            saveState();
+            renderDashboard();
+            showToast("Množství upraveno! ✏️");
+          } else {
+            alert("Neplatné množství.");
+          }
         }
-      }
+      });
     });
-  });
 
-  // Add click listeners to delete buttons
-  foodListContainer.querySelectorAll('.btn-delete-sub-food').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const foodId = e.target.getAttribute('data-id');
-      deleteFoodItem(foodId);
+    // Add click listeners to actions buttons (•••)
+    foodListContainer.querySelectorAll('.btn-item-actions').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const foodId = btn.getAttribute('data-id');
+        const todayStr = getTodayDateString();
+        const logs = appState.logs[todayStr] || [];
+        const item = logs.find(i => i.id === foodId);
+        if (!item) return;
+        
+        openItemActionsSheet(item);
+      });
     });
-  });
+  }
 
   // Render Water Intake
   const todayWater = appState.water[todayStr] || 0;
@@ -1753,6 +1832,7 @@ function init() {
   initAuthHandlers();
   initBarcodeAndSearch();
   initWizard();
+  initItemActionsHandlers();
 
   // Logout button
   const logoutBtn = document.getElementById('btn-logout');
@@ -2587,6 +2667,47 @@ function initBarcodeAndSearch() {
       debouncedSearch(q);
     });
 
+    const showFavorites = () => {
+      const q = inputDbSearch.value.trim();
+      if (q) return;
+
+      dbResultsContainer.innerHTML = '';
+      const favorites = appState.favorites || [];
+      if (favorites.length === 0) {
+        dbResultsContainer.innerHTML = `<div style="padding:16px; text-align:center; color:var(--text-3); font-size:13px;">Zatím nemáš žádné oblíbené potraviny. Přidej je pomocí "•••" u jídla na přehledu.</div>`;
+      } else {
+        favorites.forEach(p => {
+          const item = document.createElement('div');
+          item.className = 'search-result-item';
+          item.style.borderLeft = '3px solid var(--ios-orange)';
+          item.innerHTML = `
+            <div class="search-result-info">
+              <span class="search-result-title" style="font-weight:700;">⭐ ${p.name}</span>
+              <span class="search-result-details">${p.calories} kcal • B:${p.protein}g S:${p.carbs}g T:${p.fat}g (na ${p.amount || '100g'})</span>
+            </div>
+            <button type="button" class="btn-quick-add-food" title="Rychlé přidání">+</button>
+          `;
+          item.addEventListener('click', () => {
+            prefillManualFoodForm(p);
+            dbResultsContainer.style.display = 'none';
+            inputDbSearch.value = '';
+          });
+          const quickAddBtn = item.querySelector('.btn-quick-add-food');
+          if (quickAddBtn) {
+            quickAddBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              addFoodItemDirectly(p);
+            });
+          }
+          dbResultsContainer.appendChild(item);
+        });
+      }
+      dbResultsContainer.style.display = 'block';
+    };
+
+    inputDbSearch.addEventListener('focus', showFavorites);
+    inputDbSearch.addEventListener('click', showFavorites);
+
     const handleImmediateSearch = () => {
       const q = inputDbSearch.value;
       performSearch(q, true);
@@ -2637,5 +2758,366 @@ function initWizard() {
   }
 }
 
+// ==========================================================================
+// FOOD ACTIONS & COLLAPSE HELPERS
+// ==========================================================================
+
+function toggleCategoryCollapse(categoryId) {
+  if (!appState.collapsedCats) {
+    appState.collapsedCats = {};
+  }
+  appState.collapsedCats[categoryId] = !appState.collapsedCats[categoryId];
+  saveState();
+  renderDashboard();
+}
+
+function openItemActionsSheet(item) {
+  window.activeActionItem = item;
+  
+  const titleEl = document.getElementById('action-sheet-title');
+  if (titleEl) {
+    titleEl.innerText = `${item.name} (${item.amount || '100g'})`;
+  }
+  
+  const sheet = document.getElementById('item-actions-sheet');
+  if (sheet) {
+    sheet.classList.add('active');
+  }
+}
+
+function closeItemActionsSheet() {
+  const sheet = document.getElementById('item-actions-sheet');
+  if (sheet) {
+    sheet.classList.remove('active');
+  }
+  window.activeActionItem = null;
+}
+
+function updateCombineFloatingBar() {
+  const bar = document.getElementById('combine-floating-bar');
+  const countSpan = document.getElementById('combine-count');
+  if (bar && countSpan) {
+    const count = window.combineSelectedIds ? window.combineSelectedIds.size : 0;
+    countSpan.innerText = count;
+    if (window.combineModeActive) {
+      bar.style.display = 'flex';
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+}
+
+function initItemActionsHandlers() {
+  const sheet = document.getElementById('item-actions-sheet');
+  const btnActCombine = document.getElementById('btn-act-combine');
+  const btnActCopy = document.getElementById('btn-act-copy');
+  const btnActMove = document.getElementById('btn-act-move');
+  const btnActFavorite = document.getElementById('btn-act-favorite');
+  const btnActDelete = document.getElementById('btn-act-delete');
+  const btnActCancel = document.getElementById('btn-act-cancel');
+  
+  const copyMoveModal = document.getElementById('copy-move-modal');
+  const btnCloseCopyMove = document.getElementById('btn-close-copy-move');
+  const btnSaveCopyMove = document.getElementById('btn-save-copy-move');
+  const copyMoveDate = document.getElementById('copy-move-date');
+  const copyMoveCategory = document.getElementById('copy-move-category');
+  
+  const btnCombineCancel = document.getElementById('btn-combine-cancel');
+  const btnCombineSubmit = document.getElementById('btn-combine-submit');
+
+  // Cancel action sheet
+  if (btnActCancel) {
+    btnActCancel.addEventListener('click', closeItemActionsSheet);
+  }
+  
+  // Close action sheet when clicking on overlay background
+  if (sheet) {
+    sheet.addEventListener('click', (e) => {
+      if (e.target === sheet) {
+        closeItemActionsSheet();
+      }
+    });
+  }
+
+  // Delete item from action sheet
+  if (btnActDelete) {
+    btnActDelete.addEventListener('click', () => {
+      if (window.activeActionItem) {
+        deleteFoodItem(window.activeActionItem.id);
+        closeItemActionsSheet();
+      }
+    });
+  }
+
+  // Favorite item from action sheet
+  if (btnActFavorite) {
+    btnActFavorite.addEventListener('click', () => {
+      const item = window.activeActionItem;
+      if (!item) return;
+      
+      if (!appState.favorites) {
+        appState.favorites = [];
+      }
+      
+      const exists = appState.favorites.some(f => f.name.toLowerCase() === item.name.toLowerCase());
+      if (exists) {
+        showToast(`"${item.name}" již je v oblíbených! ⭐`);
+        closeItemActionsSheet();
+        return;
+      }
+      
+      appState.favorites.push({
+        name: item.name,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+        amount: item.amount || '100g'
+      });
+      
+      saveState();
+      showToast(`Přidáno do oblíbených! ⭐`);
+      closeItemActionsSheet();
+    });
+  }
+
+  // Copy item from action sheet
+  if (btnActCopy) {
+    btnActCopy.addEventListener('click', () => {
+      if (!window.activeActionItem) return;
+      window.copyMoveActionType = 'copy';
+      closeItemActionsSheet();
+      
+      // Open copy/move modal
+      if (copyMoveModal) {
+        const titleEl = document.getElementById('copy-move-modal-title');
+        if (titleEl) titleEl.innerText = 'Zkopírovat jídlo';
+        
+        // Prefill date/category
+        if (copyMoveDate) copyMoveDate.value = getTodayDateString();
+        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(window.activeActionItem) || 'Breakfast';
+        
+        copyMoveModal.classList.add('active');
+      }
+    });
+  }
+
+  // Move item from action sheet
+  if (btnActMove) {
+    btnActMove.addEventListener('click', () => {
+      if (!window.activeActionItem) return;
+      window.copyMoveActionType = 'move';
+      closeItemActionsSheet();
+      
+      // Open copy/move modal
+      if (copyMoveModal) {
+        const titleEl = document.getElementById('copy-move-modal-title');
+        if (titleEl) titleEl.innerText = 'Přemístit na jiný den';
+        
+        // Prefill date/category
+        if (copyMoveDate) copyMoveDate.value = getTodayDateString();
+        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(window.activeActionItem) || 'Breakfast';
+        
+        copyMoveModal.classList.add('active');
+      }
+    });
+  }
+
+  // Close copy/move modal
+  if (btnCloseCopyMove) {
+    btnCloseCopyMove.addEventListener('click', () => {
+      if (copyMoveModal) copyMoveModal.classList.remove('active');
+    });
+  }
+  
+  if (copyMoveModal) {
+    copyMoveModal.addEventListener('click', (e) => {
+      if (e.target === copyMoveModal) {
+        copyMoveModal.classList.remove('active');
+      }
+    });
+  }
+
+  // Confirm copy/move
+  if (btnSaveCopyMove) {
+    btnSaveCopyMove.addEventListener('click', () => {
+      const item = window.activeActionItem;
+      if (!item) return;
+      
+      const targetDate = copyMoveDate.value;
+      const targetCategory = copyMoveCategory.value;
+      
+      if (!targetDate) {
+        alert("Zadej datum.");
+        return;
+      }
+      
+      if (window.copyMoveActionType === 'copy') {
+        // Clone item
+        const newItem = {
+          ...item,
+          id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+          category: targetCategory
+        };
+        
+        if (!appState.logs[targetDate]) {
+          appState.logs[targetDate] = [];
+        }
+        appState.logs[targetDate].push(newItem);
+        
+        saveState();
+        showToast("Jídlo zkopírováno! 📋");
+      } else if (window.copyMoveActionType === 'move') {
+        // Find and remove original item from logs
+        let originalDate = null;
+        for (const dStr in appState.logs) {
+          const idx = appState.logs[dStr].findIndex(i => i.id === item.id);
+          if (idx !== -1) {
+            originalDate = dStr;
+            appState.logs[dStr].splice(idx, 1);
+            break;
+          }
+        }
+        
+        // Update item category and push to target date logs
+        item.category = targetCategory;
+        if (!appState.logs[targetDate]) {
+          appState.logs[targetDate] = [];
+        }
+        appState.logs[targetDate].push(item);
+        
+        saveState();
+        showToast("Jídlo přemístěno! ➡️");
+      }
+      
+      if (copyMoveModal) copyMoveModal.classList.remove('active');
+      renderDashboard();
+    });
+  }
+
+  // Combine food trigger from action sheet
+  if (btnActCombine) {
+    btnActCombine.addEventListener('click', () => {
+      const item = window.activeActionItem;
+      if (!item) return;
+      
+      closeItemActionsSheet();
+      
+      window.combineModeActive = true;
+      window.combineSelectedIds = new Set();
+      window.combineSelectedIds.add(item.id);
+      
+      renderDashboard();
+      updateCombineFloatingBar();
+    });
+  }
+
+  // Combine floating bar - Cancel
+  if (btnCombineCancel) {
+    btnCombineCancel.addEventListener('click', () => {
+      window.combineModeActive = false;
+      window.combineSelectedIds.clear();
+      renderDashboard();
+      updateCombineFloatingBar();
+    });
+  }
+
+  // Combine floating bar - Submit
+  if (btnCombineSubmit) {
+    btnCombineSubmit.addEventListener('click', () => {
+      const selectedIds = window.combineSelectedIds;
+      if (!selectedIds || selectedIds.size < 2) {
+        alert("Vyber alespoň 2 položky pro sloučení.");
+        return;
+      }
+      
+      const todayStr = getTodayDateString();
+      const todayFood = appState.logs[todayStr] || [];
+      const selectedFoods = todayFood.filter(f => selectedIds.has(f.id));
+      
+      if (selectedFoods.length === 0) return;
+      
+      // Prompt for name
+      const defaultName = selectedFoods.map(f => f.name).join(" + ");
+      let combinedName = prompt("Zadej název pro sloučené jídlo:", defaultName);
+      if (combinedName === null) return; // cancelled
+      combinedName = combinedName.trim() || "Sloučené jídlo";
+      
+      // Sum nutrients
+      let totalCal = 0;
+      let totalP = 0;
+      let totalC = 0;
+      let totalF = 0;
+      let totalWeightG = 0;
+      let totalWeightMl = 0;
+      let hasMixedUnits = false;
+      
+      selectedFoods.forEach(food => {
+        totalCal += Number(food.calories || 0);
+        totalP += Number(food.protein || 0);
+        totalC += Number(food.carbs || 0);
+        totalF += Number(food.fat || 0);
+        
+        const parsed = parseQuantity(food.amount || '');
+        if (parsed.value > 0) {
+          if (parsed.unit === 'ml') {
+            totalWeightMl += parsed.value;
+          } else if (parsed.unit === 'g') {
+            totalWeightG += parsed.value;
+          } else {
+            hasMixedUnits = true;
+          }
+        } else {
+          hasMixedUnits = true;
+        }
+      });
+      
+      let combinedAmount = "";
+      if (!hasMixedUnits) {
+        if (totalWeightG > 0 && totalWeightMl === 0) {
+          combinedAmount = `${Math.round(totalWeightG)}g`;
+        } else if (totalWeightMl > 0 && totalWeightG === 0) {
+          combinedAmount = `${Math.round(totalWeightMl)}ml`;
+        } else {
+          combinedAmount = "1 ks";
+        }
+      } else {
+        combinedAmount = "1 ks";
+      }
+      
+      const firstFood = selectedFoods[0];
+      const categoryStr = getFoodCategory(firstFood);
+      
+      // Delete the original items from logs
+      appState.logs[todayStr] = todayFood.filter(f => !selectedIds.has(f.id));
+      
+      // Add the combined item
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      
+      appState.logs[todayStr].push({
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+        time: timeStr,
+        name: combinedName,
+        amount: combinedAmount,
+        calories: Math.round(totalCal),
+        protein: Math.round(totalP * 10) / 10,
+        carbs: Math.round(totalC * 10) / 10,
+        fat: Math.round(totalF * 10) / 10,
+        category: categoryStr
+      });
+      
+      window.combineModeActive = false;
+      window.combineSelectedIds.clear();
+      
+      saveState();
+      renderDashboard();
+      updateCombineFloatingBar();
+      showToast("Jídla sloučena! 🍲");
+    });
+  }
+}
+
 // Run app init
+
 window.addEventListener('DOMContentLoaded', init);
