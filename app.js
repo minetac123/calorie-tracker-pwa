@@ -23,8 +23,15 @@ let selectedOptionIndex = 0;  // Currently selected option index
 // ==========================================================================
 // STORAGE FUNCTIONS
 // ==========================================================================
-function saveState() {
+function saveState(skipCloudSync = false) {
   localStorage.setItem('fitai_state', JSON.stringify(appState));
+  if (!skipCloudSync) {
+    const session = getSession();
+    if (session) {
+      clearTimeout(window._syncTimeout);
+      window._syncTimeout = setTimeout(syncToCloud, 500);
+    }
+  }
 }
 
 function loadState() {
@@ -1327,7 +1334,7 @@ function initAuthHandlers() {
         if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
         if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
         if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
-        saveState();
+        saveState(true);
       }
 
       // Switch to dashboard
@@ -1406,7 +1413,7 @@ async function syncFromCloud() {
       if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
       if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
       
-      saveState();
+      saveState(true);
       renderDashboard();
       showToast('☁️ Data synchronizována z cloudu');
     }
@@ -1522,14 +1529,6 @@ function init() {
     document.querySelector('.bottom-nav').style.display = 'none';
   }
 
-  // Auto-sync to cloud after saving food
-  const originalSaveState = saveState;
-  saveState = function() {
-    originalSaveState();
-    // Debounced cloud sync
-    clearTimeout(window._syncTimeout);
-    window._syncTimeout = setTimeout(syncToCloud, 2000);
-  };
 
   // Start Service Worker registration
   if ('serviceWorker' in navigator) {
