@@ -733,6 +733,7 @@ function initFoodLogSheet() {
 
   const stageCapture   = document.getElementById('fls-stage-capture');
   const stageAnalyzing = document.getElementById('fls-stage-analyzing');
+  const stageChoices   = document.getElementById('fls-stage-choices');
   const stageDetected  = document.getElementById('fls-stage-detected');
 
   const shutter     = document.getElementById('fls-shutter');
@@ -745,8 +746,14 @@ function initFoodLogSheet() {
   const vfPlaceholder  = document.getElementById('fls-vf-placeholder');
   const analyzeImg     = document.getElementById('fls-analyze-img');
 
+  const choicesList  = document.getElementById('fls-choices-list');
+  const choicesThumb = document.getElementById('fls-choices-thumb');
+  const refineInput  = document.getElementById('fls-refine-input');
+  const refineBtn    = document.getElementById('fls-refine-btn');
+
   let flsPhotoBase64 = null;
   let flsItems = [];
+  let flsChoices = [];
 
   function openSheet() {
     scrim.classList.add('open');
@@ -754,6 +761,7 @@ function initFoodLogSheet() {
     showStage('capture');
     flsPhotoBase64 = null;
     flsItems = [];
+    flsChoices = [];
     capturePreview.style.display = 'none';
     vfPlaceholder.style.display = '';
   }
@@ -763,11 +771,13 @@ function initFoodLogSheet() {
     sheet.classList.remove('open');
     camInput.value = '';
     galInput.value = '';
+    if (refineInput) refineInput.value = '';
   }
 
   function showStage(name) {
     stageCapture.style.display   = name === 'capture'   ? 'flex' : 'none';
     stageAnalyzing.style.display = name === 'analyzing' ? 'flex' : 'none';
+    stageChoices.style.display   = name === 'choices'   ? 'flex' : 'none';
     stageDetected.style.display  = name === 'detected'  ? 'flex' : 'none';
   }
 
@@ -784,19 +794,98 @@ function initFoodLogSheet() {
   async function runAI() {
     try {
       const geminiData = await callGeminiAPI(null, flsPhotoBase64);
-      let items = [];
       if (geminiData.type === 'image_choices' && geminiData.choices && geminiData.choices.length > 0) {
-        items = geminiData.choices[0].items;
-      } else if (geminiData.items) {
-        items = geminiData.items;
+        // Vždy ukázat 3 možnosti, ze kterých si uživatel vybere tu správnou
+        flsChoices = geminiData.choices;
+        renderChoices();
+        showStage('choices');
+      } else {
+        // Textový výsledek nebo fallback — rovnou na detail
+        const items = geminiData.items || [];
+        flsItems = attachBaseValues(JSON.parse(JSON.stringify(items)));
+        renderDetectedStage();
+        showStage('detected');
       }
-      flsItems = attachBaseValues(JSON.parse(JSON.stringify(items)));
-      renderDetectedStage();
-      showStage('detected');
     } catch (err) {
       closeSheet();
       showToast('AI analýza selhala: ' + err.message);
     }
+  }
+
+  function renderChoices() {
+    if (flsPhotoBase64) {
+      choicesThumb.style.backgroundImage = `url(${flsPhotoBase64})`;
+      choicesThumb.style.backgroundSize = 'cover';
+      choicesThumb.style.backgroundPosition = 'center';
+    }
+    choicesList.innerHTML = '';
+    flsChoices.forEach((choice, i) => {
+      const count = (choice.items || []).length;
+      const word = count === 1 ? 'položka' : (count < 5 ? 'položky' : 'položek');
+      const kcal = choice.total && choice.total.calories != null
+        ? choice.total.calories
+        : (choice.items || []).reduce((s, x) => s + Number(x.calories || 0), 0);
+      const card = document.createElement('div');
+      card.className = 'fls-choice-card';
+      card.style.animationDelay = `${i * 80}ms`;
+      card.innerHTML = `
+        <div class="fls-choice-info">
+          <span class="fls-choice-name">${choice.option_name || 'Varianta ' + (i + 1)}</span>
+          <span class="fls-choice-sub">${count} ${word}</span>
+        </div>
+        <div class="fls-choice-right">
+          <span class="fls-choice-kcal">${Math.round(kcal)} <span>kcal</span></span>
+          <svg class="fls-choice-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>`;
+      card.addEventListener('click', () => selectChoice(i));
+      choicesList.appendChild(card);
+    });
+  }
+
+  function selectChoice(index) {
+    const choice = flsChoices[index];
+    flsItems = attachBaseValues(JSON.parse(JSON.stringify(choice.items || [])));
+    if (refineInput) refineInput.value = '';
+    renderDetectedStage();
+    showStage('detected');
+  }
+
+  async function refineWithAI() {
+    const request = refineInput.value.trim();
+    if (!request) { refineInput.focus(); return; }
+    if (flsItems.length === 0) { showToast('Není co upravovat.'); return; }
+
+    setRefineLoading(true);
+    try {
+      const cleanItems = flsItems.map(it => ({
+        name: it.name, amount: it.amount,
+        calories: it.calories, protein: it.protein, carbs: it.carbs, fat: it.fat
+      }));
+      const prompt = `Aktuální rozpoznané položky jídla (JSON): ${JSON.stringify(cleanItems)}. `
+        + `Uživatel požaduje tuto úpravu: "${request}". `
+        + `Aplikuj změnu, přepočítej hmotnosti i nutriční hodnoty a vrať CELÝ aktualizovaný seznam jako type "text_result".`;
+      const data = await callGeminiAPI(prompt, null);
+      const newItems = data.items || [];
+      if (newItems.length === 0) {
+        showToast('AI nevrátila žádné položky.');
+      } else {
+        flsItems = attachBaseValues(JSON.parse(JSON.stringify(newItems)));
+        refineInput.value = '';
+        renderDetectedStage();
+      }
+    } catch (err) {
+      showToast('Úprava selhala: ' + err.message);
+    } finally {
+      setRefineLoading(false);
+    }
+  }
+
+  function setRefineLoading(on) {
+    refineBtn.disabled = on;
+    refineInput.disabled = on;
+    refineBtn.innerHTML = on
+      ? '<span class="fls-refine-spin"></span>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
   }
 
   function renderDetectedStage() {
@@ -815,7 +904,7 @@ function initFoodLogSheet() {
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Rozpoznáno ${count} ${word}
         </div>
-        <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">Zkontroluj a uprav porce</div>
+        <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">Uprav porce textem dole ↓</div>
       </div>`;
 
     list.innerHTML = '';
@@ -909,6 +998,11 @@ function initFoodLogSheet() {
   camInput.addEventListener('change', e => handleFile(e.target.files[0]));
   galInput.addEventListener('change', e => handleFile(e.target.files[0]));
   document.getElementById('fls-btn-save').addEventListener('click', saveItems);
+
+  refineBtn.addEventListener('click', refineWithAI);
+  refineInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); refineWithAI(); }
+  });
 
   window.openFoodLogSheet = openSheet;
 }
@@ -1241,7 +1335,14 @@ async function callGeminiAPI(textPrompt, imageBase64) {
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${appState.apiKey}`;
   
-  const systemInstructionText = `Jsi expert na výživu a nutriční hodnoty. Tvým úkolem je analyzovat vstup uživatele a vrátit strukturovaná data o jídlech a jejich nutričních hodnotách v přesném formátu JSON.
+  const systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
+
+KLÍČOVÁ PRAVIDLA PRO ODHAD HMOTNOSTI (nejdůležitější!):
+- Vždy odhadni REALISTICKOU hmotnost porce v gramech na základě vizuální velikosti jídla na talíři, referenčních objektů (talíř ~26 cm, příbor, ruka) a běžných velikostí porcí.
+- Typické referenční porce: kuřecí prso 120–180 g, příloha rýže/těstovin 150–250 g (vařené), brambory 200–300 g, příloha zeleniny 80–150 g, krajíc chleba 40–50 g, vejce 55–60 g, lžíce oleje 10 g.
+- Nutriční hodnoty (calories, protein, carbs, fat) MUSÍ matematicky odpovídat uvedené hmotnosti "amount". Nejdřív urči hmotnost, pak z ní spočítej makra a kalorie.
+- Kalorie ověř vztahem: calories ≈ protein*4 + carbs*4 + fat*9 (s tolerancí ±10 %). Hodnoty musí být vnitřně konzistentní.
+- Pole "amount" uváděj vždy v gramech ve formátu "150g" (u tekutin "250ml").
 
 Pravidla pro výstup:
 1. Musíš vrátit pouze validní JSON objekt. Žádný doprovodný text, žádné markdown obaly (nepoužívej \`\`\`json ... \`\`\`).
@@ -1266,7 +1367,7 @@ Pravidla pro výstup:
   }
 }
 
-3. Pokud uživatel nahrál OBRÁZEK (volitelně doplněný textem), odhadni, co je na fotce. Protože z fotky nelze přesně určit suroviny, navrhni přesně 3 NEJPRAVDĚPODOBNĚJŠÍ varianty jídla (např. 1. odlehčená/zdravější verze, 2. standardní verze, 3. kaloričtější verze s omáčkou/olejem apod.). Vrať JSON v tomto formátu (formát type "image_choices"):
+3. Pokud uživatel nahrál OBRÁZEK (volitelně doplněný textem), pečlivě odhadni, co je na fotce a JAK VELKÁ je porce. Navrhni přesně 3 NEJPRAVDĚPODOBNĚJŠÍ varianty toho, co jídlo je (např. 1. odlehčená/zdravější verze, 2. standardní verze, 3. kaloričtější verze s omáčkou/olejem). U KAŽDÉ varianty odhadni hmotnost jednotlivých složek co nejpřesněji podle velikosti na fotce. Vrať JSON v tomto formátu (formát type "image_choices"):
 {
   "type": "image_choices",
   "choices": [
@@ -1289,6 +1390,8 @@ Pravidla pro výstup:
     }
   ]
 }
+
+4. Pokud uživatel chce UPRAVIT už rozpoznané jídlo (pošle aktuální seznam položek a popis změny, např. "kuřecí dej na 200g" nebo "přidej lžíci oleje"), aplikuj požadovanou změnu, přepočítej hmotnosti a nutriční hodnoty a vrať CELÝ aktualizovaný seznam ve formátu type "text_result". Zachovej položky, kterých se změna netýká.
 
 Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdný text_result s nulovými hodnotami.`;
 
@@ -1810,6 +1913,14 @@ function initAuthHandlers() {
     spinner.style.display = 'inline-block';
 
     try {
+      // Localhost dev bypass — skip real API
+      if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+        setSession(username, 'dev-token');
+        showAppAfterLogin();
+        showToast(`Vítej, ${username}! 👋`);
+        return;
+      }
+
       const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
       const resp = await fetch(endpoint, {
         method: 'POST',
@@ -1870,9 +1981,14 @@ function initAuthHandlers() {
   });
 }
 
+function isLocalDev() {
+  return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+}
+
 async function syncToCloud() {
   const session = getSession();
   if (!session) return;
+  if (isLocalDev()) return; // localhost nemá API — jen lokální stav
 
   try {
     const dataToSync = {
@@ -1901,6 +2017,7 @@ async function syncToCloud() {
 async function syncFromCloud() {
   const session = getSession();
   if (!session) return;
+  if (isLocalDev()) return; // localhost nemá API — jen lokální stav
 
   try {
     const resp = await fetch('/api/sync', {

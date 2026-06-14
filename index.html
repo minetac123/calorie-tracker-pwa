@@ -720,11 +720,29 @@
         </div>
       </div>
 
+      <!-- Stage: choices (3 možnosti co to mohlo být) -->
+      <div id="fls-stage-choices" class="fls-stage fls-detected-layout" style="display:none;">
+        <div class="fls-detected-header" style="animation:none;">
+          <div class="fls-detected-header-thumb" id="fls-choices-thumb"></div>
+          <div style="flex:1;">
+            <div style="font-size:13px; font-weight:700; color:#5B8CFF;">Co to nejspíš je?</div>
+            <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">Vyber správnou variantu</div>
+          </div>
+        </div>
+        <div id="fls-choices-list" class="fls-detected-list"></div>
+      </div>
+
       <!-- Stage: detected -->
       <div id="fls-stage-detected" class="fls-stage fls-detected-layout" style="display:none;">
         <div id="fls-detected-header" class="fls-detected-header"></div>
         <div id="fls-detected-list" class="fls-detected-list"></div>
         <div class="fls-detected-footer">
+          <div class="fls-refine-row">
+            <input type="text" id="fls-refine-input" class="fls-refine-input" placeholder="Napiš AI úpravu (např. 'kuřecí na 200g')…">
+            <button id="fls-refine-btn" class="fls-refine-btn" type="button" aria-label="Upravit přes AI">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            </button>
+          </div>
           <div id="fls-total-card" class="fls-total-card"></div>
           <button id="fls-btn-save" class="fls-save-btn" type="button">Uložit do deníku</button>
         </div>
@@ -737,6 +755,6 @@
   <div class="safe-area-bottom"></div>
 
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-  <script src="/app.js?v=30"></script>
+  <script src="/app.js?v=34"></script>
 </body>
 </html>

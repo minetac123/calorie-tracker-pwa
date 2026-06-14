@@ -1873,3 +1873,109 @@ input, textarea, select, button {
   margin-bottom: calc(env(safe-area-inset-bottom, 16px) + 8px);
 }
 .fls-save-btn:active { transform: scale(0.97); filter: brightness(1.05); }
+
+/* --- choice cards (3 možnosti) --- */
+.fls-choice-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px;
+  background: #20202A;
+  border: 0.5px solid rgba(255,255,255,0.08);
+  border-radius: 17px;
+  cursor: pointer;
+  animation: flsFoodIn 0.5s cubic-bezier(0.16,1,0.3,1) both;
+  transition: transform 0.14s var(--spring), border-color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.fls-choice-card:active {
+  transform: scale(0.97);
+  background: #262633;
+  border-color: rgba(91,140,255,0.5);
+}
+.fls-choice-info { flex: 1; min-width: 0; }
+.fls-choice-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  display: block;
+}
+.fls-choice-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.5);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+  display: block;
+}
+.fls-choice-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.fls-choice-kcal {
+  font-size: 15px;
+  font-weight: 800;
+  color: #FF6B81;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fls-choice-kcal span {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+}
+.fls-choice-chevron {
+  color: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+
+/* --- AI refine pole --- */
+.fls-refine-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.fls-refine-input {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 15px;
+  background: #20202A;
+  border: 0.5px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.fls-refine-input::placeholder { color: rgba(255,255,255,0.34); }
+.fls-refine-input:focus {
+  border-color: #5B8CFF;
+  box-shadow: 0 0 0 3px rgba(91,140,255,0.16);
+}
+.fls-refine-btn {
+  width: 46px; height: 46px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #5B8CFF, #38BDF8);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.14s var(--spring), filter 0.14s;
+  box-shadow: 0 6px 16px -6px rgba(56,189,248,0.6);
+}
+.fls-refine-btn:active { transform: scale(0.9); filter: brightness(1.08); }
+.fls-refine-btn:disabled { opacity: 0.55; cursor: default; }
+.fls-refine-btn .fls-refine-spin {
+  width: 18px; height: 18px;
+  border: 2.5px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
