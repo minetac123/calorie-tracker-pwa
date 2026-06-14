@@ -73,15 +73,15 @@
   --pad: 20px;
 
   /* ---- Radii ---- */
-  --r-xl: 26px;
-  --r-lg: 20px;
-  --r-md: 16px;
-  --r-sm: 12px;
+  --r-xl: 32px;
+  --r-lg: 26px;
+  --r-md: 20px;
+  --r-sm: 14px;
   --r-xs: 10px;
   --r-pill: 100px;
-  --radius-lg: 20px;
-  --radius-md: 16px;
-  --radius-sm: 12px;
+  --radius-lg: 26px;
+  --radius-md: 20px;
+  --radius-sm: 14px;
 
   /* ---- Shadows ---- */
   --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 30px rgba(0,0,0,0.45);
