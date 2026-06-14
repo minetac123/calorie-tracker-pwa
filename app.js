@@ -724,6 +724,196 @@ function saveSettingsFromUI() {
 }
 
 // ==========================================================================
+// FOOD LOG BOTTOM SHEET
+// ==========================================================================
+function initFoodLogSheet() {
+  const scrim   = document.getElementById('fls-scrim');
+  const sheet   = document.getElementById('fls-sheet');
+  const btnClose = document.getElementById('fls-close');
+
+  const stageCapture   = document.getElementById('fls-stage-capture');
+  const stageAnalyzing = document.getElementById('fls-stage-analyzing');
+  const stageDetected  = document.getElementById('fls-stage-detected');
+
+  const shutter     = document.getElementById('fls-shutter');
+  const btnGallery  = document.getElementById('fls-btn-gallery');
+  const btnBarcode  = document.getElementById('fls-btn-barcode');
+  const camInput    = document.getElementById('fls-camera-input');
+  const galInput    = document.getElementById('fls-gallery-input');
+
+  const capturePreview = document.getElementById('fls-capture-preview');
+  const vfPlaceholder  = document.getElementById('fls-vf-placeholder');
+  const analyzeImg     = document.getElementById('fls-analyze-img');
+
+  let flsPhotoBase64 = null;
+  let flsItems = [];
+
+  function openSheet() {
+    scrim.classList.add('open');
+    sheet.classList.add('open');
+    showStage('capture');
+    flsPhotoBase64 = null;
+    flsItems = [];
+    capturePreview.style.display = 'none';
+    vfPlaceholder.style.display = '';
+  }
+
+  function closeSheet() {
+    scrim.classList.remove('open');
+    sheet.classList.remove('open');
+    camInput.value = '';
+    galInput.value = '';
+  }
+
+  function showStage(name) {
+    stageCapture.style.display   = name === 'capture'   ? 'flex' : 'none';
+    stageAnalyzing.style.display = name === 'analyzing' ? 'flex' : 'none';
+    stageDetected.style.display  = name === 'detected'  ? 'flex' : 'none';
+  }
+
+  function handlePhoto(dataUrl) {
+    flsPhotoBase64 = dataUrl;
+    capturePreview.src = dataUrl;
+    capturePreview.style.display = 'block';
+    vfPlaceholder.style.display = 'none';
+    analyzeImg.src = dataUrl;
+    showStage('analyzing');
+    runAI();
+  }
+
+  async function runAI() {
+    try {
+      const geminiData = await callGeminiAPI(null, flsPhotoBase64);
+      let items = [];
+      if (geminiData.type === 'image_choices' && geminiData.choices && geminiData.choices.length > 0) {
+        items = geminiData.choices[0].items;
+      } else if (geminiData.items) {
+        items = geminiData.items;
+      }
+      flsItems = attachBaseValues(JSON.parse(JSON.stringify(items)));
+      renderDetectedStage();
+      showStage('detected');
+    } catch (err) {
+      closeSheet();
+      showToast('AI analýza selhala: ' + err.message);
+    }
+  }
+
+  function renderDetectedStage() {
+    const header = document.getElementById('fls-detected-header');
+    const list   = document.getElementById('fls-detected-list');
+    const total  = document.getElementById('fls-total-card');
+
+    const count = flsItems.length;
+    const wordMap = [,'položka','položky','položky','položky'];
+    const word = wordMap[count] || 'položek';
+
+    header.innerHTML = `
+      <div class="fls-detected-header-thumb"></div>
+      <div style="flex:1;">
+        <div style="font-size:13px; font-weight:700; color:#34D399; display:flex; align-items:center; gap:5px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          Rozpoznáno ${count} ${word}
+        </div>
+        <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">Zkontroluj a uprav porce</div>
+      </div>`;
+
+    list.innerHTML = '';
+    flsItems.forEach((item, i) => {
+      const div = document.createElement('div');
+      div.className = 'fls-detected-item';
+      div.style.animationDelay = `${i * 90}ms`;
+      div.innerHTML = `
+        <div class="fls-detected-item-info">
+          <span class="fls-detected-item-name">${item.name}</span>
+          <span class="fls-detected-item-macros">${item.amount} · B ${Math.round(item.protein)} · S ${Math.round(item.carbs)} · T ${Math.round(item.fat)}</span>
+        </div>
+        <span class="fls-detected-item-kcal">${Math.round(item.calories)} <span>kcal</span></span>
+        <button class="fls-btn-remove" data-i="${i}" type="button">×</button>`;
+      list.appendChild(div);
+    });
+
+    list.querySelectorAll('.fls-btn-remove').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const i = parseInt(e.currentTarget.getAttribute('data-i'));
+        flsItems.splice(i, 1);
+        renderDetectedStage();
+      });
+    });
+
+    const totKcal = flsItems.reduce((s, x) => s + Number(x.calories || 0), 0);
+    const totP    = flsItems.reduce((s, x) => s + Number(x.protein  || 0), 0);
+    const totC    = flsItems.reduce((s, x) => s + Number(x.carbs    || 0), 0);
+    const totF    = flsItems.reduce((s, x) => s + Number(x.fat      || 0), 0);
+    total.innerHTML = `
+      <span class="fls-total-label">Celkem</span>
+      <div class="fls-total-right">
+        <span class="fls-total-macros">B ${Math.round(totP)} · S ${Math.round(totC)} · T ${Math.round(totF)}</span>
+        <span class="fls-total-kcal">${Math.round(totKcal)} <span>kcal</span></span>
+      </div>`;
+  }
+
+  function saveItems() {
+    if (flsItems.length === 0) { closeSheet(); return; }
+    const todayStr = getTodayDateString();
+    if (!appState.logs[todayStr]) appState.logs[todayStr] = [];
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    const hour = now.getHours();
+    let cat = 'Dinner';
+    if (hour >= 5  && hour < 10) cat = 'Breakfast';
+    else if (hour >= 10 && hour < 12) cat = 'Morning snack';
+    else if (hour >= 12 && hour < 15) cat = 'Lunch';
+    else if (hour >= 15 && hour < 18) cat = 'Afternoon snack';
+    else if (hour >= 18 && hour < 22) cat = 'Dinner';
+    else cat = 'Second dinner';
+
+    flsItems.forEach(item => {
+      appState.logs[todayStr].push({
+        id: Date.now() + Math.random().toString(36).substr(2,5),
+        time: timeStr,
+        name: item.name,
+        amount: item.amount || '',
+        calories: Math.round(Number(item.calories || 0)),
+        protein:  Math.round(Number(item.protein  || 0) * 10) / 10,
+        carbs:    Math.round(Number(item.carbs    || 0) * 10) / 10,
+        fat:      Math.round(Number(item.fat      || 0) * 10) / 10,
+        category: cat
+      });
+    });
+
+    const count = flsItems.length;
+    const totKcal = Math.round(flsItems.reduce((s,x) => s + Number(x.calories||0), 0));
+    saveState();
+    renderDashboard();
+    closeSheet();
+    const word = count === 1 ? 'položka' : (count < 5 ? 'položky' : 'položek');
+    showToast(`✅ Přidáno ${count} ${word} · ${totKcal} kcal`);
+  }
+
+  function handleFile(file) {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = e => handlePhoto(e.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  scrim.addEventListener('click', closeSheet);
+  btnClose.addEventListener('click', closeSheet);
+  shutter.addEventListener('click', () => camInput.click());
+  btnGallery.addEventListener('click', () => galInput.click());
+  btnBarcode.addEventListener('click', () => {
+    closeSheet();
+    document.getElementById('btn-wizard-scan-barcode')?.click();
+  });
+  camInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  galInput.addEventListener('change', e => handleFile(e.target.files[0]));
+  document.getElementById('fls-btn-save').addEventListener('click', saveItems);
+
+  window.openFoodLogSheet = openSheet;
+}
+
+// ==========================================================================
 // TAB NAVIGATION & SCREEN SWITCHER
 // ==========================================================================
 function initNavigation() {
@@ -816,10 +1006,14 @@ function initNavigation() {
     });
   });
   
-  // Floating Action Button Link
+  // Floating Action Button — opens the new food log sheet
   if (fab) {
     fab.addEventListener('click', () => {
-      switchScreen('screen-add');
+      if (window.openFoodLogSheet) {
+        window.openFoodLogSheet();
+      } else {
+        switchScreen('screen-add');
+      }
     });
   }
   
@@ -1780,6 +1974,7 @@ function showAppAfterLogin() {
 function init() {
   loadState();
   updateDateLabels();
+  initFoodLogSheet();
   initNavigation();
   initPhotoHandlers();
   initFormHandlers();

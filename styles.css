@@ -1468,3 +1468,408 @@ input, textarea, select, button {
   transition: max-height 0.3s ease-in-out, opacity 0.2s ease;
   overflow: hidden;
 }
+
+/* ==========================================================================
+   FOOD LOG BOTTOM SHEET
+   ========================================================================== */
+@keyframes flsScanLine {
+  0%   { transform: translateY(-8%); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateY(108%); opacity: 0; }
+}
+@keyframes flsDotPulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.7); }
+  40%            { opacity: 1;    transform: scale(1);   }
+}
+@keyframes flsFoodIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+@keyframes flsStageIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+#fls-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 450ms ease;
+}
+#fls-scrim.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#fls-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 501;
+  height: 90%;
+  max-width: 430px;
+  margin: 0 auto;
+  background: linear-gradient(180deg, #1a1a22 0%, #14141B 22%);
+  border-radius: 30px 30px 0 0;
+  border-top: 0.5px solid rgba(255,255,255,0.14);
+  box-shadow: 0 -24px 60px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(112%);
+  transition: transform 640ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+#fls-sheet.open {
+  transform: translateY(0);
+}
+
+.fls-handle-row {
+  display: flex;
+  justify-content: center;
+  padding: 11px 0 4px;
+  flex-shrink: 0;
+}
+.fls-handle {
+  width: 40px;
+  height: 5px;
+  border-radius: 100px;
+  background: rgba(255,255,255,0.18);
+}
+
+.fls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px 14px;
+  flex-shrink: 0;
+}
+.fls-title {
+  font-size: 21px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+.fls-subtitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  margin-top: 2px;
+}
+.fls-close-btn {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: #2C2C38;
+  color: rgba(255,255,255,0.7);
+  font-size: 20px;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.fls-close-btn:active { background: #3a3a4a; }
+
+.fls-body {
+  flex: 1;
+  overflow: hidden;
+  padding: 0 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.fls-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  animation: flsStageIn 0.4s cubic-bezier(0.16,1,0.3,1) both;
+}
+
+/* --- viewfinder --- */
+.fls-viewfinder {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 22px;
+  overflow: hidden;
+  background: repeating-linear-gradient(45deg, #1c1c24, #1c1c24 11px, #17171e 11px, #17171e 22px);
+  border: 0.5px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+.fls-viewfinder-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: rgba(255,255,255,0.32);
+}
+
+/* corner brackets */
+.fls-bracket {
+  position: absolute;
+  width: 26px; height: 26px;
+}
+.fls-bl-tl { top: 16px;    left: 16px;  border-top: 2.5px solid #5B8CFF; border-left: 2.5px solid #5B8CFF;  border-radius: 8px 0 0 0; }
+.fls-bl-tr { top: 16px;    right: 16px; border-top: 2.5px solid #5B8CFF; border-right: 2.5px solid #5B8CFF; border-radius: 0 8px 0 0; }
+.fls-bl-bl { bottom: 16px; left: 16px;  border-bottom: 2.5px solid #5B8CFF; border-left: 2.5px solid #5B8CFF;  border-radius: 0 0 0 8px; }
+.fls-bl-br { bottom: 16px; right: 16px; border-bottom: 2.5px solid #5B8CFF; border-right: 2.5px solid #5B8CFF; border-radius: 0 0 8px 0; }
+
+/* shutter */
+.fls-shutter-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 0 16px;
+  flex-shrink: 0;
+}
+.fls-shutter-btn {
+  width: 74px; height: 74px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.fls-shutter-inner {
+  width: 74px; height: 74px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 4px #14141B, 0 0 0 6px rgba(255,255,255,0.85), 0 0 26px rgba(91,140,255,0.45);
+  transition: transform 0.16s cubic-bezier(0.34,1.56,0.64,1);
+}
+.fls-shutter-btn:active .fls-shutter-inner { transform: scale(0.88); }
+
+/* alt buttons */
+.fls-alt-row {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.fls-alt-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px;
+  border-radius: 15px;
+  border: 0.5px solid rgba(255,255,255,0.1);
+  background: #20202A;
+  color: rgba(255,255,255,0.78);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.fls-alt-btn:active { background: #2c2c3a; }
+
+/* --- analyzing stage --- */
+.fls-vf-analyzing {
+  background: repeating-linear-gradient(45deg, #23232c, #23232c 11px, #1d1d25 11px, #1d1d25 22px);
+}
+.fls-scan-line {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 60%;
+  background: linear-gradient(180deg, transparent, rgba(91,140,255,0.28) 70%, rgba(91,140,255,0.85));
+  border-bottom: 2px solid #5B8CFF;
+  box-shadow: 0 0 24px rgba(91,140,255,0.6);
+  animation: flsScanLine 1.5s cubic-bezier(0.45,0,0.55,1) infinite;
+}
+.fls-analyzing-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 0 10px;
+  flex-shrink: 0;
+}
+.fls-spinner-blue {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.16);
+  border-top-color: #5B8CFF;
+  animation: spin 0.7s linear infinite;
+}
+.fls-analyzing-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+.fls-dots {
+  display: flex;
+  gap: 3px;
+}
+.fls-dots span {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #5B8CFF;
+  animation: flsDotPulse 1.2s infinite;
+}
+.fls-dots span:nth-child(2) { animation-delay: 0.2s; }
+.fls-dots span:nth-child(3) { animation-delay: 0.4s; }
+.fls-analyzing-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.42);
+}
+
+/* --- detected stage --- */
+.fls-detected-layout {
+  overflow: hidden;
+}
+.fls-detected-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 0 14px;
+  flex-shrink: 0;
+  animation: flsFoodIn 0.45s cubic-bezier(0.16,1,0.3,1) both;
+}
+.fls-detected-header-thumb {
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: repeating-linear-gradient(45deg, #23232c, #23232c 7px, #1d1d25 7px, #1d1d25 14px);
+  border: 0.5px solid rgba(255,255,255,0.08);
+}
+.fls-detected-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-bottom: 6px;
+}
+.fls-detected-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  background: #20202A;
+  border: 0.5px solid rgba(255,255,255,0.07);
+  border-radius: 17px;
+  animation: flsFoodIn 0.5s cubic-bezier(0.16,1,0.3,1) both;
+  flex-shrink: 0;
+}
+.fls-detected-item-info { flex: 1; min-width: 0; }
+.fls-detected-item-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.fls-detected-item-macros {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.5);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  display: block;
+}
+.fls-detected-item-kcal {
+  font-size: 15px;
+  font-weight: 800;
+  color: #FF6B81;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fls-detected-item-kcal span {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+}
+.fls-btn-remove {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: rgba(255,90,107,0.14);
+  color: var(--ios-red);
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  border: none;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.fls-btn-remove:active { background: rgba(255,90,107,0.28); }
+
+.fls-detected-footer {
+  flex-shrink: 0;
+  padding: 12px 0 0;
+  animation: flsFoodIn 0.5s 0.34s cubic-bezier(0.16,1,0.3,1) both;
+}
+.fls-total-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  background: linear-gradient(135deg, rgba(139,92,246,0.14), rgba(56,189,248,0.1));
+  border: 0.5px solid rgba(124,108,246,0.28);
+  border-radius: 17px;
+  margin-bottom: 12px;
+}
+.fls-total-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.62);
+}
+.fls-total-right {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.fls-total-macros {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums;
+}
+.fls-total-kcal {
+  font-size: 19px;
+  font-weight: 800;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.fls-total-kcal span {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.5);
+}
+.fls-save-btn {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 100px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #5B8CFF, #38BDF8);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: -0.2px;
+  box-shadow: 0 12px 28px -8px rgba(56,189,248,0.6), 0 1px 0 rgba(255,255,255,0.25) inset;
+  transition: transform 0.14s var(--spring), filter 0.14s;
+  margin-bottom: calc(env(safe-area-inset-bottom, 16px) + 8px);
+}
+.fls-save-btn:active { transform: scale(0.97); filter: brightness(1.05); }
