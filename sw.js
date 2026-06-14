@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fitai-cache-v29';
+const CACHE_NAME = 'fitai-cache-v30';
 const ASSETS = [
   '/index.html',
   '/styles.css',
@@ -26,7 +26,7 @@ self.addEventListener('install', (e) => {
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       const cleanPromises = ASSETS.map((url) => {
-        return fetch(url).then((response) => {
+        return fetch(url, {cache: 'no-cache'}).then((response) => {
           if (!response.ok) {
             throw new Error(`Failed to fetch ${url}`);
           }
