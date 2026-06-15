@@ -245,11 +245,10 @@ function setWizardCategory(categoryId) {
 }
 
 window.navigateToManualAddFood = function(categoryId) {
-  const fab = document.querySelector('.nav-fab');
-  if (fab) {
-    fab.click();
+  // Otevři starý wizard (NE scan sheet) — používá se pro ruční/čárový kód
+  if (window.switchAppScreen) {
+    window.switchAppScreen('screen-add');
   }
-  
   setWizardCategory(categoryId);
   showWizardStep(2);
 };
@@ -451,7 +450,7 @@ function renderDashboard() {
         </div>
       </div>
       <div class="meal-actions">
-        <button class="btn-add-meal" onclick="window.navigateToManualAddFood('${cat.id}')">+</button>
+        <button class="btn-add-meal" onclick="window.openFoodLogSheet('${cat.id}')">+</button>
       </div>`;
       
     catCard.addEventListener('click', (e) => {
@@ -541,22 +540,63 @@ function renderDashboard() {
   if (weightTargetEl) weightTargetEl.innerText = `cíl ${appState.weightTarget.toString().replace('.', ',')} kg`;
 }
 
+// Fire/burn animace — spálí DOM element a po dokončení zavolá callback
+function burnAndRemove(el, done) {
+  if (!el || el.classList.contains('burning')) { if (done) done(); return; }
+  el.classList.add('burning');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'burn-overlay';
+
+  // jazyky plamenů rovnoměrně po šířce
+  const flameCount = 5;
+  for (let i = 0; i < flameCount; i++) {
+    const f = document.createElement('span');
+    f.className = 'burn-flame';
+    f.style.left = (10 + i * (80 / (flameCount - 1))) + '%';
+    f.style.animationDelay = (i * 55) + 'ms';
+    overlay.appendChild(f);
+  }
+  // odlétající jiskry
+  for (let i = 0; i < 11; i++) {
+    const e = document.createElement('span');
+    e.className = 'burn-ember';
+    e.style.left = (Math.random() * 100) + '%';
+    e.style.animationDelay = (Math.random() * 380) + 'ms';
+    e.style.setProperty('--dx', (Math.random() * 44 - 22).toFixed(0) + 'px');
+    overlay.appendChild(e);
+  }
+  el.appendChild(overlay);
+
+  setTimeout(() => { if (done) done(); }, 840);
+}
+
 function deleteFoodItem(id) {
   const todayStr = getTodayDateString();
   if (appState.logs[todayStr]) {
     const itemIndex = appState.logs[todayStr].findIndex(item => item.id === id);
     if (itemIndex !== -1) {
       const deletedName = appState.logs[todayStr][itemIndex].name;
-      appState.logs[todayStr].splice(itemIndex, 1);
-      
-      // Clean up empty day lists
-      if (appState.logs[todayStr].length === 0) {
-        delete appState.logs[todayStr];
+
+      const finish = () => {
+        appState.logs[todayStr].splice(itemIndex, 1);
+        // Clean up empty day lists
+        if (appState.logs[todayStr].length === 0) {
+          delete appState.logs[todayStr];
+        }
+        saveState();
+        renderDashboard();
+        showToast(`🔥 Spáleno: ${deletedName}`);
+      };
+
+      // Najdi řádek jídla v DOMu a spal ho, pak teprve smaž data
+      const ref = document.querySelector(`.meal-sub-item [data-id="${CSS.escape(String(id))}"]`);
+      const row = ref ? ref.closest('.meal-sub-item') : null;
+      if (row) {
+        burnAndRemove(row, finish);
+      } else {
+        finish();
       }
-      
-      saveState();
-      renderDashboard();
-      showToast(`Smazáno: ${deletedName}`);
     }
   }
 }
@@ -750,20 +790,69 @@ function initFoodLogSheet() {
   const choicesThumb = document.getElementById('fls-choices-thumb');
   const refineInput  = document.getElementById('fls-refine-input');
   const refineBtn    = document.getElementById('fls-refine-btn');
+  const mealPicker     = document.getElementById('fls-meal-picker');
+  const mealPickerWrap = document.getElementById('fls-meal-picker-wrap');
+
+  const MEALS = [
+    { id: 'Breakfast',       name: 'Snídaně',     icon: '🥣' },
+    { id: 'Morning snack',   name: 'Dop. svačina', icon: '🥪' },
+    { id: 'Lunch',           name: 'Oběd',        icon: '🍛' },
+    { id: 'Afternoon snack', name: 'Odp. svačina', icon: '🍎' },
+    { id: 'Dinner',          name: 'Večeře',      icon: '🍽️' },
+    { id: 'Second dinner',   name: 'Druhá večeře', icon: '🌙' }
+  ];
+
+  function guessCategoryByTime() {
+    const hour = new Date().getHours();
+    if (hour >= 5  && hour < 10) return 'Breakfast';
+    if (hour >= 10 && hour < 12) return 'Morning snack';
+    if (hour >= 12 && hour < 15) return 'Lunch';
+    if (hour >= 15 && hour < 18) return 'Afternoon snack';
+    if (hour >= 18 && hour < 22) return 'Dinner';
+    return 'Second dinner';
+  }
 
   let flsPhotoBase64 = null;
   let flsItems = [];
   let flsChoices = [];
+  let flsPresetCategory = null;  // přednastavená kategorie (z tlačítka u konkrétního jídla)
+  let flsPickedCategory = null;  // kategorie vybraná uživatelem po skenu
 
-  function openSheet() {
+  function openSheet(presetCategory) {
+    flsPresetCategory = (typeof presetCategory === 'string' && MEALS.some(m => m.id === presetCategory))
+      ? presetCategory : null;
     scrim.classList.add('open');
     sheet.classList.add('open');
     showStage('capture');
     flsPhotoBase64 = null;
     flsItems = [];
     flsChoices = [];
+    flsPickedCategory = null;
     capturePreview.style.display = 'none';
     vfPlaceholder.style.display = '';
+  }
+
+  function renderMealPicker() {
+    // Když je kategorie přednastavená (sken z konkrétního jídla), výběr neukazuj
+    if (flsPresetCategory) {
+      mealPickerWrap.style.display = 'none';
+      return;
+    }
+    mealPickerWrap.style.display = 'block';
+    if (!flsPickedCategory) flsPickedCategory = guessCategoryByTime();
+    mealPicker.innerHTML = '';
+    MEALS.forEach(m => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'fls-meal-chip' + (m.id === flsPickedCategory ? ' active' : '');
+      chip.innerHTML = `<span>${m.icon}</span> ${m.name}`;
+      chip.addEventListener('click', () => {
+        flsPickedCategory = m.id;
+        mealPicker.querySelectorAll('.fls-meal-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+      });
+      mealPicker.appendChild(chip);
+    });
   }
 
   function closeSheet() {
@@ -897,6 +986,10 @@ function initFoodLogSheet() {
     const wordMap = [,'položka','položky','položky','položky'];
     const word = wordMap[count] || 'položek';
 
+    const presetMeal = flsPresetCategory ? MEALS.find(m => m.id === flsPresetCategory) : null;
+    const headerSub = presetMeal
+      ? `${presetMeal.icon} ${presetMeal.name} · uprav porce dole ↓`
+      : 'Uprav porce textem dole ↓';
     header.innerHTML = `
       <div class="fls-detected-header-thumb"></div>
       <div style="flex:1;">
@@ -904,7 +997,7 @@ function initFoodLogSheet() {
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           Rozpoznáno ${count} ${word}
         </div>
-        <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">Uprav porce textem dole ↓</div>
+        <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">${headerSub}</div>
       </div>`;
 
     list.innerHTML = '';
@@ -925,8 +1018,11 @@ function initFoodLogSheet() {
     list.querySelectorAll('.fls-btn-remove').forEach(btn => {
       btn.addEventListener('click', e => {
         const i = parseInt(e.currentTarget.getAttribute('data-i'));
-        flsItems.splice(i, 1);
-        renderDetectedStage();
+        const row = e.currentTarget.closest('.fls-detected-item');
+        burnAndRemove(row, () => {
+          flsItems.splice(i, 1);
+          renderDetectedStage();
+        });
       });
     });
 
@@ -940,6 +1036,8 @@ function initFoodLogSheet() {
         <span class="fls-total-macros">B ${Math.round(totP)} · S ${Math.round(totC)} · T ${Math.round(totF)}</span>
         <span class="fls-total-kcal">${Math.round(totKcal)} <span>kcal</span></span>
       </div>`;
+
+    renderMealPicker();
   }
 
   function saveItems() {
@@ -948,14 +1046,8 @@ function initFoodLogSheet() {
     if (!appState.logs[todayStr]) appState.logs[todayStr] = [];
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    const hour = now.getHours();
-    let cat = 'Dinner';
-    if (hour >= 5  && hour < 10) cat = 'Breakfast';
-    else if (hour >= 10 && hour < 12) cat = 'Morning snack';
-    else if (hour >= 12 && hour < 15) cat = 'Lunch';
-    else if (hour >= 15 && hour < 18) cat = 'Afternoon snack';
-    else if (hour >= 18 && hour < 22) cat = 'Dinner';
-    else cat = 'Second dinner';
+    // Kategorie: přednastavená (sken z konkrétního jídla) → vybraná uživatelem → podle času
+    const cat = flsPresetCategory || flsPickedCategory || guessCategoryByTime();
 
     flsItems.forEach(item => {
       appState.logs[todayStr].push({
@@ -973,11 +1065,12 @@ function initFoodLogSheet() {
 
     const count = flsItems.length;
     const totKcal = Math.round(flsItems.reduce((s,x) => s + Number(x.calories||0), 0));
+    const mealName = (MEALS.find(m => m.id === cat) || {}).name || '';
     saveState();
     renderDashboard();
     closeSheet();
     const word = count === 1 ? 'položka' : (count < 5 ? 'položky' : 'položek');
-    showToast(`✅ Přidáno ${count} ${word} · ${totKcal} kcal`);
+    showToast(`✅ ${mealName}: ${count} ${word} · ${totKcal} kcal`);
   }
 
   function handleFile(file) {
@@ -1089,6 +1182,9 @@ function initNavigation() {
       }
     });
   }
+
+  // Vystav pro ostatní moduly (čárový kód, ruční přidání)
+  window.switchAppScreen = switchScreen;
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
