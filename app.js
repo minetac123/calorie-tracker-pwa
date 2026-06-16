@@ -2527,7 +2527,7 @@ function startBarcodeScanner() {
 
       try {
         const product = await fetchProductByBarcode(decodedText);
-        prefillManualFoodForm(product);
+        prefillManualFoodForm(product, true);
       } catch (err) {
         console.error(err);
         alert(`Produkt se čárovým kódem ${decodedText} nebyl nalezen nebo došlo k chybě připojení.\nMůžeš ho zapsat ručně.`);
@@ -2566,7 +2566,7 @@ async function stopBarcodeScanner() {
   }
 }
 
-function prefillManualFoodForm(product) {
+function prefillManualFoodForm(product, askAmount = false) {
   // Preserve category
   const categorySelect = document.getElementById('input-food-category');
   const currentCat = categorySelect ? categorySelect.value : 'Breakfast';
@@ -2607,8 +2607,52 @@ function prefillManualFoodForm(product) {
   if (unlockBtn) {
     unlockBtn.style.display = 'inline-block';
   }
-  
-  showToast("Potravina předvyplněna! Uprav množství a ulož. 🍽️");
+
+  // KROK S HMOTNOSTÍ: po naskenování/načtení čárového kódu se uživatele výslovně
+  // zeptáme na snědené množství a podle něj přepočítáme kalorie i makra. Bez
+  // tohoto kroku se jídlo logovalo ve výchozích 100 g (= "krok s hmotností přeskočen").
+  if (askAmount) {
+    promptForScannedAmount(product.baseUnit || 'g');
+  }
+
+  // Pro jistotu zaměříme pole množství, ať je krok vždy na očích.
+  const amountEl = document.getElementById('input-food-amount');
+  if (amountEl) {
+    try { amountEl.focus({ preventScroll: false }); amountEl.select(); } catch (e) {}
+  }
+
+  showToast("Zadej snědené množství a ulož. ⚖️");
+}
+
+// Zeptá se uživatele na snědené množství a přepočítá pole formuláře podle
+// základních hodnot (na 100 g/ml), které drží currentFormBaseValues.
+function promptForScannedAmount(baseUnit) {
+  if (!currentFormBaseValues) return;
+  const unit = baseUnit || currentFormBaseValues.baseUnit || 'g';
+  const answer = prompt(
+    `Kolik ${unit === 'ml' ? 'mililitrů (ml)' : 'gramů (g)'} jsi snědl/a?`,
+    `100${unit}`
+  );
+  // Uživatel zrušil → necháme předvyplněných 100 g/ml, nic se neloguje.
+  if (answer === null) return;
+
+  const trimmed = String(answer).trim();
+  if (trimmed === '') return;
+
+  const multiplier = getQuantityMultiplier(trimmed, unit);
+  if (isNaN(multiplier) || multiplier <= 0) {
+    alert('Neplatné množství – ponechávám 100' + unit + '.');
+    return;
+  }
+
+  // Zapiš zadané množství a přepočítej hodnoty
+  const parsed = parseQuantity(trimmed, unit);
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setVal('input-food-amount', `${parsed.value}${parsed.unit}`);
+  setVal('input-food-cal', Math.round(currentFormBaseValues.calories * multiplier));
+  setVal('input-food-p', Math.round(currentFormBaseValues.protein * multiplier * 10) / 10);
+  setVal('input-food-c', Math.round(currentFormBaseValues.carbs * multiplier * 10) / 10);
+  setVal('input-food-f', Math.round(currentFormBaseValues.fat * multiplier * 10) / 10);
 }
 
 function initBarcodeAndSearch() {
@@ -2658,8 +2702,8 @@ function initBarcodeAndSearch() {
       try {
         const product = await fetchProductByBarcode(barcode);
         console.log('Produkt nalezen:', product);
-        stopBarcodeScanner();
-        prefillManualFoodForm(product);
+        await stopBarcodeScanner();
+        prefillManualFoodForm(product, true);
       } catch (err) {
         console.error('Chyba vyhledávání čárového kódu:', err);
         alert("Chyba vyhledávání čárového kódu: " + err.message);
