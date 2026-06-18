@@ -2355,6 +2355,9 @@ function getQuantityMultiplier(quantityStr, baseUnit = 'g') {
 }
 
 function lockManualFormFields(shouldLock) {
+  // Pozn.: 'input-food-amount' (množství/hmotnost) ZÁMĚRNĚ NENÍ uzamčeno —
+  // jde o krok, kde uživatel zadává snědené množství; změna spustí přepočet
+  // kalorií a maker (viz listener na 'input' u #input-food-amount).
   const fields = ['input-food-name', 'input-food-cal', 'input-food-p', 'input-food-c', 'input-food-f'];
   fields.forEach(id => {
     const el = document.getElementById(id);
@@ -2466,23 +2469,38 @@ async function searchFoodDatabase(query, signal) {
 // BARCODE SCANNER WORKFLOW
 // ==========================================================================
 let html5QrScanner = null;
+// Guard proti opakovanému vyvolání success callbacku. Knihovna html5-qrcode
+// volá callback pro KAŽDÝ snímek (cca 10×/s), dokud se kamera fyzicky nezastaví.
+// Bez tohoto zámku se barcode zpracoval vícekrát: každé volání znovu načetlo
+// produkt a znovu předvyplnilo formulář, čímž přepsalo hmotnost, kterou si
+// uživatel právě zadal, zpět na výchozích 100 g (= "krok s hmotností přeskočen").
+let barcodeScanHandled = false;
 
 function startBarcodeScanner() {
   const modal = document.getElementById('barcode-scanner-modal');
   if (modal) {
     modal.classList.add('active');
   }
-  
+
   const errorEl = document.getElementById('barcode-error');
   if (errorEl) errorEl.style.display = 'none';
-  
-  document.getElementById('input-manual-barcode').value = '';
-  
-  // Clear any existing scanner
+
+  const manualInput = document.getElementById('input-manual-barcode');
+  if (manualInput) manualInput.value = '';
+
+  // Povolit zpracování prvního naskenovaného kódu v této relaci skeneru
+  barcodeScanHandled = false;
+
+  // Clear any existing scanner — clear() vyhodí výjimku, pokud sken stále běží,
+  // proto obalíme do try/catch, ať nezablokujeme nový start.
   if (html5QrScanner) {
-    html5QrScanner.clear();
+    try {
+      html5QrScanner.clear();
+    } catch (err) {
+      console.warn("Could not clear previous scanner", err);
+    }
   }
-  
+
   html5QrScanner = new Html5Qrcode("reader");
   
   const config = {
@@ -2497,17 +2515,23 @@ function startBarcodeScanner() {
     { facingMode: "environment" },
     config,
     async (decodedText, decodedResult) => {
-      // Barcode detected! Stop scanner and fetch
-      stopBarcodeScanner();
-      
+      // Barcode detected! Zpracuj POUZE první úspěšný sken — další snímky ignoruj.
+      if (barcodeScanHandled) return;
+      barcodeScanHandled = true;
+
+      // Počkej, až se kamera skutečně zastaví, než budeme pokračovat
+      await stopBarcodeScanner();
+
       showToast("Kód naskenován: " + decodedText + " 🔍");
-      
+
       try {
         const product = await fetchProductByBarcode(decodedText);
-        prefillManualFoodForm(product);
+        prefillManualFoodForm(product, true);
       } catch (err) {
         console.error(err);
         alert(`Produkt se čárovým kódem ${decodedText} nebyl nalezen nebo došlo k chybě připojení.\nMůžeš ho zapsat ručně.`);
+        // Při chybě povol opětovné skenování
+        barcodeScanHandled = false;
       }
     },
     (errorMessage) => {
@@ -2523,26 +2547,25 @@ function startBarcodeScanner() {
   });
 }
 
-function stopBarcodeScanner() {
+async function stopBarcodeScanner() {
   const modal = document.getElementById('barcode-scanner-modal');
   if (modal) {
     modal.classList.remove('active');
   }
-  
+
   if (html5QrScanner) {
     try {
-      html5QrScanner.stop().then(() => {
-        console.log("Scanner stopped.");
-      }).catch(err => {
-        console.warn("Promise catch: Error stopping scanner", err);
-      });
+      // Vrácený Promise je nutné awaitnout, jinak kamera dál běží a stále
+      // generuje další úspěšné callbacky (zdroj race condition / duplicit).
+      await html5QrScanner.stop();
+      console.log("Scanner stopped.");
     } catch (err) {
-      console.warn("Sync catch: Error stopping scanner", err);
+      console.warn("Error stopping scanner", err);
     }
   }
 }
 
-function prefillManualFoodForm(product) {
+function prefillManualFoodForm(product, askAmount = false) {
   // Preserve category
   const categorySelect = document.getElementById('input-food-category');
   const currentCat = categorySelect ? categorySelect.value : 'Breakfast';
@@ -2556,20 +2579,25 @@ function prefillManualFoodForm(product) {
     showWizardStep(2);
   }
   
-  // Set values
-  document.getElementById('input-food-name').value = product.name;
-  document.getElementById('input-food-cal').value = product.calories;
-  document.getElementById('input-food-amount').value = product.amount;
-  document.getElementById('input-food-p').value = product.protein;
-  document.getElementById('input-food-c').value = product.carbs;
-  document.getElementById('input-food-f').value = product.fat;
-  
+  // Set values (s ochranou proti chybějícím elementům, aby případný null
+  // nepřerušil předvyplnění uprostřed a nezanechal formulář v půlstavu)
+  const setFieldValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+  };
+  setFieldValue('input-food-name', product.name);
+  setFieldValue('input-food-cal', product.calories);
+  setFieldValue('input-food-amount', product.amount);
+  setFieldValue('input-food-p', product.protein);
+  setFieldValue('input-food-c', product.carbs);
+  setFieldValue('input-food-f', product.fat);
+
   currentFormBaseValues = {
     calories: product.calories,
     protein: product.protein,
     carbs: product.carbs,
     fat: product.fat,
-    baseUnit: product.baseUnit || (product.amount.endsWith('ml') ? 'ml' : 'g')
+    baseUnit: product.baseUnit || (String(product.amount).endsWith('ml') ? 'ml' : 'g')
   };
   
   lockManualFormFields(true);
@@ -2578,8 +2606,52 @@ function prefillManualFoodForm(product) {
   if (unlockBtn) {
     unlockBtn.style.display = 'inline-block';
   }
-  
-  showToast("Potravina předvyplněna! Uprav množství a ulož. 🍽️");
+
+  // KROK S HMOTNOSTÍ: po naskenování/načtení čárového kódu se uživatele výslovně
+  // zeptáme na snědené množství a podle něj přepočítáme kalorie i makra. Bez
+  // tohoto kroku se jídlo logovalo ve výchozích 100 g (= "krok s hmotností přeskočen").
+  if (askAmount) {
+    promptForScannedAmount(product.baseUnit || 'g');
+  }
+
+  // Pro jistotu zaměříme pole množství, ať je krok vždy na očích.
+  const amountEl = document.getElementById('input-food-amount');
+  if (amountEl) {
+    try { amountEl.focus({ preventScroll: false }); amountEl.select(); } catch (e) {}
+  }
+
+  showToast("Zadej snědené množství a ulož. ⚖️");
+}
+
+// Zeptá se uživatele na snědené množství a přepočítá pole formuláře podle
+// základních hodnot (na 100 g/ml), které drží currentFormBaseValues.
+function promptForScannedAmount(baseUnit) {
+  if (!currentFormBaseValues) return;
+  const unit = baseUnit || currentFormBaseValues.baseUnit || 'g';
+  const answer = prompt(
+    `Kolik ${unit === 'ml' ? 'mililitrů (ml)' : 'gramů (g)'} jsi snědl/a?`,
+    `100${unit}`
+  );
+  // Uživatel zrušil → necháme předvyplněných 100 g/ml, nic se neloguje.
+  if (answer === null) return;
+
+  const trimmed = String(answer).trim();
+  if (trimmed === '') return;
+
+  const multiplier = getQuantityMultiplier(trimmed, unit);
+  if (isNaN(multiplier) || multiplier <= 0) {
+    alert('Neplatné množství – ponechávám 100' + unit + '.');
+    return;
+  }
+
+  // Zapiš zadané množství a přepočítej hodnoty
+  const parsed = parseQuantity(trimmed, unit);
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setVal('input-food-amount', `${parsed.value}${parsed.unit}`);
+  setVal('input-food-cal', Math.round(currentFormBaseValues.calories * multiplier));
+  setVal('input-food-p', Math.round(currentFormBaseValues.protein * multiplier * 10) / 10);
+  setVal('input-food-c', Math.round(currentFormBaseValues.carbs * multiplier * 10) / 10);
+  setVal('input-food-f', Math.round(currentFormBaseValues.fat * multiplier * 10) / 10);
 }
 
 function initBarcodeAndSearch() {
@@ -2629,8 +2701,8 @@ function initBarcodeAndSearch() {
       try {
         const product = await fetchProductByBarcode(barcode);
         console.log('Produkt nalezen:', product);
-        stopBarcodeScanner();
-        prefillManualFoodForm(product);
+        await stopBarcodeScanner();
+        prefillManualFoodForm(product, true);
       } catch (err) {
         console.error('Chyba vyhledávání čárového kódu:', err);
         alert("Chyba vyhledávání čárového kódu: " + err.message);
