@@ -46,10 +46,10 @@ function loadState() {
   if (saved) {
     try {
       appState = JSON.parse(saved);
-      // Ensure the key is never lost and falls back to pre-filled if missing
-      if (!appState.apiKey) {
-        appState.apiKey = DEFAULT_API_KEY;
-      }
+      // The Gemini key is an app-level secret tied to the current build, NOT user
+      // data. Always force the bundled key so a stale key persisted from an older
+      // build (or pulled from cloud) can never break AI analysis.
+      appState.apiKey = DEFAULT_API_KEY;
       // Guarantee nested properties exist
       if (!appState.goals) {
         appState.goals = { calories: 2000, protein: 130, carbs: 220, fat: 65 };
@@ -2047,7 +2047,7 @@ function initAuthHandlers() {
         // Cloud data takes priority — merge logs
         const cloudState = data.appData;
         if (cloudState.goals) appState.goals = cloudState.goals;
-        if (cloudState.apiKey) appState.apiKey = cloudState.apiKey;
+        // Never pull apiKey from cloud — it's a build secret (see loadState).
         if (cloudState.logs) {
           // Merge: keep all dates, cloud wins on conflicts
           Object.keys(cloudState.logs).forEach(dateKey => {
@@ -2098,7 +2098,6 @@ async function syncToCloud() {
     const dataToSync = {
       goals: appState.goals,
       logs: appState.logs,
-      apiKey: appState.apiKey,
       water: appState.water,
       weight: appState.weight,
       weightTarget: appState.weightTarget,
@@ -2132,7 +2131,7 @@ async function syncFromCloud() {
     if (data.success && data.appData) {
       const cloudState = data.appData;
       if (cloudState.goals) appState.goals = cloudState.goals;
-      if (cloudState.apiKey) appState.apiKey = cloudState.apiKey;
+      // Never pull apiKey from cloud — it's a build secret (see loadState).
       if (cloudState.logs) {
         Object.keys(cloudState.logs).forEach(dateKey => {
           appState.logs[dateKey] = cloudState.logs[dateKey];
