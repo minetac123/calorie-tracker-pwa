@@ -470,6 +470,14 @@ input, textarea, select, button {
 }
 .btn-back-today:active { transform: scale(0.97); }
 
+/* Capture stage scrolls so the favorites list below the viewfinder is reachable */
+#fls-stage-capture {
+  overflow-y: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 20px;
+}
+
 /* Favorites in the food-log bottom sheet (scan menu) */
 .fls-favorites {
   margin-top: 18px;
@@ -481,10 +489,6 @@ input, textarea, select, button {
   font-weight: 700;
   color: rgba(255, 255, 255, 0.7);
   margin-bottom: 6px;
-}
-#fls-favorites-list {
-  max-height: 210px;
-  overflow-y: auto;
 }
 .favorites-empty {
   padding: 10px 0;
