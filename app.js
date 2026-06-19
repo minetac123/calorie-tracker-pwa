@@ -2271,7 +2271,8 @@ async function syncToCloud() {
       water: appState.water,
       weight: appState.weight,
       weightTarget: appState.weightTarget,
-      weightLogs: appState.weightLogs
+      weightLogs: appState.weightLogs,
+      favorites: appState.favorites
     };
 
     await fetch('/api/sync', {
@@ -2315,9 +2316,11 @@ async function syncFromCloud() {
       if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
       if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
       if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
-      
+      if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
+
       saveState(true);
       renderDashboard();
+      refreshAllFavorites();
       showToast('☁️ Data synchronizována z cloudu');
     }
   } catch (err) {
