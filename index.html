@@ -66,6 +66,11 @@
 
       <!-- Calendar Row -->
       <div class="calendar-row"></div>
+      <div id="viewing-day-label" class="viewing-day-label" style="display:none;"></div>
+      <button type="button" id="btn-back-to-today" class="btn-back-today" style="display:none;">
+        <span>↩︎</span>
+        <span>Vrátit se zpátky</span>
+      </button>
 
       <!-- THREE ACTIVITY RINGS — Apple Fitness Style -->
       <div class="activity-rings-area">
@@ -316,6 +321,14 @@
             </div>
             <div id="db-search-results" style="display:none;"></div>
           </div>
+        </div>
+
+        <!-- Favorites -->
+        <div class="dark-card favorites-card" id="favorites-section" style="margin-bottom:14px; padding:16px 20px;">
+          <h3 style="font-size:14px; font-weight:700; margin-bottom:12px; color:var(--text-2); display:flex; align-items:center; gap:6px;">
+            <span>⭐ Oblíbené</span>
+          </h3>
+          <div id="favorites-list"></div>
         </div>
 
         <!-- AI Scanner -->

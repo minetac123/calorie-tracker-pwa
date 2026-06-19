@@ -18,6 +18,11 @@ let appState = {
 
 // Temporary store for AI scanning review
 let tempDetectedItems = [];
+
+// Currently viewed day in the dashboard/calendar.
+// null = today. Otherwise a "YYYY-MM-DD" string for a past day the user
+// navigated to via the calendar strip.
+let selectedDate = null;
 let currentPhotoBase64 = null;
 let currentGeminiData = null; // Store full response from Gemini
 let selectedOptionIndex = 0;  // Currently selected option index
@@ -122,6 +127,12 @@ function getDateString(d) {
   return `${year}-${month}-${day}`;
 }
 
+// The day currently being viewed/edited. Defaults to today when no past
+// day has been selected from the calendar.
+function getActiveDateString() {
+  return selectedDate || getTodayDateString();
+}
+
 function getFoodCategory(item) {
   if (item.category) return item.category;
   
@@ -140,43 +151,46 @@ function getFoodCategory(item) {
   return 'Breakfast';
 }
 
+// Number of past days shown in the scrollable calendar strip (~5 weeks).
+const CALENDAR_DAYS_BACK = 34;
+
 function updateCalendarRow() {
   const calendarRow = document.querySelector('.calendar-row');
   if (!calendarRow) return;
-  
+
   const today = new Date();
-  const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday...
-  const dayDiff = currentDay === 0 ? 6 : currentDay - 1;
-  
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - dayDiff);
-  
-  const dayLabels = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
-  
+  const todayStr = getDateString(today);
+  const activeStr = getActiveDateString();
+
+  // getDay(): 0 = Sunday ... 6 = Saturday
+  const dayLabels = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+
   let html = '';
-  
-  for (let i = 0; i < 7; i++) {
-    const dayDate = new Date(monday);
-    dayDate.setDate(monday.getDate() + i);
-    
+
+  // Render from oldest -> today so today sits at the right edge of the strip.
+  for (let i = CALENDAR_DAYS_BACK; i >= 0; i--) {
+    const dayDate = new Date(today);
+    dayDate.setDate(today.getDate() - i);
+
     const dateStr = getDateString(dayDate);
     const dayNum = dayDate.getDate();
-    
-    const isToday = dayDate.getDate() === today.getDate() &&
-                    dayDate.getMonth() === today.getMonth() &&
-                    dayDate.getFullYear() === today.getFullYear();
-                    
+    const isToday = dateStr === todayStr;
+    const isSelected = dateStr === activeStr;
+
+    // Calories eaten that day
+    const dayFood = appState.logs[dateStr] || [];
+    let dayCal = 0;
+    dayFood.forEach(item => dayCal += Number(item.calories || 0));
+
+    const selectedClass = isSelected ? ' selected' : '';
+
     if (isToday) {
-      // Calculate today's eaten percent
-      const todayFood = appState.logs[dateStr] || [];
-      let todayCal = 0;
-      todayFood.forEach(item => todayCal += Number(item.calories || 0));
       const goalCal = appState.goals.calories || 2000;
-      const percent = Math.min(100, Math.round((todayCal / goalCal) * 100));
+      const percent = Math.min(100, Math.round((dayCal / goalCal) * 100));
       const strokeDashoffset = 100 - percent;
-      
+
       html += `
-        <div class="cal-day current">
+        <div class="cal-day current${selectedClass}" data-date="${dateStr}">
           <span class="cal-current-label">Dnes</span>
           <div class="cal-circle current-day">
             <svg class="cal-arc" viewBox="0 0 36 36">
@@ -187,26 +201,50 @@ function updateCalendarRow() {
           </div>
         </div>`;
     } else {
-      const hasLogs = appState.logs[dateStr] && appState.logs[dateStr].length > 0;
-      let circleClass = 'future';
-      if (hasLogs) {
-        // Calculate calories eaten
-        let dayCal = 0;
-        appState.logs[dateStr].forEach(item => dayCal += Number(item.calories || 0));
-        if (dayCal > 0) {
-          circleClass = 'active-goal';
-        }
-      }
-      
+      const circleClass = dayCal > 0 ? 'active-goal' : 'future';
       html += `
-        <div class="cal-day">
-          <span>${dayLabels[i]}</span>
+        <div class="cal-day${selectedClass}" data-date="${dateStr}">
+          <span>${dayLabels[dayDate.getDay()]}</span>
           <div class="cal-circle ${circleClass}">${dayNum}</div>
         </div>`;
     }
   }
-  
+
   calendarRow.innerHTML = html;
+
+  // Bind day-tap handling once (innerHTML swaps children, not the row itself).
+  if (!calendarRow.dataset.bound) {
+    calendarRow.dataset.bound = '1';
+    calendarRow.addEventListener('click', (e) => {
+      const dayEl = e.target.closest('.cal-day');
+      if (!dayEl) return;
+      const date = dayEl.getAttribute('data-date');
+      if (!date) return;
+      selectedDate = (date === getTodayDateString()) ? null : date;
+      renderDashboard();
+    });
+  }
+
+  // Center the selected day (or today) in the scroll viewport.
+  const selectedEl = calendarRow.querySelector('.cal-day.selected') ||
+                     calendarRow.querySelector('.cal-day.current');
+  if (selectedEl) {
+    const rowRect = calendarRow.getBoundingClientRect();
+    const selRect = selectedEl.getBoundingClientRect();
+    calendarRow.scrollLeft += (selRect.left - rowRect.left) - (rowRect.width - selRect.width) / 2;
+  }
+
+  // Show the "go back to today" button only when viewing a past day.
+  const backBtn = document.getElementById('btn-back-to-today');
+  if (backBtn) {
+    const viewingPast = activeStr !== todayStr;
+    backBtn.style.display = viewingPast ? 'flex' : 'none';
+    const label = document.getElementById('viewing-day-label');
+    if (label) {
+      label.style.display = viewingPast ? 'block' : 'none';
+      if (viewingPast) label.innerText = `Prohlížíš: ${formatCzechDate(activeStr)}`;
+    }
+  }
 }
 
 function showWizardStep(stepNum) {
@@ -220,8 +258,93 @@ function showWizardStep(stepNum) {
     } else {
       step2.classList.add('active');
       step1.classList.remove('active');
+      renderFavoritesList();
     }
   }
+}
+
+// ==========================================================================
+// FAVORITES (scan menu)
+// ==========================================================================
+function renderFavoritesList() {
+  const container = document.getElementById('favorites-list');
+  if (!container) return;
+
+  const favorites = appState.favorites || [];
+  container.innerHTML = '';
+
+  if (favorites.length === 0) {
+    container.innerHTML = `<div style="padding:8px 0; text-align:center; color:var(--text-3); font-size:13px;">Zatím nemáš žádné oblíbené potraviny.<br>Přidej je přes „•••" u jídla na přehledu.</div>`;
+    return;
+  }
+
+  favorites.forEach((fav, index) => {
+    const row = document.createElement('div');
+    row.className = 'favorite-row';
+    row.innerHTML = `
+      <div class="favorite-info">
+        <span class="favorite-name">${fav.name}</span>
+        <span class="favorite-details">${fav.calories} kcal • B:${fav.protein}g S:${fav.carbs}g T:${fav.fat}g (${fav.amount || '100g'})</span>
+      </div>
+      <div class="favorite-actions">
+        <button type="button" class="favorite-add-btn" title="Přidat" data-index="${index}">+</button>
+        <button type="button" class="favorite-remove-btn" title="Odebrat z oblíbených" data-remove="${index}">×</button>
+      </div>`;
+    container.appendChild(row);
+  });
+
+  // Bind handlers once via delegation on the persistent container.
+  if (!container.dataset.bound) {
+    container.dataset.bound = '1';
+    container.addEventListener('click', (e) => {
+      const addBtn = e.target.closest('.favorite-add-btn');
+      if (addBtn) {
+        const idx = parseInt(addBtn.getAttribute('data-index'), 10);
+        const fav = (appState.favorites || [])[idx];
+        if (fav) addFavoriteToActiveLog(fav);
+        return;
+      }
+      const removeBtn = e.target.closest('.favorite-remove-btn');
+      if (removeBtn) {
+        const idx = parseInt(removeBtn.getAttribute('data-remove'), 10);
+        if (!isNaN(idx) && appState.favorites[idx]) {
+          const removed = appState.favorites.splice(idx, 1)[0];
+          saveState();
+          renderFavoritesList();
+          showToast(`Odebráno z oblíbených: ${removed.name}`);
+        }
+      }
+    });
+  }
+}
+
+function addFavoriteToActiveLog(fav) {
+  const categorySelect = document.getElementById('input-food-category');
+  const categoryStr = categorySelect && categorySelect.value
+    ? categorySelect.value
+    : 'Breakfast';
+
+  const dateStr = getActiveDateString();
+  if (!appState.logs[dateStr]) appState.logs[dateStr] = [];
+
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  appState.logs[dateStr].push({
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+    time: timeStr,
+    name: fav.name,
+    amount: fav.amount || '100g',
+    calories: Math.round(Number(fav.calories || 0)),
+    protein: Math.round(Number(fav.protein || 0) * 10) / 10,
+    carbs: Math.round(Number(fav.carbs || 0) * 10) / 10,
+    fat: Math.round(Number(fav.fat || 0) * 10) / 10,
+    category: categoryStr
+  });
+
+  saveState();
+  renderDashboard();
+  showToast(`Přidáno: ${fav.name} ⭐`);
 }
 
 function setWizardCategory(categoryId) {
@@ -284,8 +407,11 @@ function showToast(message) {
 // ==========================================================================
 function renderDashboard() {
   updateCalendarRow();
+  // Food list/totals follow the day selected in the calendar (defaults to today).
+  // Water tracking stays on the real "today".
   const todayStr = getTodayDateString();
-  const todayFood = appState.logs[todayStr] || [];
+  const activeStr = getActiveDateString();
+  const todayFood = appState.logs[activeStr] || [];
   
   // Calculate Totals
   let totalCal = 0;
@@ -572,7 +698,7 @@ function burnAndRemove(el, done) {
 }
 
 function deleteFoodItem(id) {
-  const todayStr = getTodayDateString();
+  const todayStr = getActiveDateString();
   if (appState.logs[todayStr]) {
     const itemIndex = appState.logs[todayStr].findIndex(item => item.id === id);
     if (itemIndex !== -1) {
@@ -1042,7 +1168,7 @@ function initFoodLogSheet() {
 
   function saveItems() {
     if (flsItems.length === 0) { closeSheet(); return; }
-    const todayStr = getTodayDateString();
+    const todayStr = getActiveDateString();
     if (!appState.logs[todayStr]) appState.logs[todayStr] = [];
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -1750,17 +1876,17 @@ function saveReviewedItemsToLog() {
     return;
   }
   
-  const todayStr = getTodayDateString();
+  const todayStr = getActiveDateString();
   if (!appState.logs[todayStr]) {
     appState.logs[todayStr] = [];
   }
-  
+
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  
+
   const categorySelect = document.getElementById('input-food-category');
   const categoryStr = categorySelect ? categorySelect.value : 'Breakfast';
-  
+
   tempDetectedItems.forEach(item => {
     appState.logs[todayStr].push({
       id: Date.now() + Math.random().toString(36).substr(2, 5),
@@ -1848,14 +1974,14 @@ function initFormHandlers() {
     const carbs = parseFloat(document.getElementById('input-food-c').value) || 0;
     const fat = parseFloat(document.getElementById('input-food-f').value) || 0;
     
-    const todayStr = getTodayDateString();
+    const todayStr = getActiveDateString();
     if (!appState.logs[todayStr]) {
       appState.logs[todayStr] = [];
     }
-    
+
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    
+
     appState.logs[todayStr].push({
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
       time: timeStr,
@@ -2202,6 +2328,15 @@ function init() {
   initBarcodeAndSearch();
   initWizard();
   initItemActionsHandlers();
+
+  // Calendar "go back to today" button
+  const backToTodayBtn = document.getElementById('btn-back-to-today');
+  if (backToTodayBtn) {
+    backToTodayBtn.addEventListener('click', () => {
+      selectedDate = null;
+      renderDashboard();
+    });
+  }
 
   // Logout button
   const logoutBtn = document.getElementById('btn-logout');
@@ -2940,14 +3075,14 @@ function initBarcodeAndSearch() {
       const categorySelect = document.getElementById('input-food-category');
       const categoryStr = categorySelect ? categorySelect.value : 'Breakfast';
       
-      const todayStr = getTodayDateString();
+      const todayStr = getActiveDateString();
       if (!appState.logs[todayStr]) {
         appState.logs[todayStr] = [];
       }
-      
+
       const now = new Date();
       const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      
+
       appState.logs[todayStr].push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         time: timeStr,
@@ -3275,7 +3410,7 @@ function initItemActionsHandlers() {
       if (actionBtn) {
         e.stopPropagation();
         const foodId = actionBtn.getAttribute('data-id');
-        const todayStr = getTodayDateString();
+        const todayStr = getActiveDateString();
         const logs = appState.logs[todayStr] || [];
         const item = logs.find(i => i.id === foodId);
         if (item) {
@@ -3307,7 +3442,7 @@ function initItemActionsHandlers() {
       const subDetails = e.target.closest('.meal-sub-details');
       if (subDetails) {
         const foodId = subDetails.getAttribute('data-id');
-        const todayStr = getTodayDateString();
+        const todayStr = getActiveDateString();
         const logs = appState.logs[todayStr] || [];
         const item = logs.find(i => i.id === foodId);
         if (!item) return;
@@ -3543,7 +3678,7 @@ function initItemActionsHandlers() {
         return;
       }
       
-      const todayStr = getTodayDateString();
+      const todayStr = getActiveDateString();
       const todayFood = appState.logs[todayStr] || [];
       const selectedFoods = todayFood.filter(f => selectedIds.has(f.id));
       
