@@ -353,7 +353,8 @@ function renderFavoritesList() {
 // Favorites inside the food-log bottom sheet (the FAB "Přidat jídlo" scan menu)
 function renderFlsFavorites() {
   buildFavoritesList(document.getElementById('fls-favorites-list'), {
-    category: () => guessMealCategoryByTime(),
+    // Use the meal the user tapped "+" on; fall back to a time-based guess.
+    category: () => window.flsSheetCategory || guessMealCategoryByTime(),
     afterAdd: () => { if (window.closeFoodLogSheet) window.closeFoodLogSheet(); }
   });
 }
@@ -989,6 +990,8 @@ function initFoodLogSheet() {
   function openSheet(presetCategory) {
     flsPresetCategory = (typeof presetCategory === 'string' && MEALS.some(m => m.id === presetCategory))
       ? presetCategory : null;
+    // Expose for the favorites quick-add so it logs to the tapped meal.
+    window.flsSheetCategory = flsPresetCategory;
     scrim.classList.add('open');
     sheet.classList.add('open');
     showStage('capture');
