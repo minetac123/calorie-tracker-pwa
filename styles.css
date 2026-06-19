@@ -582,6 +582,18 @@ input, textarea, select, button {
   color: #fff;
   box-shadow: 0 6px 16px -6px rgba(255, 107, 129, 0.6);
 }
+/* Within the daily calorie limit → green */
+.cal-circle.under-limit {
+  background-image: linear-gradient(145deg, #34C759, #30D158);
+  color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(48, 209, 88, 0.55);
+}
+/* Over the daily calorie limit → red */
+.cal-circle.over-limit {
+  background-image: linear-gradient(145deg, #FF6B6B, #FF375F);
+  color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(255, 55, 95, 0.55);
+}
 .cal-circle.future { color: var(--text-3); }
 .cal-circle.current-day { width: 40px; height: 40px; font-size: 15px; }
 .cal-arc {

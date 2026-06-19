@@ -201,7 +201,12 @@ function updateCalendarRow() {
           </div>
         </div>`;
     } else {
-      const circleClass = dayCal > 0 ? 'active-goal' : 'future';
+      // Green when within the daily calorie limit, red when over it.
+      const goalCal = appState.goals.calories || 2000;
+      let circleClass = 'future';
+      if (dayCal > 0) {
+        circleClass = dayCal > goalCal ? 'over-limit' : 'under-limit';
+      }
       html += `
         <div class="cal-day${selectedClass}" data-date="${dateStr}">
           <span>${dayLabels[dayDate.getDay()]}</span>
