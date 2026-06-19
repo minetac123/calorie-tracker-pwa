@@ -3581,19 +3581,21 @@ function initItemActionsHandlers() {
   // Copy item from action sheet
   if (btnActCopy) {
     btnActCopy.addEventListener('click', () => {
-      if (!window.activeActionItem) return;
+      const item = window.activeActionItem;
+      if (!item) return;
       window.copyMoveActionType = 'copy';
+      window.copyMoveItem = item; // preserve before the sheet clears activeActionItem
       closeItemActionsSheet();
-      
+
       // Open copy/move modal
       if (copyMoveModal) {
         const titleEl = document.getElementById('copy-move-modal-title');
         if (titleEl) titleEl.innerText = 'Zkopírovat jídlo';
-        
+
         // Prefill date/category
-        if (copyMoveDate) copyMoveDate.value = getTodayDateString();
-        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(window.activeActionItem) || 'Breakfast';
-        
+        if (copyMoveDate) copyMoveDate.value = getActiveDateString();
+        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(item) || 'Breakfast';
+
         copyMoveModal.classList.add('active');
       }
     });
@@ -3602,19 +3604,21 @@ function initItemActionsHandlers() {
   // Move item from action sheet
   if (btnActMove) {
     btnActMove.addEventListener('click', () => {
-      if (!window.activeActionItem) return;
+      const item = window.activeActionItem;
+      if (!item) return;
       window.copyMoveActionType = 'move';
+      window.copyMoveItem = item; // preserve before the sheet clears activeActionItem
       closeItemActionsSheet();
-      
+
       // Open copy/move modal
       if (copyMoveModal) {
         const titleEl = document.getElementById('copy-move-modal-title');
         if (titleEl) titleEl.innerText = 'Přemístit na jiný den';
-        
+
         // Prefill date/category
-        if (copyMoveDate) copyMoveDate.value = getTodayDateString();
-        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(window.activeActionItem) || 'Breakfast';
-        
+        if (copyMoveDate) copyMoveDate.value = getActiveDateString();
+        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(item) || 'Breakfast';
+
         copyMoveModal.classList.add('active');
       }
     });
@@ -3638,9 +3642,9 @@ function initItemActionsHandlers() {
   // Confirm copy/move
   if (btnSaveCopyMove) {
     btnSaveCopyMove.addEventListener('click', () => {
-      const item = window.activeActionItem;
+      const item = window.copyMoveItem;
       if (!item) return;
-      
+
       const targetDate = copyMoveDate.value;
       const targetCategory = copyMoveCategory.value;
       
