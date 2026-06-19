@@ -266,15 +266,28 @@ function showWizardStep(stepNum) {
 // ==========================================================================
 // FAVORITES (scan menu)
 // ==========================================================================
-function renderFavoritesList() {
-  const container = document.getElementById('favorites-list');
+function guessMealCategoryByTime() {
+  const hour = new Date().getHours();
+  if (hour >= 5  && hour < 10) return 'Breakfast';
+  if (hour >= 10 && hour < 12) return 'Morning snack';
+  if (hour >= 12 && hour < 15) return 'Lunch';
+  if (hour >= 15 && hour < 18) return 'Afternoon snack';
+  if (hour >= 18 && hour < 22) return 'Dinner';
+  return 'Second dinner';
+}
+
+// Renders the favorites list into a given container. `opts.category` is a
+// function resolving the meal category to use when quick-adding; `opts.afterAdd`
+// runs after a favorite is added (e.g. close the food-log sheet).
+function buildFavoritesList(container, opts) {
   if (!container) return;
+  opts = opts || {};
 
   const favorites = appState.favorites || [];
   container.innerHTML = '';
 
   if (favorites.length === 0) {
-    container.innerHTML = `<div style="padding:8px 0; text-align:center; color:var(--text-3); font-size:13px;">Zatím nemáš žádné oblíbené potraviny.<br>Přidej je přes „•••" u jídla na přehledu.</div>`;
+    container.innerHTML = `<div class="favorites-empty">Zatím nemáš žádné oblíbené potraviny.<br>Přidej je přes „•••" u jídla na přehledu.</div>`;
     return;
   }
 
@@ -301,7 +314,11 @@ function renderFavoritesList() {
       if (addBtn) {
         const idx = parseInt(addBtn.getAttribute('data-index'), 10);
         const fav = (appState.favorites || [])[idx];
-        if (fav) addFavoriteToActiveLog(fav);
+        if (fav) {
+          const category = opts.category ? opts.category() : null;
+          addFavoriteToActiveLog(fav, category);
+          if (opts.afterAdd) opts.afterAdd();
+        }
         return;
       }
       const removeBtn = e.target.closest('.favorite-remove-btn');
@@ -310,7 +327,7 @@ function renderFavoritesList() {
         if (!isNaN(idx) && appState.favorites[idx]) {
           const removed = appState.favorites.splice(idx, 1)[0];
           saveState();
-          renderFavoritesList();
+          refreshAllFavorites();
           showToast(`Odebráno z oblíbených: ${removed.name}`);
         }
       }
@@ -318,11 +335,31 @@ function renderFavoritesList() {
   }
 }
 
-function addFavoriteToActiveLog(fav) {
-  const categorySelect = document.getElementById('input-food-category');
-  const categoryStr = categorySelect && categorySelect.value
-    ? categorySelect.value
-    : 'Breakfast';
+// Favorites inside the add-wizard (screen-add, step 2)
+function renderFavoritesList() {
+  buildFavoritesList(document.getElementById('favorites-list'), {
+    category: () => {
+      const sel = document.getElementById('input-food-category');
+      return sel && sel.value ? sel.value : guessMealCategoryByTime();
+    }
+  });
+}
+
+// Favorites inside the food-log bottom sheet (the FAB "Přidat jídlo" scan menu)
+function renderFlsFavorites() {
+  buildFavoritesList(document.getElementById('fls-favorites-list'), {
+    category: () => guessMealCategoryByTime(),
+    afterAdd: () => { if (window.closeFoodLogSheet) window.closeFoodLogSheet(); }
+  });
+}
+
+function refreshAllFavorites() {
+  renderFavoritesList();
+  renderFlsFavorites();
+}
+
+function addFavoriteToActiveLog(fav, category) {
+  const categoryStr = category || guessMealCategoryByTime();
 
   const dateStr = getActiveDateString();
   if (!appState.logs[dateStr]) appState.logs[dateStr] = [];
@@ -956,6 +993,7 @@ function initFoodLogSheet() {
     flsPickedCategory = null;
     capturePreview.style.display = 'none';
     vfPlaceholder.style.display = '';
+    renderFlsFavorites();
   }
 
   function renderMealPicker() {
@@ -1224,6 +1262,7 @@ function initFoodLogSheet() {
   });
 
   window.openFoodLogSheet = openSheet;
+  window.closeFoodLogSheet = closeSheet;
 }
 
 // ==========================================================================

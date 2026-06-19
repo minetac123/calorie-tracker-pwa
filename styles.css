@@ -470,6 +470,30 @@ input, textarea, select, button {
 }
 .btn-back-today:active { transform: scale(0.97); }
 
+/* Favorites in the food-log bottom sheet (scan menu) */
+.fls-favorites {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--sep-strong);
+}
+.fls-favorites-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 6px;
+}
+#fls-favorites-list {
+  max-height: 210px;
+  overflow-y: auto;
+}
+.favorites-empty {
+  padding: 10px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* Favorites list (scan menu) */
 .favorite-row {
   display: flex;
