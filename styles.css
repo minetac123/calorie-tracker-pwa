@@ -2378,3 +2378,20 @@ input, textarea, select, button {
   padding: 24px;
   line-height: 1.6;
 }
+
+/* AI coach: words pop in one by one as the reply "generates"
+   (inspired by Animista text-pop-up-right). */
+.coach-word {
+  display: inline-block;
+  white-space: pre;
+  -webkit-animation: coachWordPop 0.5s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+          animation: coachWordPop 0.5s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+}
+@-webkit-keyframes coachWordPop {
+  0%   { opacity: 0; -webkit-transform: translateX(14px) scale(0.8); transform: translateX(14px) scale(0.8); }
+  100% { opacity: 1; -webkit-transform: translateX(0) scale(1);      transform: translateX(0) scale(1); }
+}
+@keyframes coachWordPop {
+  0%   { opacity: 0; -webkit-transform: translateX(14px) scale(0.8); transform: translateX(14px) scale(0.8); }
+  100% { opacity: 1; -webkit-transform: translateX(0) scale(1);      transform: translateX(0) scale(1); }
+}
