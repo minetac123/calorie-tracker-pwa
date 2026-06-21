@@ -4337,6 +4337,22 @@ function renderCoachEmpty() {
   box.innerHTML = `<div class="coach-empty">Ahoj! 👋 Jsem tvůj AI kouč.<br>Vidím tvá WHOOP data, jídla a kalorie.<br><br>Zeptej se mě třeba:<br>„Jak na tom dnes jsem?"<br>„Co bych měl sníst k večeři?"<br>„Mám dneska trénovat?"</div>`;
 }
 
+// Render the AI's light markdown (bold/italic/bullets) safely as HTML.
+function formatCoachText(text) {
+  const esc = String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return esc
+    // **bold**
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    // *italic* and _italic_ (not touching ** which is already handled)
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>')
+    // bullet markers at line start -> •
+    .replace(/^[ \t]*[-*][ \t]+/gm, '• ');
+}
+
 function appendCoachBubble(text, role) {
   const box = document.getElementById('coach-messages');
   if (!box) return null;
@@ -4344,7 +4360,12 @@ function appendCoachBubble(text, role) {
   if (empty) empty.remove();
   const div = document.createElement('div');
   div.className = `coach-bubble ${role}`;
-  div.textContent = text;
+  // Assistant replies may contain markdown; render it. User text stays literal.
+  if (role === 'assistant') {
+    div.innerHTML = formatCoachText(text);
+  } else {
+    div.textContent = text;
+  }
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
   return div;
@@ -4438,12 +4459,14 @@ async function sendCoachMessage() {
 
 function initCoachHandlers() {
   const openBtn = document.getElementById('btn-open-coach');
+  const navCoachBtn = document.getElementById('nav-coach');
   const closeBtn = document.getElementById('btn-close-coach');
   const sendBtn = document.getElementById('coach-send');
   const input = document.getElementById('coach-input');
   const modal = document.getElementById('coach-modal');
 
   if (openBtn) openBtn.addEventListener('click', openCoach);
+  if (navCoachBtn) navCoachBtn.addEventListener('click', openCoach);
   if (closeBtn) closeBtn.addEventListener('click', closeCoach);
   if (sendBtn) sendBtn.addEventListener('click', sendCoachMessage);
   if (input) {
