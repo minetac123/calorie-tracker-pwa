@@ -4384,18 +4384,33 @@ function wrapCoachWords(lineEl, startIndex, box) {
   return i;
 }
 
-// Render an assistant reply line by line, each line's words popping in one
-// after another (markdown preserved).
+// Reveal an assistant reply progressively: lines are ADDED to the DOM over
+// time (so the bubble grows from the top down and scrolls — "posunuje"), and
+// within each line the words pop in one after another. Adding lines over time
+// (instead of rendering them all invisible up front) avoids the giant empty
+// box that reserved space for not-yet-revealed text.
+const COACH_WORD_STEP_MS = 40; // delay between words within a line
+const COACH_LINE_GAP_MS = 110; // extra pause between lines
+
 function renderCoachLines(el, text, box) {
   el.innerHTML = '';
   const lines = String(text).split('\n').filter((l) => l.trim() !== '');
-  let wordIndex = 0;
+  let lineDelay = 0;
+  el._coachTimers = el._coachTimers || [];
+
   lines.forEach((line) => {
-    const lineEl = document.createElement('div');
-    lineEl.className = 'coach-line';
-    lineEl.innerHTML = formatCoachText(line);
-    wordIndex = wrapCoachWords(lineEl, wordIndex, box);
-    el.appendChild(lineEl);
+    const wordCount = line.trim().split(/\s+/).length;
+    const t = setTimeout(() => {
+      const lineEl = document.createElement('div');
+      lineEl.className = 'coach-line';
+      lineEl.innerHTML = formatCoachText(line);
+      // Word delays restart per line (the line itself is already time-offset).
+      wrapCoachWords(lineEl, 0, box);
+      el.appendChild(lineEl);
+      if (box) box.scrollTop = box.scrollHeight;
+    }, lineDelay);
+    el._coachTimers.push(t);
+    lineDelay += wordCount * COACH_WORD_STEP_MS + COACH_LINE_GAP_MS;
   });
 }
 
