@@ -108,7 +108,14 @@ ${fmtFood(foodContext)}`;
     const payload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents,
-      generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2048,
+        // gemini-2.5-flash is a thinking model and "thinking" tokens count
+        // against the output budget — disable it so the whole budget goes to
+        // the visible answer (otherwise replies get cut off mid-sentence).
+        thinkingConfig: { thinkingBudget: 0 }
+      }
     };
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -125,17 +132,19 @@ ${fmtFood(foodContext)}`;
     }
 
     const gData = await gResp.json();
-    const reply =
-      gData &&
-      gData.candidates &&
-      gData.candidates[0] &&
-      gData.candidates[0].content &&
-      gData.candidates[0].content.parts &&
-      gData.candidates[0].content.parts[0]
-        ? gData.candidates[0].content.parts[0].text
-        : null;
+    const cand = gData && gData.candidates && gData.candidates[0];
+    // Join every text part (some responses split the answer across parts).
+    let reply = null;
+    if (cand && cand.content && Array.isArray(cand.content.parts)) {
+      reply = cand.content.parts
+        .map((p) => (p && p.text) ? p.text : '')
+        .join('')
+        .trim() || null;
+    }
 
     if (!reply) {
+      // Surface the model's stop reason so truncation/safety blocks are visible.
+      console.error('Empty reply. finishReason:', cand && cand.finishReason, JSON.stringify(gData).slice(0, 500));
       return res.status(502).json({ error: 'AI nevrátila odpověď' });
     }
 
