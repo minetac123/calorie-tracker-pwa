@@ -540,7 +540,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.3.5 (Cache v16)
+        Verze: 2.4.0 (Cache v17)
       </div>
     </section>
 
@@ -769,7 +769,10 @@
     <div class="modal-content coach-content">
       <div class="modal-header">
         <h2>🤖 AI Kouč</h2>
-        <button class="modal-close" id="btn-close-coach">×</button>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button class="modal-close" id="btn-clear-coach" title="Smazat historii" aria-label="Smazat historii" style="font-size:15px;">🗑</button>
+          <button class="modal-close" id="btn-close-coach">×</button>
+        </div>
       </div>
       <div class="coach-messages" id="coach-messages">
         <!-- messages injected here -->

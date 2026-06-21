@@ -80,6 +80,9 @@ function loadState() {
       if (!appState.collapsedCats) {
         appState.collapsedCats = {};
       }
+      if (!Array.isArray(appState.coachHistory)) {
+        appState.coachHistory = [];
+      }
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
       resetState();
@@ -104,7 +107,8 @@ function resetState() {
     weightTarget: 70.0,
     weightLogs: [],
     favorites: [],
-    collapsedCats: {}
+    collapsedCats: {},
+    coachHistory: []
   };
   saveState();
 }
@@ -2567,7 +2571,8 @@ async function syncToCloud() {
       weight: appState.weight,
       weightTarget: appState.weightTarget,
       weightLogs: appState.weightLogs,
-      favorites: appState.favorites
+      favorites: appState.favorites,
+      coachHistory: appState.coachHistory
     };
 
     await fetch('/api/sync', {
@@ -2612,10 +2617,16 @@ async function syncFromCloud() {
       if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
       if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
       if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
+      if (Array.isArray(cloudState.coachHistory)) appState.coachHistory = cloudState.coachHistory;
 
       saveState(true);
       renderDashboard();
       refreshAllFavorites();
+      // If the coach is open, refresh it with the cloud history.
+      const coachModal = document.getElementById('coach-modal');
+      if (coachModal && coachModal.classList.contains('active')) {
+        renderCoachHistory();
+      }
       showToast('☁️ Data synchronizována z cloudu');
     }
   } catch (err) {
@@ -4311,15 +4322,19 @@ async function disconnectWhoop() {
 // ==========================================================================
 // AI COACH CHAT
 // ==========================================================================
-let coachHistory = [];
+// The coach's conversation memory lives in appState.coachHistory so it is
+// saved to localStorage and synced to the cloud (remembered across reloads
+// and devices). Always read it through here so it survives appState reloads.
+function getCoachHistory() {
+  if (!Array.isArray(appState.coachHistory)) appState.coachHistory = [];
+  return appState.coachHistory;
+}
 
 function openCoach() {
   const modal = document.getElementById('coach-modal');
   if (!modal) return;
   modal.classList.add('active');
-  if (coachHistory.length === 0) {
-    renderCoachEmpty();
-  }
+  renderCoachHistory();
   setTimeout(() => {
     const input = document.getElementById('coach-input');
     if (input) input.focus();
@@ -4335,6 +4350,26 @@ function renderCoachEmpty() {
   const box = document.getElementById('coach-messages');
   if (!box) return;
   box.innerHTML = `<div class="coach-empty">Ahoj! 👋 Jsem tvůj AI kouč.<br>Vidím tvá WHOOP data, jídla a kalorie.<br><br>Zeptej se mě třeba:<br>„Jak na tom dnes jsem?"<br>„Co bych měl sníst k večeři?"<br>„Mám dneska trénovat?"</div>`;
+}
+
+// Repaint the whole conversation from memory (no animation — instant).
+function renderCoachHistory() {
+  const box = document.getElementById('coach-messages');
+  if (!box) return;
+  const hist = getCoachHistory();
+  if (hist.length === 0) { renderCoachEmpty(); return; }
+  box.innerHTML = '';
+  hist.forEach((m) => appendCoachBubble(m.text, m.role === 'assistant' ? 'assistant' : 'user', false));
+  box.scrollTop = box.scrollHeight;
+}
+
+// Wipe the coach's memory (local + cloud).
+function clearCoachMemory() {
+  if (!confirm('Smazat celou historii konverzace s AI Koučem?')) return;
+  appState.coachHistory = [];
+  saveState();
+  renderCoachEmpty();
+  showToast('Historie AI Kouče smazána');
 }
 
 // Render the AI's light markdown (bold/italic/bullets) safely as HTML.
@@ -4484,8 +4519,10 @@ async function sendCoachMessage() {
 
   input.value = '';
   if (sendBtn) sendBtn.disabled = true;
+  const history = getCoachHistory();
   appendCoachBubble(message, 'user');
-  coachHistory.push({ role: 'user', text: message });
+  history.push({ role: 'user', text: message });
+  saveState(); // persist the question immediately (local + cloud)
 
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
@@ -4499,7 +4536,8 @@ async function sendCoachMessage() {
       },
       body: JSON.stringify({
         message,
-        history: coachHistory.slice(0, -1),
+        // Send recent context (the backend trims further); skip the just-added question.
+        history: history.slice(0, -1).slice(-20),
         foodContext: buildFoodContext()
       })
     });
@@ -4508,7 +4546,10 @@ async function sendCoachMessage() {
 
     if (data.success && data.reply) {
       appendCoachBubble(data.reply, 'assistant', true);
-      coachHistory.push({ role: 'assistant', text: data.reply });
+      history.push({ role: 'assistant', text: data.reply });
+      // Cap memory so it can't grow without bound.
+      if (history.length > 200) appState.coachHistory = history.slice(-200);
+      saveState(); // persist the reply (local + cloud)
     } else {
       appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
     }
@@ -4526,6 +4567,7 @@ function initCoachHandlers() {
   const openBtn = document.getElementById('btn-open-coach');
   const navCoachBtn = document.getElementById('nav-coach');
   const closeBtn = document.getElementById('btn-close-coach');
+  const clearBtn = document.getElementById('btn-clear-coach');
   const sendBtn = document.getElementById('coach-send');
   const input = document.getElementById('coach-input');
   const modal = document.getElementById('coach-modal');
@@ -4533,6 +4575,7 @@ function initCoachHandlers() {
   if (openBtn) openBtn.addEventListener('click', openCoach);
   if (navCoachBtn) navCoachBtn.addEventListener('click', openCoach);
   if (closeBtn) closeBtn.addEventListener('click', closeCoach);
+  if (clearBtn) clearBtn.addEventListener('click', clearCoachMemory);
   if (sendBtn) sendBtn.addEventListener('click', sendCoachMessage);
   if (input) {
     input.addEventListener('keydown', (e) => {
