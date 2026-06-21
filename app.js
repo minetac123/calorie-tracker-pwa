@@ -886,9 +886,18 @@ window.startCategoryLeftoverCapture = function(date, categoryId) {
   const items = getCategoryItems(date, categoryId);
   if (items.length === 0) { showToast('V této kategorii není žádné jídlo.'); return; }
   window.activeLeftover = { date, categoryId };
-  const input = document.getElementById('leftover-photo-input');
-  if (input) { input.value = ''; input.click(); }
+  openLeftoverSourceSheet();
 };
+
+function openLeftoverSourceSheet() {
+  const sheet = document.getElementById('leftover-source-sheet');
+  if (sheet) sheet.classList.add('active');
+}
+
+function closeLeftoverSourceSheet() {
+  const sheet = document.getElementById('leftover-source-sheet');
+  if (sheet) sheet.classList.remove('active');
+}
 
 function showLeftoverStage(name) {
   const analyzing = document.getElementById('leftover-analyzing');
@@ -1001,8 +1010,12 @@ function confirmLeftover() {
 }
 
 function initLeftoverHandlers() {
-  const input = document.getElementById('leftover-photo-input');
-  if (input) {
+  const inputCamera = document.getElementById('leftover-input-camera');
+  const inputPhoto  = document.getElementById('leftover-input-photo');
+  const inputFile   = document.getElementById('leftover-input-file');
+
+  [inputCamera, inputPhoto, inputFile].forEach(input => {
+    if (!input) return;
     input.addEventListener('change', (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file || !file.type.startsWith('image/')) return;
@@ -1010,7 +1023,24 @@ function initLeftoverHandlers() {
       reader.onload = ev => analyzeLeftover(ev.target.result);
       reader.readAsDataURL(file);
     });
-  }
+  });
+
+  // Source chooser (must click() the input within the same user gesture).
+  const triggerInput = (input) => {
+    closeLeftoverSourceSheet();
+    if (input) { input.value = ''; input.click(); }
+  };
+  const btnCam = document.getElementById('btn-leftover-camera');
+  const btnPhoto = document.getElementById('btn-leftover-photo');
+  const btnFile = document.getElementById('btn-leftover-file');
+  const btnSrcCancel = document.getElementById('btn-leftover-source-cancel');
+  if (btnCam) btnCam.addEventListener('click', () => triggerInput(inputCamera));
+  if (btnPhoto) btnPhoto.addEventListener('click', () => triggerInput(inputPhoto));
+  if (btnFile) btnFile.addEventListener('click', () => triggerInput(inputFile));
+  if (btnSrcCancel) btnSrcCancel.addEventListener('click', closeLeftoverSourceSheet);
+  const srcSheet = document.getElementById('leftover-source-sheet');
+  if (srcSheet) srcSheet.addEventListener('click', (e) => { if (e.target === srcSheet) closeLeftoverSourceSheet(); });
+
   const modal = document.getElementById('leftover-modal');
   const btnCancel = document.getElementById('leftover-cancel');
   const btnConfirm = document.getElementById('leftover-confirm');

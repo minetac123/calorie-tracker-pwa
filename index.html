@@ -494,7 +494,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.2.0 (Cache v9)
+        Verze: 2.2.1 (Cache v10)
       </div>
     </section>
 
@@ -664,7 +664,25 @@
   </div>
 
   <!-- LEFTOVERS ("Nedojedeno") -->
-  <input type="file" id="leftover-photo-input" accept="image/*" capture="environment" style="display:none;">
+  <input type="file" id="leftover-input-camera" accept="image/*" capture="environment" style="display:none;">
+  <input type="file" id="leftover-input-photo" accept="image/*" style="display:none;">
+  <input type="file" id="leftover-input-file" accept="image/*" style="display:none;">
+
+  <!-- Leftover source chooser (camera / photos / file) -->
+  <div class="modal-overlay" id="leftover-source-sheet">
+    <div class="modal-content" style="border-radius: 24px 24px 0 0; background: var(--bg-elevated); padding-bottom: 24px;">
+      <div style="padding: 18px 20px; text-align: center; border-bottom: 0.5px solid var(--sep);">
+        <strong style="font-size: 15px; color: var(--text-2);">Zbytek jídla – vyber zdroj</strong>
+      </div>
+      <div style="display:flex; flex-direction:column; padding: 16px 16px 10px; gap: 8px;">
+        <button type="button" class="action-sheet-btn" id="btn-leftover-camera">📷 Vyfotit</button>
+        <button type="button" class="action-sheet-btn" id="btn-leftover-photo">🖼️ Vybrat z fotek</button>
+        <button type="button" class="action-sheet-btn" id="btn-leftover-file">📁 Vybrat soubor</button>
+        <button type="button" class="action-sheet-btn" id="btn-leftover-source-cancel">Zrušit</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="leftover-modal">
     <div class="modal-content" style="max-width:360px; border-radius:20px; margin:auto;">
       <div class="modal-header">
@@ -815,6 +833,6 @@
   <div class="safe-area-bottom"></div>
 
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-  <script src="/app.js?v=47"></script>
+  <script src="/app.js?v=48"></script>
 </body>
 </html>
