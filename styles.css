@@ -2379,18 +2379,20 @@ input, textarea, select, button {
   line-height: 1.6;
 }
 
-/* AI coach: the reply reveals line by line, each line popping in
-   (inspired by Animista text-pop-up-right). */
-.coach-line {
-  -webkit-animation: coachLinePop 0.45s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
-          animation: coachLinePop 0.45s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
-}
+/* AI coach: the reply reveals line by line, and within each line the words
+   pop in one after another (inspired by Animista text-pop-up-right). */
 .coach-line + .coach-line { margin-top: 5px; }
-@-webkit-keyframes coachLinePop {
-  0%   { opacity: 0; -webkit-transform: translateY(8px) translateX(10px); transform: translateY(8px) translateX(10px); }
-  100% { opacity: 1; -webkit-transform: translateY(0) translateX(0);      transform: translateY(0) translateX(0); }
+.coach-word {
+  display: inline-block;
+  white-space: pre;
+  -webkit-animation: coachWordPop 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+          animation: coachWordPop 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
 }
-@keyframes coachLinePop {
-  0%   { opacity: 0; -webkit-transform: translateY(8px) translateX(10px); transform: translateY(8px) translateX(10px); }
-  100% { opacity: 1; -webkit-transform: translateY(0) translateX(0);      transform: translateY(0) translateX(0); }
+@-webkit-keyframes coachWordPop {
+  0%   { opacity: 0; -webkit-transform: translateY(6px) translateX(10px) scale(0.85); transform: translateY(6px) translateX(10px) scale(0.85); }
+  100% { opacity: 1; -webkit-transform: translateY(0) translateX(0) scale(1);         transform: translateY(0) translateX(0) scale(1); }
+}
+@keyframes coachWordPop {
+  0%   { opacity: 0; -webkit-transform: translateY(6px) translateX(10px) scale(0.85); transform: translateY(6px) translateX(10px) scale(0.85); }
+  100% { opacity: 1; -webkit-transform: translateY(0) translateX(0) scale(1);         transform: translateY(0) translateX(0) scale(1); }
 }

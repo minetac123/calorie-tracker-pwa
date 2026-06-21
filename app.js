@@ -4353,18 +4353,48 @@ function formatCoachText(text) {
     .replace(/^[ \t]*[-*][ \t]+/gm, '• ');
 }
 
-// Render an assistant reply as separate lines, each popping in with a small
-// staggered delay so the message reveals line by line (preserving markdown).
+// Wrap each word inside a line element in a span that pops in, keeping any
+// markdown tags (<strong>/<em>) intact. Returns the running word index so the
+// stagger continues across lines. Reveals line by line, word by word.
+function wrapCoachWords(lineEl, startIndex, box) {
+  const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT, null);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  let i = startIndex;
+  textNodes.forEach((node) => {
+    const parts = node.textContent.split(/(\s+)/); // keep whitespace chunks
+    const frag = document.createDocumentFragment();
+    parts.forEach((part) => {
+      if (part === '' || /^\s+$/.test(part)) {
+        frag.appendChild(document.createTextNode(part));
+      } else {
+        const span = document.createElement('span');
+        span.className = 'coach-word';
+        span.textContent = part;
+        span.style.animationDelay = (i * 0.04) + 's';
+        // Scroll to follow the reveal as each word appears.
+        if (box) span.addEventListener('animationstart', () => { box.scrollTop = box.scrollHeight; });
+        i++;
+        frag.appendChild(span);
+      }
+    });
+    node.parentNode.replaceChild(frag, node);
+  });
+  return i;
+}
+
+// Render an assistant reply line by line, each line's words popping in one
+// after another (markdown preserved).
 function renderCoachLines(el, text, box) {
   el.innerHTML = '';
   const lines = String(text).split('\n').filter((l) => l.trim() !== '');
-  lines.forEach((line, idx) => {
+  let wordIndex = 0;
+  lines.forEach((line) => {
     const lineEl = document.createElement('div');
     lineEl.className = 'coach-line';
     lineEl.innerHTML = formatCoachText(line);
-    lineEl.style.animationDelay = (idx * 0.12) + 's';
-    // Keep the newest line in view as it appears.
-    if (box) lineEl.addEventListener('animationstart', () => { box.scrollTop = box.scrollHeight; });
+    wordIndex = wrapCoachWords(lineEl, wordIndex, box);
     el.appendChild(lineEl);
   });
 }
