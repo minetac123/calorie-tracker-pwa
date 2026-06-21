@@ -1,7 +1,9 @@
 // ==========================================================================
 // CONFIGURATION & GLOBAL STATE
 // ==========================================================================
-const DEFAULT_API_KEY = "AQ.Ab8RN6JH3n55zajmZYJOXUfwQeGacIJLPAKJQkAdyTa1pmC_cg";
+// The Gemini key is NOT stored client-side anymore — all AI calls go through
+// the backend proxy (/api/gemini, /api/chat) which holds GEMINI_API_KEY.
+const DEFAULT_API_KEY = "";
 
 let appState = {
   apiKey: DEFAULT_API_KEY,
@@ -1891,13 +1893,46 @@ function initPhotoHandlers() {
 // ==========================================================================
 // GEMINI AI SERVICE INTEGRATION
 // ==========================================================================
+
+// Downscale a data-URL image to at most maxDim on its longest side and
+// re-encode as JPEG. Keeps the request small enough for the serverless proxy
+// and speeds up analysis without hurting recognition quality.
+function downscaleImage(dataUrl, maxDim = 1024, quality = 0.8) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round(height * (maxDim / width));
+            width = maxDim;
+          } else {
+            width = Math.round(width * (maxDim / height));
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(dataUrl); // fall back to original on error
+      img.src = dataUrl;
+    } catch (e) {
+      resolve(dataUrl);
+    }
+  });
+}
+
 async function callGeminiAPI(textPrompt, imageBase64, options = {}) {
   const isLeftover = options.leftover === true;
-  if (!appState.apiKey) {
-    throw new Error("Gemini API Key není nastaven. Zadej ho v Nastavení.");
-  }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${appState.apiKey}`;
+  // Shrink the photo before sending it through the backend proxy.
+  if (imageBase64) {
+    imageBase64 = await downscaleImage(imageBase64, 1024, 0.8);
+  }
 
   let systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
 
@@ -2021,10 +2056,13 @@ REŽIM ZBYTKY (DŮLEŽITÉ): Tato fotka ukazuje ZBYTEK porce jídla, který NEBY
     }
   };
 
-  const response = await fetch(url, {
+  // Route through the backend proxy so the API key stays server-side.
+  const session = getSession();
+  const response = await fetch('/api/gemini', {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${session ? session.token : ''}`
     },
     body: JSON.stringify(payload)
   });
