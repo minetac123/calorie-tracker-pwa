@@ -2291,3 +2291,90 @@ input, textarea, select, button {
   12%  { opacity: 1; }
   100% { opacity: 0; transform: translate(var(--dx, 0px), -42px) scale(0.3); }
 }
+
+/* ========================================================================
+   AI COACH CHAT
+   ======================================================================== */
+.coach-content {
+  display: flex;
+  flex-direction: column;
+  height: 90vh;
+  max-height: 90vh;
+  padding: 0;
+}
+.coach-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.coach-bubble {
+  max-width: 82%;
+  padding: 11px 14px;
+  border-radius: 18px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.coach-bubble.user {
+  align-self: flex-end;
+  background: var(--ios-blue);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+.coach-bubble.assistant {
+  align-self: flex-start;
+  background: var(--bg-elevated-3);
+  color: var(--text-1, #fff);
+  border-bottom-left-radius: 6px;
+}
+.coach-bubble.typing {
+  align-self: flex-start;
+  background: var(--bg-elevated-3);
+  color: var(--text-2);
+  font-style: italic;
+}
+.coach-input-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 0.5px solid var(--sep-strong);
+  background: var(--bg-elevated);
+}
+.coach-input-row input {
+  flex: 1;
+  padding: 13px 16px;
+  border-radius: 22px;
+  background: var(--bg-input);
+  border: 0.5px solid var(--sep-strong);
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+}
+.coach-input-row input:focus { border-color: var(--ios-blue); }
+.coach-input-row button {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--ios-blue);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.coach-input-row button:active { transform: scale(0.92); }
+.coach-input-row button:disabled { opacity: 0.45; }
+.coach-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 14px;
+  padding: 24px;
+  line-height: 1.6;
+}

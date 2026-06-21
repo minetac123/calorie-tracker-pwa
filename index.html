@@ -494,22 +494,42 @@
         <div id="whoop-metrics" style="display:none;">
           <div style="background:var(--bg-2); border-radius:8px; padding:12px; margin-bottom:14px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-              <span style="color:var(--text-2); font-size:13px;">Heart Rate Variability:</span>
+              <span style="color:var(--text-2); font-size:13px;">Regenerace (Recovery):</span>
+              <span style="font-weight:600;" id="whoop-recovery">—</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="color:var(--text-2); font-size:13px;">HRV:</span>
               <span style="font-weight:600;" id="whoop-hrv">—</span>
             </div>
             <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-              <span style="color:var(--text-2); font-size:13px;">Resting Heart Rate:</span>
+              <span style="color:var(--text-2); font-size:13px;">Klidová tepovka:</span>
               <span style="font-weight:600;" id="whoop-rhr">—</span>
             </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="color:var(--text-2); font-size:13px;">Denní zátěž (Strain):</span>
+              <span style="font-weight:600;" id="whoop-strain">—</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="color:var(--text-2); font-size:13px;">Spáleno (odhad):</span>
+              <span style="font-weight:600;" id="whoop-burn">—</span>
+            </div>
             <div style="display:flex; justify-content:space-between;">
-              <span style="color:var(--text-2); font-size:13px;">Recovery:</span>
-              <span style="font-weight:600;" id="whoop-recovery">—</span>
+              <span style="color:var(--text-2); font-size:13px;">Spánek:</span>
+              <span style="font-weight:600;" id="whoop-sleep">—</span>
             </div>
           </div>
         </div>
         <button class="btn btn-secondary" id="btn-whoop-connect" style="display:none;">🔗 Připojit WHOOP</button>
         <button class="btn btn-secondary" id="btn-whoop-refresh" style="display:none;">🔄 Obnovit data</button>
         <button class="btn btn-secondary btn-danger" id="btn-whoop-disconnect" style="display:none;">Odpojit WHOOP</button>
+      </div>
+
+      <div class="dark-card">
+        <h2>🤖 AI Kouč</h2>
+        <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;">
+          Chytrý asistent, který vidí tvá WHOOP data, jídla a kalorie a poradí ti s regenerací, výživou a tréninkem.
+        </p>
+        <button class="btn btn-primary" id="btn-open-coach">💬 Otevřít AI Kouče</button>
       </div>
 
       <div class="dark-card danger-card">
@@ -520,7 +540,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.2.1 (Cache v10)
+        Verze: 2.3.0 (Cache v11)
       </div>
     </section>
 
@@ -740,6 +760,25 @@
             <button class="btn btn-primary" id="leftover-confirm" style="flex:1; margin:0;">Odečíst zbytek</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= AI COACH CHAT MODAL ================= -->
+  <div class="modal-overlay" id="coach-modal">
+    <div class="modal-content coach-content">
+      <div class="modal-header">
+        <h2>🤖 AI Kouč</h2>
+        <button class="modal-close" id="btn-close-coach">×</button>
+      </div>
+      <div class="coach-messages" id="coach-messages">
+        <!-- messages injected here -->
+      </div>
+      <div class="coach-input-row">
+        <input type="text" id="coach-input" placeholder="Zeptej se na cokoliv…" autocomplete="off">
+        <button id="coach-send" aria-label="Odeslat">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
       </div>
     </div>
   </div>
