@@ -2748,12 +2748,12 @@ function init() {
 
     const closeWeightModal = () => weightModal.classList.remove('active');
     if (btnCloseWeight) btnCloseWeight.addEventListener('click', closeWeightModal);
-    
+
     if (btnSaveWeight) btnSaveWeight.addEventListener('click', () => {
       const parsedCurrent = parseFloat(inputCurrentWeight.value);
       if (!isNaN(parsedCurrent) && parsedCurrent > 0) {
         appState.weight = parsedCurrent;
-        
+
         const todayStr = getTodayDateString();
         appState.weightLogs = appState.weightLogs.filter(log => log.date !== todayStr);
         appState.weightLogs.push({ date: todayStr, weight: parsedCurrent });
@@ -2769,12 +2769,39 @@ function init() {
     });
   }
 
+  // WHOOP Integration buttons
+  const btnWhoopConnect = document.getElementById('btn-whoop-connect');
+  const btnWhoopRefresh = document.getElementById('btn-whoop-refresh');
+  const btnWhoopDisconnect = document.getElementById('btn-whoop-disconnect');
+
+  if (btnWhoopConnect) {
+    btnWhoopConnect.addEventListener('click', initiateWhoopAuth);
+  }
+  if (btnWhoopRefresh) {
+    btnWhoopRefresh.addEventListener('click', refreshWhoopData);
+  }
+  if (btnWhoopDisconnect) {
+    btnWhoopDisconnect.addEventListener('click', disconnectWhoop);
+  }
+
+  // Check WHOOP connection status
+  checkWhoopStatus();
+
+  // AI Coach chat
+  initCoachHandlers();
+
   // Check if already logged in
   const session = getSession();
   if (session) {
     showAppAfterLogin();
     // Background cloud sync
     syncFromCloud();
+    // If we just returned from the WHOOP OAuth flow, jump to Settings.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('screen') === 'settings' && window.switchAppScreen) {
+      window.switchAppScreen('screen-settings');
+      history.replaceState(null, '', '/');
+    }
   } else {
     // Show login screen, hide nav
     document.querySelector('.bottom-nav').style.display = 'none';
@@ -4151,6 +4178,283 @@ function initItemActionsHandlers() {
       renderDashboard();
       updateCombineFloatingBar();
       showToast("Jídla sloučena! 🍲");
+    });
+  }
+}
+
+// ==========================================================================
+// WHOOP API INTEGRATION
+// ==========================================================================
+
+// Paint the WHOOP metrics card from the snapshot the server returns.
+function renderWhoopMetrics(w) {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  const rec = w && w.recovery;
+  const str = w && w.strain;
+  const slp = w && w.sleep;
+
+  set('whoop-recovery', rec && rec.recoveryScore != null ? `${rec.recoveryScore} %` : '—');
+  set('whoop-hrv', rec && rec.hrvMs != null ? `${rec.hrvMs} ms` : '—');
+  set('whoop-rhr', rec && rec.restingHeartRate != null ? `${rec.restingHeartRate} bpm` : '—');
+  set('whoop-strain', str && str.strain != null ? `${str.strain}` : '—');
+  set('whoop-burn', str && str.activeKcal != null ? `${str.activeKcal} kcal` : '—');
+  set('whoop-sleep', slp && slp.totalInBedMs != null ? `${(slp.totalInBedMs / 3600000).toFixed(1)} h` : '—');
+}
+
+async function checkWhoopStatus() {
+  try {
+    const session = getSession();
+    if (!session || !session.token) return;
+
+    const response = await fetch('/api/whoop', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await response.json();
+
+    const statusEl = document.getElementById('whoop-status');
+    const metricsEl = document.getElementById('whoop-metrics');
+    const connectBtn = document.getElementById('btn-whoop-connect');
+    const refreshBtn = document.getElementById('btn-whoop-refresh');
+    const disconnectBtn = document.getElementById('btn-whoop-disconnect');
+
+    if (data.connected) {
+      if (statusEl) statusEl.innerHTML = 'Stav: <strong style="color:var(--ios-green,#30D158);">Připojeno ✓</strong>';
+      if (metricsEl) metricsEl.style.display = 'block';
+      renderWhoopMetrics(data.data);
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (refreshBtn) refreshBtn.style.display = 'block';
+      if (disconnectBtn) disconnectBtn.style.display = 'block';
+    } else {
+      if (statusEl) statusEl.innerHTML = 'Stav: <strong style="color:var(--text-3);">Nepřipojeno</strong>';
+      if (metricsEl) metricsEl.style.display = 'none';
+      if (connectBtn) connectBtn.style.display = 'block';
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      if (data.authUrl) window._whoopAuthUrl = data.authUrl;
+    }
+  } catch (error) {
+    console.error('Error checking WHOOP status:', error);
+  }
+}
+
+function initiateWhoopAuth() {
+  const session = getSession();
+  if (!session || !session.token) {
+    showToast('Chyba: Nejste přihlášen');
+    return;
+  }
+  // Persist the session token so the OAuth callback page can finish the exchange.
+  localStorage.setItem('_fitai_session_token', session.token);
+
+  if (window._whoopAuthUrl) {
+    window.location.href = window._whoopAuthUrl;
+  } else {
+    showToast('Chyba: Nelze inicializovat WHOOP přihlášení');
+  }
+}
+
+async function refreshWhoopData() {
+  try {
+    const session = getSession();
+    if (!session || !session.token) {
+      showToast('Chyba: Nejste přihlášen');
+      return;
+    }
+    const response = await fetch('/api/whoop', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await response.json();
+
+    if (data.connected) {
+      renderWhoopMetrics(data.data);
+      showToast('WHOOP data obnovena ✓');
+    } else {
+      showToast('WHOOP odpojen, připoj se prosím znovu');
+      checkWhoopStatus();
+    }
+  } catch (error) {
+    console.error('Error refreshing WHOOP data:', error);
+    showToast('Chyba: ' + error.message);
+  }
+}
+
+async function disconnectWhoop() {
+  if (!confirm('Opravdu chcete odpojit WHOOP?')) return;
+  try {
+    const session = getSession();
+    if (!session || !session.token) {
+      showToast('Chyba: Nejste přihlášen');
+      return;
+    }
+    const response = await fetch('/api/whoop', {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await response.json();
+    if (data.success) {
+      showToast('WHOOP odpojena');
+      checkWhoopStatus();
+    } else {
+      showToast('Chyba: ' + (data.error || 'Nepodařilo se odpojit'));
+    }
+  } catch (error) {
+    console.error('Error disconnecting WHOOP:', error);
+    showToast('Chyba: ' + error.message);
+  }
+}
+
+// ==========================================================================
+// AI COACH CHAT
+// ==========================================================================
+let coachHistory = [];
+
+function openCoach() {
+  const modal = document.getElementById('coach-modal');
+  if (!modal) return;
+  modal.classList.add('active');
+  if (coachHistory.length === 0) {
+    renderCoachEmpty();
+  }
+  setTimeout(() => {
+    const input = document.getElementById('coach-input');
+    if (input) input.focus();
+  }, 250);
+}
+
+function closeCoach() {
+  const modal = document.getElementById('coach-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function renderCoachEmpty() {
+  const box = document.getElementById('coach-messages');
+  if (!box) return;
+  box.innerHTML = `<div class="coach-empty">Ahoj! 👋 Jsem tvůj AI kouč.<br>Vidím tvá WHOOP data, jídla a kalorie.<br><br>Zeptej se mě třeba:<br>„Jak na tom dnes jsem?"<br>„Co bych měl sníst k večeři?"<br>„Mám dneska trénovat?"</div>`;
+}
+
+function appendCoachBubble(text, role) {
+  const box = document.getElementById('coach-messages');
+  if (!box) return null;
+  const empty = box.querySelector('.coach-empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = `coach-bubble ${role}`;
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+// Build the food/calorie context for the currently viewed day.
+function buildFoodContext() {
+  const date = (typeof getViewingDate === 'function')
+    ? getViewingDate()
+    : (selectedDate || getTodayDateString());
+  const items = (appState.logs[date] || []).map(i => ({
+    name: i.name,
+    amount: i.amount,
+    calories: i.calories,
+    protein: i.protein,
+    carbs: i.carbs,
+    fat: i.fat
+  }));
+  const totals = items.reduce((s, i) => ({
+    calories: s.calories + Number(i.calories || 0),
+    protein: s.protein + Number(i.protein || 0),
+    carbs: s.carbs + Number(i.carbs || 0),
+    fat: s.fat + Number(i.fat || 0)
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  totals.calories = Math.round(totals.calories);
+  totals.protein = Math.round(totals.protein * 10) / 10;
+  totals.carbs = Math.round(totals.carbs * 10) / 10;
+  totals.fat = Math.round(totals.fat * 10) / 10;
+
+  return {
+    date,
+    goals: appState.goals,
+    totals,
+    items,
+    weight: appState.weight
+  };
+}
+
+async function sendCoachMessage() {
+  const input = document.getElementById('coach-input');
+  const sendBtn = document.getElementById('coach-send');
+  if (!input) return;
+  const message = input.value.trim();
+  if (!message) return;
+
+  const session = getSession();
+  if (!session || !session.token) {
+    showToast('Chyba: Nejste přihlášen');
+    return;
+  }
+
+  input.value = '';
+  if (sendBtn) sendBtn.disabled = true;
+  appendCoachBubble(message, 'user');
+  coachHistory.push({ role: 'user', text: message });
+
+  const typing = appendCoachBubble('Píše…', 'assistant');
+  if (typing) typing.classList.add('typing');
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.token}`
+      },
+      body: JSON.stringify({
+        message,
+        history: coachHistory.slice(0, -1),
+        foodContext: buildFoodContext()
+      })
+    });
+    const data = await response.json();
+    if (typing) typing.remove();
+
+    if (data.success && data.reply) {
+      appendCoachBubble(data.reply, 'assistant');
+      coachHistory.push({ role: 'assistant', text: data.reply });
+    } else {
+      appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
+    }
+  } catch (error) {
+    console.error('Coach error:', error);
+    if (typing) typing.remove();
+    appendCoachBubble('Chyba spojení. Zkontroluj připojení a zkus to znovu.', 'assistant');
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+function initCoachHandlers() {
+  const openBtn = document.getElementById('btn-open-coach');
+  const closeBtn = document.getElementById('btn-close-coach');
+  const sendBtn = document.getElementById('coach-send');
+  const input = document.getElementById('coach-input');
+  const modal = document.getElementById('coach-modal');
+
+  if (openBtn) openBtn.addEventListener('click', openCoach);
+  if (closeBtn) closeBtn.addEventListener('click', closeCoach);
+  if (sendBtn) sendBtn.addEventListener('click', sendCoachMessage);
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendCoachMessage(); }
+    });
+  }
+  // Tap outside the sheet to dismiss.
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeCoach();
     });
   }
 }
