@@ -2627,6 +2627,34 @@ function showAppAfterLogin() {
 }
 
 // ==========================================================================
+// SCREEN WAKE LOCK — udrží displej rozsvícený, dokud je aplikace otevřená
+// ==========================================================================
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return; // nepodporováno (starší prohlížeč)
+  if (document.visibilityState !== 'visible') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (err) {
+    // Např. nízká baterie nebo zamítnuto systémem — tiše ignoruj.
+    wakeLock = null;
+  }
+}
+
+function initWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  requestWakeLock();
+  // Wake lock se uvolní, když se stránka skryje — po návratu ho obnov.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wakeLock === null) {
+      requestWakeLock();
+    }
+  });
+}
+
+// ==========================================================================
 // APPLICATION INITIALIZATION
 // ==========================================================================
 function init() {
@@ -2641,6 +2669,7 @@ function init() {
   initWizard();
   initItemActionsHandlers();
   initLeftoverHandlers();
+  initWakeLock();
 
   // Calendar "go back to today" button
   const backToTodayBtn = document.getElementById('btn-back-to-today');
