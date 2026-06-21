@@ -4353,33 +4353,19 @@ function formatCoachText(text) {
     .replace(/^[ \t]*[-*][ \t]+/gm, '• ');
 }
 
-// Wrap each word of an element's text nodes in a span that pops in, keeping
-// any markdown tags (<strong>/<em>) intact. Words reveal with a staggered
-// delay so the reply looks like it's being generated.
-function animateCoachWords(el, box) {
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-  const textNodes = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-  let i = 0;
-  textNodes.forEach((node) => {
-    const parts = node.textContent.split(/(\s+)/); // keep the whitespace chunks
-    const frag = document.createDocumentFragment();
-    parts.forEach((part) => {
-      if (part === '' || /^\s+$/.test(part)) {
-        frag.appendChild(document.createTextNode(part));
-      } else {
-        const span = document.createElement('span');
-        span.className = 'coach-word';
-        span.textContent = part;
-        span.style.animationDelay = (i * 0.03) + 's';
-        // Keep the newest words in view as they appear.
-        if (box) span.addEventListener('animationstart', () => { box.scrollTop = box.scrollHeight; });
-        i++;
-        frag.appendChild(span);
-      }
-    });
-    node.parentNode.replaceChild(frag, node);
+// Render an assistant reply as separate lines, each popping in with a small
+// staggered delay so the message reveals line by line (preserving markdown).
+function renderCoachLines(el, text, box) {
+  el.innerHTML = '';
+  const lines = String(text).split('\n').filter((l) => l.trim() !== '');
+  lines.forEach((line, idx) => {
+    const lineEl = document.createElement('div');
+    lineEl.className = 'coach-line';
+    lineEl.innerHTML = formatCoachText(line);
+    lineEl.style.animationDelay = (idx * 0.12) + 's';
+    // Keep the newest line in view as it appears.
+    if (box) lineEl.addEventListener('animationstart', () => { box.scrollTop = box.scrollHeight; });
+    el.appendChild(lineEl);
   });
 }
 
@@ -4392,8 +4378,11 @@ function appendCoachBubble(text, role, animate) {
   div.className = `coach-bubble ${role}`;
   // Assistant replies may contain markdown; render it. User text stays literal.
   if (role === 'assistant') {
-    div.innerHTML = formatCoachText(text);
-    if (animate) animateCoachWords(div, box);
+    if (animate) {
+      renderCoachLines(div, text, box);
+    } else {
+      div.innerHTML = formatCoachText(text);
+    }
   } else {
     div.textContent = text;
   }
