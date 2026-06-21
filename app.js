@@ -674,11 +674,23 @@ function renderDashboard() {
             }
           });
         } else {
+          const hasLeftovers = item.leftovers && item.leftovers.length > 0;
+          let macrosHtml;
+          if (hasLeftovers) {
+            const orig = item.original || item;
+            const left = sumLeftovers(item);
+            macrosHtml = `
+              <span class="meal-sub-macros"><span class="leftover-net-val">${item.calories} kcal</span>${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+              <span class="meal-sub-leftover">Původně ${Math.round(orig.calories)} kcal · zbytek −${Math.round(left.calories)} kcal</span>`;
+          } else {
+            macrosHtml = `<span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>`;
+          }
           subItem.innerHTML = `
             <div class="meal-sub-details" style="cursor: pointer; flex: 1;" data-id="${item.id}" title="Klikni pro úpravu množství">
               <span class="meal-sub-name">${item.name}</span>
-              <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+              ${macrosHtml}
             </div>
+            <button class="btn-leftover" data-id="${item.id}" title="Nedojedeno – zapsat zbytek">🥡</button>
             <button class="btn-item-actions" data-id="${item.id}">›</button>`;
         }
         
@@ -768,6 +780,197 @@ function deleteFoodItem(id) {
       }
     }
   }
+}
+
+// ==========================================================================
+// LEFTOVERS ("Nedojedeno") — subtract the uneaten portion from a meal entry
+// ==========================================================================
+let pendingLeftoverMacros = null;
+window.activeLeftover = null; // { date, id }
+
+function sumLeftovers(item) {
+  const acc = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  (item.leftovers || []).forEach(l => {
+    acc.calories += Number(l.calories || 0);
+    acc.protein  += Number(l.protein  || 0);
+    acc.carbs    += Number(l.carbs    || 0);
+    acc.fat      += Number(l.fat      || 0);
+  });
+  acc.calories = Math.round(acc.calories);
+  acc.protein  = Math.round(acc.protein * 10) / 10;
+  acc.carbs    = Math.round(acc.carbs   * 10) / 10;
+  acc.fat      = Math.round(acc.fat     * 10) / 10;
+  return acc;
+}
+
+// Recompute the live (net) macros = original − all leftovers, clamped at 0.
+// Returns true if leftovers exceed the original (net was clamped).
+function recomputeItemNet(item) {
+  if (!item.original) return false;
+  const left = sumLeftovers(item);
+  const exceeded =
+    (item.original.calories - left.calories) < 0 ||
+    (item.original.protein  - left.protein)  < 0 ||
+    (item.original.carbs    - left.carbs)    < 0 ||
+    (item.original.fat      - left.fat)      < 0;
+  item.calories = Math.max(0, Math.round(item.original.calories - left.calories));
+  item.protein  = Math.max(0, Math.round((item.original.protein - left.protein) * 10) / 10);
+  item.carbs    = Math.max(0, Math.round((item.original.carbs   - left.carbs)   * 10) / 10);
+  item.fat      = Math.max(0, Math.round((item.original.fat     - left.fat)     * 10) / 10);
+  return exceeded;
+}
+
+// Pull a single {calories,protein,carbs,fat} total out of a Gemini response.
+function parseLeftoverMacros(geminiData) {
+  let t = null;
+  if (geminiData) {
+    if (geminiData.total) {
+      t = geminiData.total;
+    } else if (Array.isArray(geminiData.items) && geminiData.items.length) {
+      t = geminiData.items.reduce((s, x) => ({
+        calories: s.calories + Number(x.calories || 0),
+        protein:  s.protein  + Number(x.protein  || 0),
+        carbs:    s.carbs    + Number(x.carbs    || 0),
+        fat:      s.fat      + Number(x.fat      || 0)
+      }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    } else if (Array.isArray(geminiData.choices) && geminiData.choices[0]) {
+      t = geminiData.choices[0].total || null;
+    }
+  }
+  if (!t) return null;
+  return {
+    calories: Math.round(Number(t.calories || 0)),
+    protein:  Math.round(Number(t.protein  || 0) * 10) / 10,
+    carbs:    Math.round(Number(t.carbs    || 0) * 10) / 10,
+    fat:      Math.round(Number(t.fat      || 0) * 10) / 10
+  };
+}
+
+function findLogItem(date, id) {
+  return (appState.logs[date] || []).find(i => i.id === id);
+}
+
+// Entry point from the meal row "leftover" button.
+window.startLeftoverCapture = function(date, id) {
+  const item = findLogItem(date, id);
+  if (!item) return;
+  window.activeLeftover = { date, id };
+  const input = document.getElementById('leftover-photo-input');
+  if (input) { input.value = ''; input.click(); }
+};
+
+function showLeftoverStage(name) {
+  const analyzing = document.getElementById('leftover-analyzing');
+  const result = document.getElementById('leftover-result');
+  if (analyzing) analyzing.style.display = name === 'analyzing' ? 'flex' : 'none';
+  if (result) result.style.display = name === 'result' ? 'block' : 'none';
+}
+
+function openLeftoverModal() {
+  const modal = document.getElementById('leftover-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeLeftoverModal() {
+  const modal = document.getElementById('leftover-modal');
+  if (modal) modal.classList.remove('active');
+  pendingLeftoverMacros = null;
+}
+
+async function analyzeLeftover(base64) {
+  if (!window.activeLeftover) return;
+  const { date, id } = window.activeLeftover;
+  const item = findLogItem(date, id);
+  if (!item) return;
+
+  openLeftoverModal();
+  showLeftoverStage('analyzing');
+  const nameEl = document.getElementById('leftover-meal-name');
+  if (nameEl) nameEl.innerText = item.name;
+
+  try {
+    const data = await callGeminiAPI(null, base64, { leftover: true });
+    const macros = parseLeftoverMacros(data);
+    if (!macros || macros.calories <= 0) {
+      throw new Error('Na fotce se nepodařilo rozpoznat žádný zbytek jídla.');
+    }
+    pendingLeftoverMacros = macros;
+    renderLeftoverResult(item, macros);
+    showLeftoverStage('result');
+  } catch (err) {
+    closeLeftoverModal();
+    showToast('Analýza zbytku selhala: ' + err.message);
+  }
+}
+
+function renderLeftoverResult(item, macros) {
+  const valuesEl = document.getElementById('leftover-values');
+  if (valuesEl) {
+    valuesEl.innerHTML =
+      `<div class="leftover-big">−${macros.calories} kcal</div>
+       <div class="leftover-macros-line">B: ${macros.protein} g · S: ${macros.carbs} g · T: ${macros.fat} g</div>`;
+  }
+  // Warn if the cumulative leftovers would exceed the original portion.
+  const originalCal = (item.original ? item.original.calories : Number(item.calories || 0));
+  const wouldExceed = (sumLeftovers(item).calories + macros.calories) > originalCal;
+  const warn = document.getElementById('leftover-warning');
+  if (warn) warn.style.display = wouldExceed ? 'block' : 'none';
+}
+
+function confirmLeftover() {
+  if (!window.activeLeftover || !pendingLeftoverMacros) { closeLeftoverModal(); return; }
+  const { date, id } = window.activeLeftover;
+  const item = findLogItem(date, id);
+  if (!item) { closeLeftoverModal(); return; }
+
+  // Snapshot the original (immutable) the first time a leftover is logged.
+  if (!item.original) {
+    item.original = {
+      calories: Math.round(Number(item.calories || 0)),
+      protein:  Math.round(Number(item.protein  || 0) * 10) / 10,
+      carbs:    Math.round(Number(item.carbs    || 0) * 10) / 10,
+      fat:      Math.round(Number(item.fat      || 0) * 10) / 10
+    };
+  }
+  if (!Array.isArray(item.leftovers)) item.leftovers = [];
+
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  item.leftovers.push({ ...pendingLeftoverMacros, time: timeStr });
+
+  const exceeded = recomputeItemNet(item);
+
+  saveState();
+  renderDashboard();
+  closeLeftoverModal();
+  window.activeLeftover = null;
+
+  if (exceeded) {
+    showToast(`⚠️ Zbytek překročil porci — čistý příjem 0 kcal`);
+  } else {
+    showToast(`Čistý příjem upraven: ${item.calories} kcal`);
+  }
+}
+
+function initLeftoverHandlers() {
+  const input = document.getElementById('leftover-photo-input');
+  if (input) {
+    input.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = ev => analyzeLeftover(ev.target.result);
+      reader.readAsDataURL(file);
+    });
+  }
+  const modal = document.getElementById('leftover-modal');
+  const btnCancel = document.getElementById('leftover-cancel');
+  const btnConfirm = document.getElementById('leftover-confirm');
+  const btnClose = document.getElementById('leftover-close');
+  if (btnCancel) btnCancel.addEventListener('click', closeLeftoverModal);
+  if (btnClose) btnClose.addEventListener('click', closeLeftoverModal);
+  if (btnConfirm) btnConfirm.addEventListener('click', confirmLeftover);
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeLeftoverModal(); });
 }
 
 // ==========================================================================
@@ -1597,14 +1800,15 @@ function initPhotoHandlers() {
 // ==========================================================================
 // GEMINI AI SERVICE INTEGRATION
 // ==========================================================================
-async function callGeminiAPI(textPrompt, imageBase64) {
+async function callGeminiAPI(textPrompt, imageBase64, options = {}) {
+  const isLeftover = options.leftover === true;
   if (!appState.apiKey) {
     throw new Error("Gemini API Key není nastaven. Zadej ho v Nastavení.");
   }
-  
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${appState.apiKey}`;
-  
-  const systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
+
+  let systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
 
 KLÍČOVÁ PRAVIDLA PRO ODHAD HMOTNOSTI (nejdůležitější!):
 - NIKDY nepoužívej 100 g jako automatickou výchozí hodnotu. 100 g je špatný "kulatý" odhad — vždy spočítej skutečnou hmotnost podle počtu kusů nebo vizuální velikosti.
@@ -1672,6 +1876,12 @@ Pravidla pro výstup:
 
 Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdný text_result s nulovými hodnotami.`;
 
+  if (isLeftover) {
+    systemInstructionText += `
+
+REŽIM ZBYTKY (DŮLEŽITÉ): Tato fotka ukazuje ZBYTEK porce jídla, který NEBYL snězen — tedy to, co po jídle ZBYLO na talíři. NEPŘEDPOKLÁDEJ, že jde o nové, celé jídlo. Odhadni kalorie a makra POUZE toho, co je viditelné na fotce (nedojedený zbytek). Vrať VŽDY JSON typu "text_result" s jednou nebo více položkami a polem "total" (součet zbytku). Nevracej "image_choices" ani 3 varianty.`;
+  }
+
   // Assemble Gemini Parts
   const parts = [];
   
@@ -1697,7 +1907,11 @@ Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdn�
       }
     });
     
-    parts.push({ text: "Odhadni 3 nejčastější varianty jídla zobrazeného na fotce a rozepiš je podle pravidel." });
+    if (isLeftover) {
+      parts.push({ text: "Tato fotka ukazuje ZBYTEK (nedojedenou část) jídla. Odhadni kalorie a makra POUZE toho, co je na fotce vidět, a vrať jeden výsledek typu text_result s polem total." });
+    } else {
+      parts.push({ text: "Odhadni 3 nejčastější varianty jídla zobrazeného na fotce a rozepiš je podle pravidel." });
+    }
   }
 
   const payload = {
@@ -2378,6 +2592,7 @@ function init() {
   initBarcodeAndSearch();
   initWizard();
   initItemActionsHandlers();
+  initLeftoverHandlers();
 
   // Calendar "go back to today" button
   const backToTodayBtn = document.getElementById('btn-back-to-today');
@@ -3455,6 +3670,15 @@ function initItemActionsHandlers() {
   const foodListContainer = document.getElementById('meals-list-container');
   if (foodListContainer) {
     foodListContainer.addEventListener('click', (e) => {
+      // 0. Leftover ("Nedojedeno") button — open the leftover photo flow
+      const leftoverBtn = e.target.closest('.btn-leftover');
+      if (leftoverBtn) {
+        e.stopPropagation();
+        const foodId = leftoverBtn.getAttribute('data-id');
+        window.startLeftoverCapture(getActiveDateString(), foodId);
+        return;
+      }
+
       // 1. Actions button click (circle / chevron)
       const actionBtn = e.target.closest('.btn-item-actions');
       if (actionBtn) {
@@ -3505,11 +3729,25 @@ function initItemActionsHandlers() {
           if (oldParsed.value > 0 && newParsed.value >= 0) {
             const ratio = newParsed.value / oldParsed.value;
             item.amount = newAmountStr.trim();
-            item.calories = Math.round(item.calories * ratio);
-            item.protein = Math.round(item.protein * ratio * 10) / 10;
-            item.carbs = Math.round(item.carbs * ratio * 10) / 10;
-            item.fat = Math.round(item.fat * ratio * 10) / 10;
-            
+            if (item.original && item.leftovers && item.leftovers.length) {
+              // Scale the original portion and every logged leftover, then
+              // recompute the net so the breakdown stays consistent.
+              const scale = (m) => {
+                m.calories = Math.round(m.calories * ratio);
+                m.protein = Math.round(m.protein * ratio * 10) / 10;
+                m.carbs = Math.round(m.carbs * ratio * 10) / 10;
+                m.fat = Math.round(m.fat * ratio * 10) / 10;
+              };
+              scale(item.original);
+              item.leftovers.forEach(scale);
+              recomputeItemNet(item);
+            } else {
+              item.calories = Math.round(item.calories * ratio);
+              item.protein = Math.round(item.protein * ratio * 10) / 10;
+              item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+              item.fat = Math.round(item.fat * ratio * 10) / 10;
+            }
+
             saveState();
             renderDashboard();
             showToast("Množství upraveno! ✏️");

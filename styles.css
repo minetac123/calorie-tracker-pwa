@@ -478,6 +478,47 @@ input, textarea, select, button {
   padding-bottom: 20px;
 }
 
+/* Leftovers ("Nedojedeno") */
+.btn-leftover {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 0.5px solid var(--sep-strong);
+  background: var(--bg-input);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-right: 2px;
+}
+.btn-leftover:active { transform: scale(0.9); }
+.meal-sub-leftover {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.leftover-net-val {
+  color: #30D158;
+  font-weight: 700;
+}
+.leftover-big {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-danger);
+  letter-spacing: -0.5px;
+}
+.leftover-macros-line {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+
 /* Favorites in the food-log bottom sheet (scan menu) */
 .fls-favorites {
   margin-top: 18px;
