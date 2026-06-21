@@ -486,6 +486,32 @@
         <button class="btn btn-danger" id="btn-logout">Odhlásit se</button>
       </div>
 
+      <div class="dark-card">
+        <h2>⌚ WHOOP Integrace</h2>
+        <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;" id="whoop-status">
+          Stav: <strong style="color:var(--text-3);">Ověřování...</strong>
+        </p>
+        <div id="whoop-metrics" style="display:none;">
+          <div style="background:var(--bg-2); border-radius:8px; padding:12px; margin-bottom:14px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="color:var(--text-2); font-size:13px;">Heart Rate Variability:</span>
+              <span style="font-weight:600;" id="whoop-hrv">—</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <span style="color:var(--text-2); font-size:13px;">Resting Heart Rate:</span>
+              <span style="font-weight:600;" id="whoop-rhr">—</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <span style="color:var(--text-2); font-size:13px;">Recovery:</span>
+              <span style="font-weight:600;" id="whoop-recovery">—</span>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-secondary" id="btn-whoop-connect" style="display:none;">🔗 Připojit WHOOP</button>
+        <button class="btn btn-secondary" id="btn-whoop-refresh" style="display:none;">🔄 Obnovit data</button>
+        <button class="btn btn-secondary btn-danger" id="btn-whoop-disconnect" style="display:none;">Odpojit WHOOP</button>
+      </div>
+
       <div class="dark-card danger-card">
         <h2 style="color:var(--color-danger)">Nebezpečná zóna</h2>
         <div style="margin-top:14px;">

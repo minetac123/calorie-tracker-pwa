@@ -4,7 +4,8 @@ const ASSETS = [
   '/styles.css',
   '/app.js',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.svg',
+  '/whoop-callback.html'
 ];
 
 // Helper to strip redirect metadata for iOS Safari PWA compatibility

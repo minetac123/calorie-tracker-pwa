@@ -2748,12 +2748,12 @@ function init() {
 
     const closeWeightModal = () => weightModal.classList.remove('active');
     if (btnCloseWeight) btnCloseWeight.addEventListener('click', closeWeightModal);
-    
+
     if (btnSaveWeight) btnSaveWeight.addEventListener('click', () => {
       const parsedCurrent = parseFloat(inputCurrentWeight.value);
       if (!isNaN(parsedCurrent) && parsedCurrent > 0) {
         appState.weight = parsedCurrent;
-        
+
         const todayStr = getTodayDateString();
         appState.weightLogs = appState.weightLogs.filter(log => log.date !== todayStr);
         appState.weightLogs.push({ date: todayStr, weight: parsedCurrent });
@@ -2768,6 +2768,24 @@ function init() {
       }
     });
   }
+
+  // WHOOP Integration buttons
+  const btnWhoopConnect = document.getElementById('btn-whoop-connect');
+  const btnWhoopRefresh = document.getElementById('btn-whoop-refresh');
+  const btnWhoopDisconnect = document.getElementById('btn-whoop-disconnect');
+
+  if (btnWhoopConnect) {
+    btnWhoopConnect.addEventListener('click', initiateWhoopAuth);
+  }
+  if (btnWhoopRefresh) {
+    btnWhoopRefresh.addEventListener('click', refreshWhoopData);
+  }
+  if (btnWhoopDisconnect) {
+    btnWhoopDisconnect.addEventListener('click', disconnectWhoop);
+  }
+
+  // Check WHOOP connection status
+  checkWhoopStatus();
 
   // Check if already logged in
   const session = getSession();
@@ -4152,6 +4170,152 @@ function initItemActionsHandlers() {
       updateCombineFloatingBar();
       showToast("Jídla sloučena! 🍲");
     });
+  }
+}
+
+// ==========================================================================
+// WHOOP API INTEGRATION
+// ==========================================================================
+
+async function checkWhoopStatus() {
+  try {
+    const session = getSession();
+    if (!session || !session.token) return;
+
+    const response = await fetch('/api/whoop', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.token}`
+      }
+    });
+
+    const data = await response.json();
+
+    const statusEl = document.getElementById('whoop-status');
+    const metricsEl = document.getElementById('whoop-metrics');
+    const connectBtn = document.getElementById('btn-whoop-connect');
+    const refreshBtn = document.getElementById('btn-whoop-refresh');
+    const disconnectBtn = document.getElementById('btn-whoop-disconnect');
+
+    if (data.connected) {
+      // Display metrics
+      if (statusEl) {
+        statusEl.innerHTML = 'Stav: <strong style="color:var(--ios-green);">Připojeno ✓</strong>';
+      }
+
+      if (metricsEl) {
+        metricsEl.style.display = 'block';
+        // Update metrics display
+        if (data.cycles && data.cycles.length > 0) {
+          const cycle = data.cycles[0];
+          document.getElementById('whoop-hrv').textContent = cycle.hrv ? `${Math.round(cycle.hrv.value)} ms` : '—';
+          document.getElementById('whoop-rhr').textContent = cycle.rhr ? `${Math.round(cycle.rhr.value)} bpm` : '—';
+          document.getElementById('whoop-recovery').textContent = cycle.recovery ? `${Math.round(cycle.recovery.score * 100)}%` : '—';
+        }
+      }
+
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (refreshBtn) refreshBtn.style.display = 'inline-block';
+      if (disconnectBtn) disconnectBtn.style.display = 'inline-block';
+    } else {
+      // Not connected
+      if (statusEl) {
+        statusEl.innerHTML = 'Stav: <strong style="color:var(--text-3);">Nepřipojeno</strong>';
+      }
+
+      if (metricsEl) metricsEl.style.display = 'none';
+      if (connectBtn) connectBtn.style.display = 'inline-block';
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+
+      // If there's an auth URL, save it for later use
+      if (data.authUrl) {
+        window._whoopAuthUrl = data.authUrl;
+      }
+    }
+  } catch (error) {
+    console.error('Error checking WHOOP status:', error);
+  }
+}
+
+function initiateWhoopAuth() {
+  const session = getSession();
+  if (!session || !session.token) {
+    showToast('Chyba: Nejste přihlášen');
+    return;
+  }
+
+  // Save session token to localStorage for callback
+  localStorage.setItem('_fitai_session_token', session.token);
+
+  // Use the auth URL from the server response or construct it
+  if (window._whoopAuthUrl) {
+    window.location.href = window._whoopAuthUrl;
+  } else {
+    showToast('Chyba: Nelze inicializovat WHOOP přihlášení');
+  }
+}
+
+async function refreshWhoopData() {
+  try {
+    const session = getSession();
+    if (!session || !session.token) {
+      showToast('Chyba: Nejste přihlášen');
+      return;
+    }
+
+    const response = await fetch('/api/whoop', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.token}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (data.connected && data.cycles && data.cycles.length > 0) {
+      const cycle = data.cycles[0];
+      document.getElementById('whoop-hrv').textContent = cycle.hrv ? `${Math.round(cycle.hrv.value)} ms` : '—';
+      document.getElementById('whoop-rhr').textContent = cycle.rhr ? `${Math.round(cycle.rhr.value)} bpm` : '—';
+      document.getElementById('whoop-recovery').textContent = cycle.recovery ? `${Math.round(cycle.recovery.score * 100)}%` : '—';
+      showToast('WHOOP data obnovena ✓');
+    } else {
+      showToast('Chyba: Nepodařilo se obnovit WHOOP data');
+    }
+  } catch (error) {
+    console.error('Error refreshing WHOOP data:', error);
+    showToast('Chyba: ' + error.message);
+  }
+}
+
+async function disconnectWhoop() {
+  if (!confirm('Opravdu chcete odpojit WHOOP?')) return;
+
+  try {
+    const session = getSession();
+    if (!session || !session.token) {
+      showToast('Chyba: Nejste přihlášen');
+      return;
+    }
+
+    const response = await fetch('/api/whoop', {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${session.token}`
+      }
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      showToast('WHOOP odpojena');
+      checkWhoopStatus();
+    } else {
+      showToast('Chyba: ' + (data.error || 'Nepodařilo se odpojit'));
+    }
+  } catch (error) {
+    console.error('Error disconnecting WHOOP:', error);
+    showToast('Chyba: ' + error.message);
   }
 }
 
