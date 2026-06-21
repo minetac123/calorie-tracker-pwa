@@ -83,6 +83,12 @@ function loadState() {
       if (!Array.isArray(appState.coachHistory)) {
         appState.coachHistory = [];
       }
+      if (!Array.isArray(appState.coachMemories)) {
+        appState.coachMemories = [];
+      }
+      if (appState.coachMemoryEnabled === undefined) {
+        appState.coachMemoryEnabled = true;
+      }
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
       resetState();
@@ -108,7 +114,9 @@ function resetState() {
     weightLogs: [],
     favorites: [],
     collapsedCats: {},
-    coachHistory: []
+    coachHistory: [],
+    coachMemories: [],
+    coachMemoryEnabled: true
   };
   saveState();
 }
@@ -1194,6 +1202,7 @@ function renderSettings() {
   document.getElementById('input-goal-p').value = appState.goals.protein || 130;
   document.getElementById('input-goal-c').value = appState.goals.carbs || 220;
   document.getElementById('input-goal-f').value = appState.goals.fat || 65;
+  if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
 }
 
 function saveSettingsFromUI() {
@@ -2572,7 +2581,9 @@ async function syncToCloud() {
       weightTarget: appState.weightTarget,
       weightLogs: appState.weightLogs,
       favorites: appState.favorites,
-      coachHistory: appState.coachHistory
+      coachHistory: appState.coachHistory,
+      coachMemories: appState.coachMemories,
+      coachMemoryEnabled: appState.coachMemoryEnabled
     };
 
     await fetch('/api/sync', {
@@ -2618,6 +2629,8 @@ async function syncFromCloud() {
       if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
       if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
       if (Array.isArray(cloudState.coachHistory)) appState.coachHistory = cloudState.coachHistory;
+      if (Array.isArray(cloudState.coachMemories)) appState.coachMemories = cloudState.coachMemories;
+      if (cloudState.coachMemoryEnabled !== undefined) appState.coachMemoryEnabled = cloudState.coachMemoryEnabled;
 
       saveState(true);
       renderDashboard();
@@ -2627,6 +2640,8 @@ async function syncFromCloud() {
       if (coachModal && coachModal.classList.contains('active')) {
         renderCoachHistory();
       }
+      // Refresh the memory settings panel if it's on screen.
+      if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
       showToast('☁️ Data synchronizována z cloudu');
     }
   } catch (err) {
@@ -4322,12 +4337,105 @@ async function disconnectWhoop() {
 // ==========================================================================
 // AI COACH CHAT
 // ==========================================================================
-// The coach's conversation memory lives in appState.coachHistory so it is
-// saved to localStorage and synced to the cloud (remembered across reloads
-// and devices). Always read it through here so it survives appState reloads.
+// Master switch for the coach's memory (conversation + manual facts).
+function coachMemoryOn() {
+  return appState.coachMemoryEnabled !== false;
+}
+
+// Live conversation store. When memory is ON it's appState.coachHistory
+// (persisted + cloud-synced). When OFF, an ephemeral session-only array so
+// nothing is remembered across reloads/devices.
+let ephemeralCoachHistory = [];
 function getCoachHistory() {
-  if (!Array.isArray(appState.coachHistory)) appState.coachHistory = [];
-  return appState.coachHistory;
+  if (coachMemoryOn()) {
+    if (!Array.isArray(appState.coachHistory)) appState.coachHistory = [];
+    return appState.coachHistory;
+  }
+  return ephemeralCoachHistory;
+}
+
+// ---- Manual memories (facts the user wants the coach to always know) ----
+function getCoachMemories() {
+  if (!Array.isArray(appState.coachMemories)) appState.coachMemories = [];
+  return appState.coachMemories;
+}
+
+function addCoachMemory() {
+  const input = document.getElementById('coach-memory-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  getCoachMemories().push({
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+    text
+  });
+  input.value = '';
+  saveState();
+  renderCoachMemorySettings();
+  showToast('Přidáno do paměti ✓');
+}
+
+function removeCoachMemory(id) {
+  appState.coachMemories = getCoachMemories().filter((m) => m.id !== id);
+  saveState();
+  renderCoachMemorySettings();
+}
+
+function toggleCoachMemory() {
+  appState.coachMemoryEnabled = !coachMemoryOn();
+  saveState();
+  renderCoachMemorySettings();
+  showToast(coachMemoryOn() ? 'Paměť zapnuta' : 'Paměť vypnuta');
+}
+
+function clearCoachHistory() {
+  if (!confirm('Smazat celou historii konverzace s AI Koučem?')) return;
+  appState.coachHistory = [];
+  ephemeralCoachHistory = [];
+  saveState();
+  renderCoachMemorySettings();
+  const coachModal = document.getElementById('coach-modal');
+  if (coachModal && coachModal.classList.contains('active')) renderCoachEmpty();
+  showToast('Historie konverzace smazána');
+}
+
+// Paint the memory settings panel (toggle state, message count, fact list).
+function renderCoachMemorySettings() {
+  const toggle = document.getElementById('btn-toggle-coach-memory');
+  if (toggle) toggle.setAttribute('aria-checked', coachMemoryOn() ? 'true' : 'false');
+
+  const stats = document.getElementById('coach-memory-stats');
+  if (stats) {
+    const n = Array.isArray(appState.coachHistory) ? appState.coachHistory.length : 0;
+    stats.textContent = coachMemoryOn()
+      ? `Uloženo ${n} zpráv z konverzace`
+      : 'Paměť je vypnutá — konverzace se neukládá';
+  }
+
+  const list = document.getElementById('coach-memory-list');
+  if (list) {
+    const mems = getCoachMemories();
+    list.innerHTML = '';
+    if (mems.length === 0) {
+      list.innerHTML = '<div class="mem-empty">Zatím žádná uložená fakta.</div>';
+    } else {
+      mems.forEach((m) => {
+        const row = document.createElement('div');
+        row.className = 'mem-item';
+        const txt = document.createElement('div');
+        txt.className = 'mem-item-text';
+        txt.textContent = m.text;
+        const del = document.createElement('button');
+        del.className = 'mem-item-del';
+        del.textContent = '×';
+        del.setAttribute('aria-label', 'Odstranit');
+        del.addEventListener('click', () => removeCoachMemory(m.id));
+        row.appendChild(txt);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+  }
 }
 
 function openCoach() {
@@ -4363,12 +4471,14 @@ function renderCoachHistory() {
   box.scrollTop = box.scrollHeight;
 }
 
-// Wipe the coach's memory (local + cloud).
+// Wipe the coach's conversation memory (local + cloud) — chat header trash.
 function clearCoachMemory() {
   if (!confirm('Smazat celou historii konverzace s AI Koučem?')) return;
   appState.coachHistory = [];
+  ephemeralCoachHistory = [];
   saveState();
   renderCoachEmpty();
+  if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
   showToast('Historie AI Kouče smazána');
 }
 
@@ -4519,10 +4629,11 @@ async function sendCoachMessage() {
 
   input.value = '';
   if (sendBtn) sendBtn.disabled = true;
+  const memOn = coachMemoryOn();
   const history = getCoachHistory();
   appendCoachBubble(message, 'user');
   history.push({ role: 'user', text: message });
-  saveState(); // persist the question immediately (local + cloud)
+  if (memOn) saveState(); // persist the question (local + cloud) when memory is on
 
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
@@ -4538,6 +4649,8 @@ async function sendCoachMessage() {
         message,
         // Send recent context (the backend trims further); skip the just-added question.
         history: history.slice(0, -1).slice(-20),
+        // Manual facts the coach should always know (only when memory is on).
+        memories: memOn ? getCoachMemories().map((m) => m.text) : [],
         foodContext: buildFoodContext()
       })
     });
@@ -4548,8 +4661,8 @@ async function sendCoachMessage() {
       appendCoachBubble(data.reply, 'assistant', true);
       history.push({ role: 'assistant', text: data.reply });
       // Cap memory so it can't grow without bound.
-      if (history.length > 200) appState.coachHistory = history.slice(-200);
-      saveState(); // persist the reply (local + cloud)
+      if (memOn && history.length > 200) appState.coachHistory = history.slice(-200);
+      if (memOn) saveState(); // persist the reply (local + cloud)
     } else {
       appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
     }
@@ -4588,6 +4701,21 @@ function initCoachHandlers() {
       if (e.target === modal) closeCoach();
     });
   }
+
+  // ---- Memory settings (in the Settings screen) ----
+  const memToggle = document.getElementById('btn-toggle-coach-memory');
+  const memAddBtn = document.getElementById('btn-add-coach-memory');
+  const memInput = document.getElementById('coach-memory-input');
+  const histClearBtn = document.getElementById('btn-clear-coach-history');
+
+  if (memToggle) memToggle.addEventListener('click', toggleCoachMemory);
+  if (memAddBtn) memAddBtn.addEventListener('click', addCoachMemory);
+  if (memInput) {
+    memInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addCoachMemory(); }
+    });
+  }
+  if (histClearBtn) histClearBtn.addEventListener('click', clearCoachHistory);
 }
 
 // Run app init

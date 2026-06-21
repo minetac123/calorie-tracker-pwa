@@ -70,10 +70,15 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { message, history, foodContext } = req.body || {};
+    const { message, history, foodContext, memories } = req.body || {};
     if (!message || !message.trim()) {
       return res.status(400).json({ error: 'Prázdná zpráva' });
     }
+
+    // Manual facts the user asked the coach to always remember.
+    const memBlock = (Array.isArray(memories) && memories.length)
+      ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
+      : 'Žádná uložená fakta.';
 
     // Pull WHOOP metrics server-side (token never leaves the backend).
     let whoopSnapshot = null;
@@ -85,6 +90,9 @@ module.exports = async function handler(req, res) {
     const systemInstruction = `Jsi osobní zdravotní a fitness kouč v aplikaci FitAI. Mluvíš česky, přátelsky, stručně a konkrétně. Máš přístup k datům uživatele z náramku WHOOP (regenerace, spánek, zátěž, tepová frekvence) a k jeho dnešnímu jídelníčku a kaloriím z aplikace.
 
 Tvým úkolem je propojit tato data a dávat praktické rady: např. když je nízká regenerace, doporuč odpočinek a vhodnou výživu; když uživatel překračuje kalorický cíl, upozorni ho; spoj kvalitu spánku, zátěž a příjem kalorií do smysluplných doporučení. Nediagnostikuj nemoci a u vážných zdravotních potíží doporuč lékaře. Odpovídej v běžném textu (ne JSON), klidně používej krátké odrážky a emoji střídmě.
+
+=== CO SI MÁŠ PAMATOVAT O UŽIVATELI ===
+${memBlock}
 
 === WHOOP DATA ===
 ${fmtWhoop(whoopSnapshot)}

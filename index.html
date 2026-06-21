@@ -532,6 +532,37 @@
         <button class="btn btn-primary" id="btn-open-coach">💬 Otevřít AI Kouče</button>
       </div>
 
+      <div class="dark-card">
+        <h2>🧠 Paměť AI Kouče</h2>
+        <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;">
+          Kouč si pamatuje vaše konverzace a fakta o vás. Tady je můžeš spravovat.
+        </p>
+
+        <div class="mem-row">
+          <span class="mem-row-label">Zapamatování</span>
+          <button type="button" id="btn-toggle-coach-memory" class="mem-toggle" role="switch" aria-checked="true">
+            <span class="mem-toggle-knob"></span>
+          </button>
+        </div>
+
+        <div id="coach-memory-stats" style="color:var(--text-3); font-size:13px; margin:12px 0 4px;">
+          Uloženo 0 zpráv z konverzace
+        </div>
+
+        <div style="margin-top:16px;">
+          <label style="font-size:13px; color:var(--text-2); font-weight:600;">Co si má Kouč pamatovat o tobě</label>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <input type="text" id="coach-memory-input" placeholder="Např. Jsem vegetarián, cíl zhubnout 5 kg…"
+                   style="flex:1; padding:12px 14px; border-radius:10px; background:var(--bg-input); border:0.5px solid var(--sep-strong); color:#fff; font-size:14px;">
+            <button class="btn btn-secondary" id="btn-add-coach-memory" style="width:auto; margin:0; padding:0 16px;">Přidat</button>
+          </div>
+          <div id="coach-memory-list" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+
+        <div style="height:14px;"></div>
+        <button class="btn btn-secondary btn-danger" id="btn-clear-coach-history">Smazat historii konverzace</button>
+      </div>
+
       <div class="dark-card danger-card">
         <h2 style="color:var(--color-danger)">Nebezpečná zóna</h2>
         <div style="margin-top:14px;">
@@ -540,7 +571,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.4.0 (Cache v17)
+        Verze: 2.5.0 (Cache v18)
       </div>
     </section>
 
