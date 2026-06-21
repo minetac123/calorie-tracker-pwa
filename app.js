@@ -610,6 +610,10 @@ function renderDashboard() {
     catCard.className = 'meal-card category-header';
     catCard.style.cursor = 'pointer';
     
+    const leftoverBtnHtml = catItems.length > 0
+      ? `<button class="btn-leftover-cat" data-category="${cat.id}" title="Nedojedeno – zapsat zbytek">🥡</button>`
+      : '';
+
     catCard.innerHTML = `
       <div class="meal-left">
         <div class="meal-icon">${cat.icon}</div>
@@ -619,11 +623,17 @@ function renderDashboard() {
         </div>
       </div>
       <div class="meal-actions">
+        ${leftoverBtnHtml}
         <button class="btn-add-meal" onclick="window.openFoodLogSheet('${cat.id}')">+</button>
       </div>`;
-      
+
     catCard.addEventListener('click', (e) => {
       if (e.target.closest('.btn-add-meal')) return;
+      if (e.target.closest('.btn-leftover-cat')) {
+        e.stopPropagation();
+        window.startCategoryLeftoverCapture(getActiveDateString(), cat.id);
+        return;
+      }
       toggleCategoryCollapse(cat.id);
     });
     
@@ -690,7 +700,6 @@ function renderDashboard() {
               <span class="meal-sub-name">${item.name}</span>
               ${macrosHtml}
             </div>
-            <button class="btn-leftover" data-id="${item.id}" title="Nedojedeno – zapsat zbytek">🥡</button>
             <button class="btn-item-actions" data-id="${item.id}">›</button>`;
         }
         
@@ -786,7 +795,19 @@ function deleteFoodItem(id) {
 // LEFTOVERS ("Nedojedeno") — subtract the uneaten portion from a meal entry
 // ==========================================================================
 let pendingLeftoverMacros = null;
-window.activeLeftover = null; // { date, id }
+window.activeLeftover = null; // { date, categoryId }
+
+function getCategoryName(catId) {
+  const names = {
+    'Breakfast': 'Snídaně',
+    'Morning snack': 'Dopolední svačina',
+    'Lunch': 'Oběd',
+    'Afternoon snack': 'Odpolední svačina',
+    'Dinner': 'Večeře',
+    'Second dinner': 'Druhá večeře'
+  };
+  return names[catId] || catId;
+}
 
 function sumLeftovers(item) {
   const acc = { calories: 0, protein: 0, carbs: 0, fat: 0 };
@@ -846,15 +867,25 @@ function parseLeftoverMacros(geminiData) {
   };
 }
 
-function findLogItem(date, id) {
-  return (appState.logs[date] || []).find(i => i.id === id);
+function getCategoryItems(date, categoryId) {
+  return (appState.logs[date] || []).filter(i => getFoodCategory(i) === categoryId);
 }
 
-// Entry point from the meal row "leftover" button.
-window.startLeftoverCapture = function(date, id) {
-  const item = findLogItem(date, id);
-  if (!item) return;
-  window.activeLeftover = { date, id };
+// "Original" calories the category was logged with (pre-leftovers).
+function categoryOriginalCalories(items) {
+  return items.reduce((s, i) => s + (i.original ? Number(i.original.calories || 0) : Number(i.calories || 0)), 0);
+}
+
+// Current net calories of the category.
+function categoryNetCalories(items) {
+  return items.reduce((s, i) => s + Number(i.calories || 0), 0);
+}
+
+// Entry point from the category header "leftover" button.
+window.startCategoryLeftoverCapture = function(date, categoryId) {
+  const items = getCategoryItems(date, categoryId);
+  if (items.length === 0) { showToast('V této kategorii není žádné jídlo.'); return; }
+  window.activeLeftover = { date, categoryId };
   const input = document.getElementById('leftover-photo-input');
   if (input) { input.value = ''; input.click(); }
 };
@@ -879,14 +910,14 @@ function closeLeftoverModal() {
 
 async function analyzeLeftover(base64) {
   if (!window.activeLeftover) return;
-  const { date, id } = window.activeLeftover;
-  const item = findLogItem(date, id);
-  if (!item) return;
+  const { date, categoryId } = window.activeLeftover;
+  const items = getCategoryItems(date, categoryId);
+  if (items.length === 0) return;
 
   openLeftoverModal();
   showLeftoverStage('analyzing');
   const nameEl = document.getElementById('leftover-meal-name');
-  if (nameEl) nameEl.innerText = item.name;
+  if (nameEl) nameEl.innerText = getCategoryName(categoryId);
 
   try {
     const data = await callGeminiAPI(null, base64, { leftover: true });
@@ -895,7 +926,7 @@ async function analyzeLeftover(base64) {
       throw new Error('Na fotce se nepodařilo rozpoznat žádný zbytek jídla.');
     }
     pendingLeftoverMacros = macros;
-    renderLeftoverResult(item, macros);
+    renderLeftoverResult(items, macros);
     showLeftoverStage('result');
   } catch (err) {
     closeLeftoverModal();
@@ -903,52 +934,69 @@ async function analyzeLeftover(base64) {
   }
 }
 
-function renderLeftoverResult(item, macros) {
+function renderLeftoverResult(items, macros) {
   const valuesEl = document.getElementById('leftover-values');
   if (valuesEl) {
     valuesEl.innerHTML =
       `<div class="leftover-big">−${macros.calories} kcal</div>
        <div class="leftover-macros-line">B: ${macros.protein} g · S: ${macros.carbs} g · T: ${macros.fat} g</div>`;
   }
-  // Warn if the cumulative leftovers would exceed the original portion.
-  const originalCal = (item.original ? item.original.calories : Number(item.calories || 0));
-  const wouldExceed = (sumLeftovers(item).calories + macros.calories) > originalCal;
+  // Warn if the leftover exceeds what's currently left in the category.
+  const wouldExceed = macros.calories > categoryNetCalories(items);
   const warn = document.getElementById('leftover-warning');
   if (warn) warn.style.display = wouldExceed ? 'block' : 'none';
 }
 
 function confirmLeftover() {
   if (!window.activeLeftover || !pendingLeftoverMacros) { closeLeftoverModal(); return; }
-  const { date, id } = window.activeLeftover;
-  const item = findLogItem(date, id);
-  if (!item) { closeLeftoverModal(); return; }
+  const { date, categoryId } = window.activeLeftover;
+  const items = getCategoryItems(date, categoryId);
+  if (items.length === 0) { closeLeftoverModal(); return; }
 
-  // Snapshot the original (immutable) the first time a leftover is logged.
-  if (!item.original) {
-    item.original = {
-      calories: Math.round(Number(item.calories || 0)),
-      protein:  Math.round(Number(item.protein  || 0) * 10) / 10,
-      carbs:    Math.round(Number(item.carbs    || 0) * 10) / 10,
-      fat:      Math.round(Number(item.fat      || 0) * 10) / 10
-    };
-  }
-  if (!Array.isArray(item.leftovers)) item.leftovers = [];
+  const catOrigCal = categoryOriginalCalories(items);
+  if (catOrigCal <= 0) { closeLeftoverModal(); return; }
 
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  item.leftovers.push({ ...pendingLeftoverMacros, time: timeStr });
+  let exceeded = false;
 
-  const exceeded = recomputeItemNet(item);
+  // Distribute the leftover across the category's items, proportional to each
+  // item's original share of the meal.
+  items.forEach(item => {
+    const itemOrigCal = item.original ? Number(item.original.calories || 0) : Number(item.calories || 0);
+    const frac = itemOrigCal / catOrigCal;
+    if (frac <= 0) return;
+
+    if (!item.original) {
+      item.original = {
+        calories: Math.round(Number(item.calories || 0)),
+        protein:  Math.round(Number(item.protein  || 0) * 10) / 10,
+        carbs:    Math.round(Number(item.carbs    || 0) * 10) / 10,
+        fat:      Math.round(Number(item.fat      || 0) * 10) / 10
+      };
+    }
+    if (!Array.isArray(item.leftovers)) item.leftovers = [];
+    item.leftovers.push({
+      calories: Math.round(pendingLeftoverMacros.calories * frac),
+      protein:  Math.round(pendingLeftoverMacros.protein * frac * 10) / 10,
+      carbs:    Math.round(pendingLeftoverMacros.carbs   * frac * 10) / 10,
+      fat:      Math.round(pendingLeftoverMacros.fat     * frac * 10) / 10,
+      time: timeStr
+    });
+    if (recomputeItemNet(item)) exceeded = true;
+  });
 
   saveState();
   renderDashboard();
   closeLeftoverModal();
+
+  const newCatCal = Math.round(categoryNetCalories(getCategoryItems(date, categoryId)));
   window.activeLeftover = null;
 
   if (exceeded) {
-    showToast(`⚠️ Zbytek překročil porci — čistý příjem 0 kcal`);
+    showToast(`⚠️ Zbytek překročil porci — čistý příjem omezen`);
   } else {
-    showToast(`Čistý příjem upraven: ${item.calories} kcal`);
+    showToast(`Čistý příjem upraven: ${newCatCal} kcal`);
   }
 }
 
@@ -3670,15 +3718,6 @@ function initItemActionsHandlers() {
   const foodListContainer = document.getElementById('meals-list-container');
   if (foodListContainer) {
     foodListContainer.addEventListener('click', (e) => {
-      // 0. Leftover ("Nedojedeno") button — open the leftover photo flow
-      const leftoverBtn = e.target.closest('.btn-leftover');
-      if (leftoverBtn) {
-        e.stopPropagation();
-        const foodId = leftoverBtn.getAttribute('data-id');
-        window.startLeftoverCapture(getActiveDateString(), foodId);
-        return;
-      }
-
       // 1. Actions button click (circle / chevron)
       const actionBtn = e.target.closest('.btn-item-actions');
       if (actionBtn) {
