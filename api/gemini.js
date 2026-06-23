@@ -43,11 +43,21 @@ module.exports = async function handler(req, res) {
 
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-    const gResp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+
+    // Retry transient 429/500/503 (overloaded) with backoff before forwarding.
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let gResp;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      gResp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (gResp.ok) break;
+      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
+      if (!transient || attempt === 3) break;
+      await sleep(500 * Math.pow(2, attempt));
+    }
 
     // Forward Google's status + body verbatim so the client parses as before.
     const data = await gResp.json().catch(() => ({}));
