@@ -85,12 +85,16 @@ function loadState() {
       if (!Array.isArray(appState.coachHistory)) {
         appState.coachHistory = [];
       }
+      if (!Array.isArray(appState.coachChats)) {
+        appState.coachChats = [];
+      }
       if (!Array.isArray(appState.coachMemories)) {
         appState.coachMemories = [];
       }
       if (appState.coachMemoryEnabled === undefined) {
         appState.coachMemoryEnabled = true;
       }
+      migrateCoachChats();
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
       resetState();
@@ -117,6 +121,7 @@ function resetState() {
     favorites: [],
     collapsedCats: {},
     coachHistory: [],
+    coachChats: [],
     coachMemories: [],
     coachMemoryEnabled: true
   };
@@ -2619,7 +2624,7 @@ async function syncToCloud() {
       weightTarget: appState.weightTarget,
       weightLogs: appState.weightLogs,
       favorites: appState.favorites,
-      coachHistory: appState.coachHistory,
+      coachChats: appState.coachChats,
       coachMemories: appState.coachMemories,
       coachMemoryEnabled: appState.coachMemoryEnabled
     };
@@ -2667,16 +2672,23 @@ async function syncFromCloud() {
       if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
       if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
       if (Array.isArray(cloudState.coachHistory)) appState.coachHistory = cloudState.coachHistory;
+      if (Array.isArray(cloudState.coachChats)) appState.coachChats = cloudState.coachChats;
       if (Array.isArray(cloudState.coachMemories)) appState.coachMemories = cloudState.coachMemories;
       if (cloudState.coachMemoryEnabled !== undefined) appState.coachMemoryEnabled = cloudState.coachMemoryEnabled;
+      migrateCoachChats();
 
       saveState(true);
       renderDashboard();
       refreshAllFavorites();
-      // If the coach is open, refresh it with the cloud history.
+      // If the coach is open, re-point the active chat to the synced copy and
+      // refresh the list (the array objects were just replaced).
       const coachModal = document.getElementById('coach-modal');
       if (coachModal && coachModal.classList.contains('active')) {
-        renderCoachHistory();
+        if (activeCoachChat) {
+          const synced = getCoachChats().find((c) => c.id === activeCoachChat.id);
+          if (synced) { activeCoachChat = synced; renderActiveCoachChat(); }
+        }
+        renderCoachChatList();
       }
       // Refresh the memory settings panel if it's on screen.
       if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
@@ -4380,16 +4392,35 @@ function coachMemoryOn() {
   return appState.coachMemoryEnabled !== false;
 }
 
-// Live conversation store. When memory is ON it's appState.coachHistory
-// (persisted + cloud-synced). When OFF, an ephemeral session-only array so
-// nothing is remembered across reloads/devices.
-let ephemeralCoachHistory = [];
-function getCoachHistory() {
-  if (coachMemoryOn()) {
-    if (!Array.isArray(appState.coachHistory)) appState.coachHistory = [];
-    return appState.coachHistory;
+// Conversations are stored as a list of chats. Each chat:
+//   { id, title, messages: [{role, text}], createdAt, updatedAt }
+// When memory is ON they live in appState.coachChats (persisted + synced).
+// When OFF, the active chat is ephemeral and never saved.
+let activeCoachChat = null;
+
+function genCoachId() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+function getCoachChats() {
+  if (!Array.isArray(appState.coachChats)) appState.coachChats = [];
+  return appState.coachChats;
+}
+
+// One-time migration: fold a legacy single coachHistory into a chat.
+function migrateCoachChats() {
+  if (!Array.isArray(appState.coachChats)) appState.coachChats = [];
+  if (appState.coachChats.length === 0 && Array.isArray(appState.coachHistory) && appState.coachHistory.length) {
+    const firstUser = appState.coachHistory.find((m) => m && m.role === 'user');
+    appState.coachChats.push({
+      id: genCoachId(),
+      title: (firstUser ? firstUser.text : 'Chat').slice(0, 40),
+      messages: appState.coachHistory.slice(),
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    appState.coachHistory = [];
   }
-  return ephemeralCoachHistory;
 }
 
 // ---- Manual memories (facts the user wants the coach to always know) ----
@@ -4426,28 +4457,18 @@ function toggleCoachMemory() {
   showToast(coachMemoryOn() ? 'Paměť zapnuta' : 'Paměť vypnuta');
 }
 
-function clearCoachHistory() {
-  if (!confirm('Smazat celou historii konverzace s AI Koučem?')) return;
-  appState.coachHistory = [];
-  ephemeralCoachHistory = [];
-  saveState();
-  renderCoachMemorySettings();
-  const coachModal = document.getElementById('coach-modal');
-  if (coachModal && coachModal.classList.contains('active')) renderCoachEmpty();
-  showToast('Historie konverzace smazána');
-}
-
-// Paint the memory settings panel (toggle state, message count, fact list).
+// Paint the memory settings panel (toggle state, chat count, fact list).
 function renderCoachMemorySettings() {
   const toggle = document.getElementById('btn-toggle-coach-memory');
   if (toggle) toggle.setAttribute('aria-checked', coachMemoryOn() ? 'true' : 'false');
 
   const stats = document.getElementById('coach-memory-stats');
   if (stats) {
-    const n = Array.isArray(appState.coachHistory) ? appState.coachHistory.length : 0;
+    const chats = getCoachChats();
+    const msgs = chats.reduce((s, c) => s + (Array.isArray(c.messages) ? c.messages.length : 0), 0);
     stats.textContent = coachMemoryOn()
-      ? `Uloženo ${n} zpráv z konverzace`
-      : 'Paměť je vypnutá — konverzace se neukládá';
+      ? `Uloženo ${chats.length} chatů (${msgs} zpráv)`
+      : 'Paměť je vypnutá — chaty se neukládají';
   }
 
   const list = document.getElementById('coach-memory-list');
@@ -4480,7 +4501,8 @@ function openCoach() {
   const modal = document.getElementById('coach-modal');
   if (!modal) return;
   modal.classList.add('active');
-  renderCoachHistory();
+  hideCoachChatList();
+  newCoachChat(); // a fresh chat every time the coach is opened
   setTimeout(() => {
     const input = document.getElementById('coach-input');
     if (input) input.focus();
@@ -4490,6 +4512,7 @@ function openCoach() {
 function closeCoach() {
   const modal = document.getElementById('coach-modal');
   if (modal) modal.classList.remove('active');
+  hideCoachChatList();
 }
 
 function renderCoachEmpty() {
@@ -4498,26 +4521,107 @@ function renderCoachEmpty() {
   box.innerHTML = `<div class="coach-empty">Ahoj! 👋 Jsem tvůj AI kouč.<br>Vidím tvá WHOOP data, jídla a kalorie.<br><br>Zeptej se mě třeba:<br>„Jak na tom dnes jsem?"<br>„Co bych měl sníst k večeři?"<br>„Mám dneska trénovat?"</div>`;
 }
 
-// Repaint the whole conversation from memory (no animation — instant).
-function renderCoachHistory() {
+// Start a brand-new (empty, not-yet-saved) chat as the active one.
+function newCoachChat() {
+  activeCoachChat = {
+    id: genCoachId(),
+    title: '',
+    messages: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  hideCoachChatList();
+  renderActiveCoachChat();
+}
+
+// Repaint the active chat's messages (no animation — instant).
+function renderActiveCoachChat() {
   const box = document.getElementById('coach-messages');
   if (!box) return;
-  const hist = getCoachHistory();
-  if (hist.length === 0) { renderCoachEmpty(); return; }
+  if (!activeCoachChat || activeCoachChat.messages.length === 0) { renderCoachEmpty(); return; }
   box.innerHTML = '';
-  hist.forEach((m) => appendCoachBubble(m.text, m.role === 'assistant' ? 'assistant' : 'user', false));
+  activeCoachChat.messages.forEach((m) => appendCoachBubble(m.text, m.role === 'assistant' ? 'assistant' : 'user', false));
   box.scrollTop = box.scrollHeight;
 }
 
-// Wipe the coach's conversation memory (local + cloud) — chat header trash.
-function clearCoachMemory() {
-  if (!confirm('Smazat celou historii konverzace s AI Koučem?')) return;
-  appState.coachHistory = [];
-  ephemeralCoachHistory = [];
+// Load a saved chat by id and make it active.
+function loadCoachChat(id) {
+  const chat = getCoachChats().find((c) => c.id === id);
+  if (!chat) return;
+  activeCoachChat = chat;
+  hideCoachChatList();
+  renderActiveCoachChat();
+}
+
+function deleteCoachChat(id) {
+  if (!confirm('Smazat tento chat?')) return;
+  appState.coachChats = getCoachChats().filter((c) => c.id !== id);
+  if (activeCoachChat && activeCoachChat.id === id) {
+    newCoachChat();
+  }
   saveState();
-  renderCoachEmpty();
+  renderCoachChatList();
   if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
-  showToast('Historie AI Kouče smazána');
+}
+
+// ---- Chat list drawer ----
+function showCoachChatList() {
+  renderCoachChatList();
+  const drawer = document.getElementById('coach-chatlist');
+  const scrim = document.getElementById('coach-chatlist-scrim');
+  if (drawer) drawer.classList.add('active');
+  if (scrim) scrim.classList.add('active');
+}
+
+function hideCoachChatList() {
+  const drawer = document.getElementById('coach-chatlist');
+  const scrim = document.getElementById('coach-chatlist-scrim');
+  if (drawer) drawer.classList.remove('active');
+  if (scrim) scrim.classList.remove('active');
+}
+
+function toggleCoachChatList() {
+  const drawer = document.getElementById('coach-chatlist');
+  if (drawer && drawer.classList.contains('active')) hideCoachChatList();
+  else showCoachChatList();
+}
+
+function renderCoachChatList() {
+  const items = document.getElementById('coach-chatlist-items');
+  if (!items) return;
+  const chats = getCoachChats().slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  items.innerHTML = '';
+  if (chats.length === 0) {
+    items.innerHTML = '<div class="coach-chatlist-empty">Zatím žádné uložené chaty.<br>Napiš zprávu a chat se uloží.</div>';
+    return;
+  }
+  chats.forEach((chat) => {
+    const row = document.createElement('div');
+    row.className = 'coach-chat-item' + (activeCoachChat && activeCoachChat.id === chat.id ? ' active' : '');
+    const title = document.createElement('div');
+    title.className = 'coach-chat-item-title';
+    title.textContent = chat.title || 'Nový chat';
+    title.addEventListener('click', () => loadCoachChat(chat.id));
+    const del = document.createElement('button');
+    del.className = 'coach-chat-item-del';
+    del.textContent = '×';
+    del.setAttribute('aria-label', 'Smazat chat');
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteCoachChat(chat.id); });
+    row.appendChild(title);
+    row.appendChild(del);
+    items.appendChild(row);
+  });
+}
+
+// Clear ALL chats (used by the Memory settings "clear history" button).
+function clearCoachHistoryAll() {
+  if (!confirm('Smazat všechny chaty s AI Koučem?')) return;
+  appState.coachChats = [];
+  appState.coachHistory = [];
+  newCoachChat();
+  saveState();
+  if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
+  showToast('Všechny chaty smazány');
 }
 
 // Render the AI's light markdown (bold/italic/bullets) safely as HTML.
@@ -4668,10 +4772,21 @@ async function sendCoachMessage() {
   input.value = '';
   if (sendBtn) sendBtn.disabled = true;
   const memOn = coachMemoryOn();
-  const history = getCoachHistory();
+  if (!activeCoachChat) newCoachChat();
+  const chat = activeCoachChat;
+  const isFirstMessage = chat.messages.length === 0;
+
   appendCoachBubble(message, 'user');
-  history.push({ role: 'user', text: message });
-  if (memOn) saveState(); // persist the question (local + cloud) when memory is on
+  chat.messages.push({ role: 'user', text: message });
+  chat.updatedAt = Date.now();
+  if (isFirstMessage) {
+    chat.title = message.slice(0, 40);
+    // Save the chat into the list on its first message (when memory is on).
+    if (memOn && !getCoachChats().some((c) => c.id === chat.id)) {
+      getCoachChats().unshift(chat);
+    }
+  }
+  if (memOn) saveState(); // persist the question (local + cloud)
 
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
@@ -4685,8 +4800,8 @@ async function sendCoachMessage() {
       },
       body: JSON.stringify({
         message,
-        // Send recent context (the backend trims further); skip the just-added question.
-        history: history.slice(0, -1).slice(-20),
+        // Send recent context from THIS chat (the backend trims further).
+        history: chat.messages.slice(0, -1).slice(-20),
         // Manual facts the coach should always know (only when memory is on).
         memories: memOn ? getCoachMemories().map((m) => m.text) : [],
         foodContext: buildFoodContext()
@@ -4697,9 +4812,10 @@ async function sendCoachMessage() {
 
     if (data.success && data.reply) {
       appendCoachBubble(data.reply, 'assistant', true);
-      history.push({ role: 'assistant', text: data.reply });
-      // Cap memory so it can't grow without bound.
-      if (memOn && history.length > 200) appState.coachHistory = history.slice(-200);
+      chat.messages.push({ role: 'assistant', text: data.reply });
+      chat.updatedAt = Date.now();
+      // Cap a single chat so it can't grow without bound.
+      if (chat.messages.length > 200) chat.messages = chat.messages.slice(-200);
       if (memOn) saveState(); // persist the reply (local + cloud)
     } else {
       appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
@@ -4718,7 +4834,9 @@ function initCoachHandlers() {
   const openBtn = document.getElementById('btn-open-coach');
   const navCoachBtn = document.getElementById('nav-coach');
   const closeBtn = document.getElementById('btn-close-coach');
-  const clearBtn = document.getElementById('btn-clear-coach');
+  const chatsBtn = document.getElementById('btn-coach-chats');
+  const newChatBtn = document.getElementById('btn-new-coach-chat');
+  const chatlistScrim = document.getElementById('coach-chatlist-scrim');
   const sendBtn = document.getElementById('coach-send');
   const input = document.getElementById('coach-input');
   const modal = document.getElementById('coach-modal');
@@ -4726,7 +4844,9 @@ function initCoachHandlers() {
   if (openBtn) openBtn.addEventListener('click', openCoach);
   if (navCoachBtn) navCoachBtn.addEventListener('click', openCoach);
   if (closeBtn) closeBtn.addEventListener('click', closeCoach);
-  if (clearBtn) clearBtn.addEventListener('click', clearCoachMemory);
+  if (chatsBtn) chatsBtn.addEventListener('click', toggleCoachChatList);
+  if (newChatBtn) newChatBtn.addEventListener('click', newCoachChat);
+  if (chatlistScrim) chatlistScrim.addEventListener('click', hideCoachChatList);
   if (sendBtn) sendBtn.addEventListener('click', sendCoachMessage);
   if (input) {
     input.addEventListener('keydown', (e) => {
@@ -4753,7 +4873,7 @@ function initCoachHandlers() {
       if (e.key === 'Enter') { e.preventDefault(); addCoachMemory(); }
     });
   }
-  if (histClearBtn) histClearBtn.addEventListener('click', clearCoachHistory);
+  if (histClearBtn) histClearBtn.addEventListener('click', clearCoachHistoryAll);
 }
 
 // Run app init
