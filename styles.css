@@ -421,16 +421,181 @@ input, textarea, select, button {
    ========================================================================== */
 .calendar-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 8px 2px 22px;
+  gap: 14px;
+  padding: 8px 2px 16px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.calendar-row::-webkit-scrollbar { display: none; }
 .cal-day {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 9px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+.cal-day.selected .cal-circle {
+  box-shadow: 0 0 0 2px var(--bg-app), 0 0 0 4px var(--brand-1);
+}
+.cal-day.selected.current .cal-circle { box-shadow: none; }
+
+/* Viewing-a-past-day controls */
+.viewing-day-label {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: -4px 0 8px;
+}
+.btn-back-today {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 auto 18px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 14px;
+  background-image: linear-gradient(145deg, var(--ring-1), var(--ring-1b));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -6px rgba(255, 107, 129, 0.6);
+}
+.btn-back-today:active { transform: scale(0.97); }
+
+/* Capture stage scrolls so the favorites list below the viewfinder is reachable */
+#fls-stage-capture {
+  overflow-y: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 20px;
+}
+
+/* Leftovers ("Nedojedeno") — button on the category header */
+.btn-leftover-cat {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 0.5px solid var(--sep-strong);
+  background: var(--bg-input);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.btn-leftover-cat:active { transform: scale(0.9); }
+.meal-sub-leftover {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.leftover-net-val {
+  color: #30D158;
+  font-weight: 700;
+}
+.leftover-big {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-danger);
+  letter-spacing: -0.5px;
+}
+.leftover-macros-line {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+
+/* Favorites in the food-log bottom sheet (scan menu) */
+.fls-favorites {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--sep-strong);
+}
+.fls-favorites-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 6px;
+}
+.favorites-empty {
+  padding: 10px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Favorites list (scan menu) */
+.favorite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--sep-strong);
+}
+.favorite-row:last-child { border-bottom: none; }
+.favorite-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.favorite-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.favorite-details {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.favorite-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.favorite-add-btn,
+.favorite-remove-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorite-add-btn {
+  background-image: linear-gradient(145deg, var(--ring-1), var(--ring-1b));
+  color: #fff;
+}
+.favorite-remove-btn {
+  background: var(--bg-input);
+  color: var(--text-3);
+}
+.favorite-add-btn:active,
+.favorite-remove-btn:active { transform: scale(0.92); }
 .cal-day > span {
   font-size: 11px;
   font-weight: 600;
@@ -460,6 +625,18 @@ input, textarea, select, button {
   background-image: linear-gradient(145deg, var(--ring-1), var(--ring-1b));
   color: #fff;
   box-shadow: 0 6px 16px -6px rgba(255, 107, 129, 0.6);
+}
+/* Within the daily calorie limit → green */
+.cal-circle.under-limit {
+  background-image: linear-gradient(145deg, #34C759, #30D158);
+  color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(48, 209, 88, 0.55);
+}
+/* Over the daily calorie limit → red */
+.cal-circle.over-limit {
+  background-image: linear-gradient(145deg, #FF6B6B, #FF375F);
+  color: #fff;
+  box-shadow: 0 6px 16px -6px rgba(255, 55, 95, 0.55);
 }
 .cal-circle.future { color: var(--text-3); }
 .cal-circle.current-day { width: 40px; height: 40px; font-size: 15px; }
@@ -2114,3 +2291,250 @@ input, textarea, select, button {
   12%  { opacity: 1; }
   100% { opacity: 0; transform: translate(var(--dx, 0px), -42px) scale(0.3); }
 }
+
+/* ========================================================================
+   AI COACH CHAT
+   ======================================================================== */
+.coach-content {
+  display: flex;
+  flex-direction: column;
+  height: 90vh;
+  max-height: 90vh;
+  padding: 0;
+}
+.coach-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+.coach-bubble {
+  max-width: 82%;
+  padding: 11px 14px;
+  border-radius: 18px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.coach-bubble.user {
+  align-self: flex-end;
+  background: var(--ios-blue);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+.coach-bubble.assistant {
+  align-self: flex-start;
+  background: var(--bg-elevated-3);
+  color: var(--text-1, #fff);
+  border-bottom-left-radius: 6px;
+}
+.coach-bubble.typing {
+  align-self: flex-start;
+  background: var(--bg-elevated-3);
+  color: var(--text-2);
+  font-style: italic;
+}
+.coach-input-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 0.5px solid var(--sep-strong);
+  background: var(--bg-elevated);
+}
+.coach-input-row input {
+  flex: 1;
+  padding: 13px 16px;
+  border-radius: 22px;
+  background: var(--bg-input);
+  border: 0.5px solid var(--sep-strong);
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+}
+.coach-input-row input:focus { border-color: var(--ios-blue); }
+.coach-input-row button {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--ios-blue);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.coach-input-row button:active { transform: scale(0.92); }
+.coach-input-row button:disabled { opacity: 0.45; }
+.coach-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 14px;
+  padding: 24px;
+  line-height: 1.6;
+}
+
+/* AI coach: the reply reveals line by line, and within each line the words
+   pop in one after another (inspired by Animista text-pop-up-right). */
+.coach-line + .coach-line { margin-top: 5px; }
+.coach-word {
+  display: inline-block;
+  white-space: pre;
+  -webkit-animation: coachWordPop 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+          animation: coachWordPop 0.4s cubic-bezier(0.250, 0.460, 0.450, 0.940) both;
+}
+@-webkit-keyframes coachWordPop {
+  0%   { opacity: 0; -webkit-transform: translateY(6px) translateX(10px) scale(0.85); transform: translateY(6px) translateX(10px) scale(0.85); }
+  100% { opacity: 1; -webkit-transform: translateY(0) translateX(0) scale(1);         transform: translateY(0) translateX(0) scale(1); }
+}
+@keyframes coachWordPop {
+  0%   { opacity: 0; -webkit-transform: translateY(6px) translateX(10px) scale(0.85); transform: translateY(6px) translateX(10px) scale(0.85); }
+  100% { opacity: 1; -webkit-transform: translateY(0) translateX(0) scale(1);         transform: translateY(0) translateX(0) scale(1); }
+}
+
+/* Memory settings: toggle switch + memory chips */
+.mem-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.mem-row-label { font-size: 15px; font-weight: 600; color: #fff; }
+.mem-toggle {
+  width: 52px; height: 31px;
+  border-radius: 100px;
+  background: var(--bg-elevated-3);
+  border: none;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.22s ease;
+  flex-shrink: 0;
+}
+.mem-toggle[aria-checked="true"] { background: #30D158; }
+.mem-toggle-knob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 27px; height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.22s ease;
+}
+.mem-toggle[aria-checked="true"] .mem-toggle-knob { transform: translateX(21px); }
+.mem-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg-input);
+  border: 0.5px solid var(--sep-strong);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.mem-item-text { flex: 1; font-size: 14px; color: #fff; line-height: 1.4; word-break: break-word; }
+.mem-item-del {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--bg-elevated-3);
+  color: var(--text-2);
+  border: none;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mem-item-del:active { background: var(--color-danger); color: #fff; }
+.mem-empty { font-size: 13px; color: var(--text-3); font-style: italic; }
+
+/* AI coach: chat list drawer */
+.coach-content { position: relative; }
+.coach-chatlist-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 5;
+}
+.coach-chatlist-scrim.active { opacity: 1; pointer-events: auto; }
+.coach-chatlist {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 80%;
+  max-width: 320px;
+  background: var(--bg-elevated-2);
+  border-right: 0.5px solid var(--sep-strong);
+  border-radius: 26px 0 0 0;
+  z-index: 6;
+  transform: translateX(-105%);
+  transition: transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 6px 0 24px rgba(0,0,0,0.4);
+}
+.coach-chatlist.active { transform: translateX(0); }
+.coach-chatlist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 16px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  border-bottom: 0.5px solid var(--sep-strong);
+}
+.coach-newchat-btn {
+  background: var(--ios-blue);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.coach-newchat-btn:active { opacity: 0.85; }
+.coach-chatlist-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+.coach-chat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  cursor: pointer;
+}
+.coach-chat-item.active { background: var(--bg-elevated-3); border: 0.5px solid var(--ios-blue); }
+.coach-chat-item-title {
+  flex: 1;
+  font-size: 14px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.coach-chat-item-del {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--bg-elevated-3);
+  color: var(--text-2);
+  border: none;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.coach-chat-item-del:active { background: var(--color-danger); color: #fff; }
+.coach-chatlist-empty { color: var(--text-3); font-size: 13px; font-style: italic; padding: 16px; text-align: center; }

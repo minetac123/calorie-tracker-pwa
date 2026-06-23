@@ -1,10 +1,11 @@
-const CACHE_NAME = 'fitai-cache-v31';
+const CACHE_NAME = 'fitai-cache-v22';
 const ASSETS = [
   '/index.html',
   '/styles.css',
   '/app.js',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.svg',
+  '/whoop-callback.html'
 ];
 
 // Helper to strip redirect metadata for iOS Safari PWA compatibility
@@ -54,6 +55,10 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// The app shell — always try the network first so code fixes land
+// immediately when online, and fall back to cache only when offline.
+const SHELL_PATHS = ['/', '/index.html', '/app.js', '/styles.css'];
+
 // Fetch events
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
@@ -68,34 +73,52 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  let requestToMatch = e.request;
-  
-  // If requesting root "/", serve "/index.html" from the cache
-  if (url.origin === location.origin && url.pathname === '/') {
-    requestToMatch = new Request('/index.html');
+  // Normalize root "/" to "/index.html" for cache lookups
+  const isRoot = url.origin === location.origin && url.pathname === '/';
+  const cacheKey = isRoot ? new Request('/index.html') : e.request;
+
+  const isShell = url.origin === location.origin &&
+    (e.request.mode === 'navigate' || SHELL_PATHS.includes(url.pathname));
+
+  if (isShell) {
+    // NETWORK-FIRST: fetch fresh, update cache, fall back to cache offline.
+    e.respondWith(
+      fetch(e.request).then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const toCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(cacheKey, cleanResponse(toCache)));
+        }
+        return cleanResponse(response);
+      }).catch(() => {
+        return caches.match(cacheKey).then((res) => {
+          if (res) return cleanResponse(res);
+          if (e.request.mode === 'navigate') {
+            return caches.match('/index.html').then(r => r ? cleanResponse(r) : Response.error());
+          }
+          return Response.error();
+        });
+      })
+    );
+    return;
   }
 
+  // CACHE-FIRST for everything else (icons, manifest, etc.)
   e.respondWith(
-    caches.match(requestToMatch).then((cachedResponse) => {
+    caches.match(cacheKey).then((cachedResponse) => {
       if (cachedResponse) {
-        // Return cleaned response for Safari
         return cleanResponse(cachedResponse);
       }
-      
+
       return fetch(e.request).then((response) => {
-        // Check if we received a valid response
         if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
         }
 
-        // Clone response to cache it without locking the return stream
         const responseToCache = response.clone();
-        
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(e.request, cleanResponse(responseToCache));
         });
 
-        // MUST clean response before returning to Safari to avoid PWA crash
         return cleanResponse(response);
       }).catch(() => {
         if (e.request.mode === 'navigate') {

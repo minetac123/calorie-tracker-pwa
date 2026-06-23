@@ -1,7 +1,9 @@
 // ==========================================================================
 // CONFIGURATION & GLOBAL STATE
 // ==========================================================================
-const DEFAULT_API_KEY = "AQ.Ab8RN6JH3n55zajmZYJOXUfwQeGacIJLPAKJQkAdyTa1pmC_cg";
+// The Gemini key is NOT stored client-side anymore — all AI calls go through
+// the backend proxy (/api/gemini, /api/chat) which holds GEMINI_API_KEY.
+const DEFAULT_API_KEY = "";
 
 let appState = {
   apiKey: DEFAULT_API_KEY,
@@ -18,6 +20,11 @@ let appState = {
 
 // Temporary store for AI scanning review
 let tempDetectedItems = [];
+
+// Currently viewed day in the dashboard/calendar.
+// null = today. Otherwise a "YYYY-MM-DD" string for a past day the user
+// navigated to via the calendar strip.
+let selectedDate = null;
 let currentPhotoBase64 = null;
 let currentGeminiData = null; // Store full response from Gemini
 let selectedOptionIndex = 0;  // Currently selected option index
@@ -75,6 +82,19 @@ function loadState() {
       if (!appState.collapsedCats) {
         appState.collapsedCats = {};
       }
+      if (!Array.isArray(appState.coachHistory)) {
+        appState.coachHistory = [];
+      }
+      if (!Array.isArray(appState.coachChats)) {
+        appState.coachChats = [];
+      }
+      if (!Array.isArray(appState.coachMemories)) {
+        appState.coachMemories = [];
+      }
+      if (appState.coachMemoryEnabled === undefined) {
+        appState.coachMemoryEnabled = true;
+      }
+      migrateCoachChats();
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
       resetState();
@@ -99,7 +119,11 @@ function resetState() {
     weightTarget: 70.0,
     weightLogs: [],
     favorites: [],
-    collapsedCats: {}
+    collapsedCats: {},
+    coachHistory: [],
+    coachChats: [],
+    coachMemories: [],
+    coachMemoryEnabled: true
   };
   saveState();
 }
@@ -122,6 +146,12 @@ function getDateString(d) {
   return `${year}-${month}-${day}`;
 }
 
+// The day currently being viewed/edited. Defaults to today when no past
+// day has been selected from the calendar.
+function getActiveDateString() {
+  return selectedDate || getTodayDateString();
+}
+
 function getFoodCategory(item) {
   if (item.category) return item.category;
   
@@ -140,43 +170,46 @@ function getFoodCategory(item) {
   return 'Breakfast';
 }
 
+// Number of past days shown in the scrollable calendar strip (~5 weeks).
+const CALENDAR_DAYS_BACK = 34;
+
 function updateCalendarRow() {
   const calendarRow = document.querySelector('.calendar-row');
   if (!calendarRow) return;
-  
+
   const today = new Date();
-  const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday...
-  const dayDiff = currentDay === 0 ? 6 : currentDay - 1;
-  
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - dayDiff);
-  
-  const dayLabels = ['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'];
-  
+  const todayStr = getDateString(today);
+  const activeStr = getActiveDateString();
+
+  // getDay(): 0 = Sunday ... 6 = Saturday
+  const dayLabels = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+
   let html = '';
-  
-  for (let i = 0; i < 7; i++) {
-    const dayDate = new Date(monday);
-    dayDate.setDate(monday.getDate() + i);
-    
+
+  // Render from oldest -> today so today sits at the right edge of the strip.
+  for (let i = CALENDAR_DAYS_BACK; i >= 0; i--) {
+    const dayDate = new Date(today);
+    dayDate.setDate(today.getDate() - i);
+
     const dateStr = getDateString(dayDate);
     const dayNum = dayDate.getDate();
-    
-    const isToday = dayDate.getDate() === today.getDate() &&
-                    dayDate.getMonth() === today.getMonth() &&
-                    dayDate.getFullYear() === today.getFullYear();
-                    
+    const isToday = dateStr === todayStr;
+    const isSelected = dateStr === activeStr;
+
+    // Calories eaten that day
+    const dayFood = appState.logs[dateStr] || [];
+    let dayCal = 0;
+    dayFood.forEach(item => dayCal += Number(item.calories || 0));
+
+    const selectedClass = isSelected ? ' selected' : '';
+
     if (isToday) {
-      // Calculate today's eaten percent
-      const todayFood = appState.logs[dateStr] || [];
-      let todayCal = 0;
-      todayFood.forEach(item => todayCal += Number(item.calories || 0));
       const goalCal = appState.goals.calories || 2000;
-      const percent = Math.min(100, Math.round((todayCal / goalCal) * 100));
+      const percent = Math.min(100, Math.round((dayCal / goalCal) * 100));
       const strokeDashoffset = 100 - percent;
-      
+
       html += `
-        <div class="cal-day current">
+        <div class="cal-day current${selectedClass}" data-date="${dateStr}">
           <span class="cal-current-label">Dnes</span>
           <div class="cal-circle current-day">
             <svg class="cal-arc" viewBox="0 0 36 36">
@@ -187,26 +220,55 @@ function updateCalendarRow() {
           </div>
         </div>`;
     } else {
-      const hasLogs = appState.logs[dateStr] && appState.logs[dateStr].length > 0;
+      // Green when within the daily calorie limit, red when over it.
+      const goalCal = appState.goals.calories || 2000;
       let circleClass = 'future';
-      if (hasLogs) {
-        // Calculate calories eaten
-        let dayCal = 0;
-        appState.logs[dateStr].forEach(item => dayCal += Number(item.calories || 0));
-        if (dayCal > 0) {
-          circleClass = 'active-goal';
-        }
+      if (dayCal > 0) {
+        circleClass = dayCal > goalCal ? 'over-limit' : 'under-limit';
       }
-      
       html += `
-        <div class="cal-day">
-          <span>${dayLabels[i]}</span>
+        <div class="cal-day${selectedClass}" data-date="${dateStr}">
+          <span>${dayLabels[dayDate.getDay()]}</span>
           <div class="cal-circle ${circleClass}">${dayNum}</div>
         </div>`;
     }
   }
-  
+
   calendarRow.innerHTML = html;
+
+  // Bind day-tap handling once (innerHTML swaps children, not the row itself).
+  if (!calendarRow.dataset.bound) {
+    calendarRow.dataset.bound = '1';
+    calendarRow.addEventListener('click', (e) => {
+      const dayEl = e.target.closest('.cal-day');
+      if (!dayEl) return;
+      const date = dayEl.getAttribute('data-date');
+      if (!date) return;
+      selectedDate = (date === getTodayDateString()) ? null : date;
+      renderDashboard();
+    });
+  }
+
+  // Center the selected day (or today) in the scroll viewport.
+  const selectedEl = calendarRow.querySelector('.cal-day.selected') ||
+                     calendarRow.querySelector('.cal-day.current');
+  if (selectedEl) {
+    const rowRect = calendarRow.getBoundingClientRect();
+    const selRect = selectedEl.getBoundingClientRect();
+    calendarRow.scrollLeft += (selRect.left - rowRect.left) - (rowRect.width - selRect.width) / 2;
+  }
+
+  // Show the "go back to today" button only when viewing a past day.
+  const backBtn = document.getElementById('btn-back-to-today');
+  if (backBtn) {
+    const viewingPast = activeStr !== todayStr;
+    backBtn.style.display = viewingPast ? 'flex' : 'none';
+    const label = document.getElementById('viewing-day-label');
+    if (label) {
+      label.style.display = viewingPast ? 'block' : 'none';
+      if (viewingPast) label.innerText = `Prohlížíš: ${formatCzechDate(activeStr)}`;
+    }
+  }
 }
 
 function showWizardStep(stepNum) {
@@ -220,8 +282,131 @@ function showWizardStep(stepNum) {
     } else {
       step2.classList.add('active');
       step1.classList.remove('active');
+      renderFavoritesList();
     }
   }
+}
+
+// ==========================================================================
+// FAVORITES (scan menu)
+// ==========================================================================
+function guessMealCategoryByTime() {
+  const hour = new Date().getHours();
+  if (hour >= 5  && hour < 10) return 'Breakfast';
+  if (hour >= 10 && hour < 12) return 'Morning snack';
+  if (hour >= 12 && hour < 15) return 'Lunch';
+  if (hour >= 15 && hour < 18) return 'Afternoon snack';
+  if (hour >= 18 && hour < 22) return 'Dinner';
+  return 'Second dinner';
+}
+
+// Renders the favorites list into a given container. `opts.category` is a
+// function resolving the meal category to use when quick-adding; `opts.afterAdd`
+// runs after a favorite is added (e.g. close the food-log sheet).
+function buildFavoritesList(container, opts) {
+  if (!container) return;
+  opts = opts || {};
+
+  const favorites = appState.favorites || [];
+  container.innerHTML = '';
+
+  if (favorites.length === 0) {
+    container.innerHTML = `<div class="favorites-empty">Zatím nemáš žádné oblíbené potraviny.<br>Přidej je přes „•••" u jídla na přehledu.</div>`;
+    return;
+  }
+
+  favorites.forEach((fav, index) => {
+    const row = document.createElement('div');
+    row.className = 'favorite-row';
+    row.innerHTML = `
+      <div class="favorite-info">
+        <span class="favorite-name">${fav.name}</span>
+        <span class="favorite-details">${fav.calories} kcal • B:${fav.protein}g S:${fav.carbs}g T:${fav.fat}g (${fav.amount || '100g'})</span>
+      </div>
+      <div class="favorite-actions">
+        <button type="button" class="favorite-add-btn" title="Přidat" data-index="${index}">+</button>
+        <button type="button" class="favorite-remove-btn" title="Odebrat z oblíbených" data-remove="${index}">×</button>
+      </div>`;
+    container.appendChild(row);
+  });
+
+  // Bind handlers once via delegation on the persistent container.
+  if (!container.dataset.bound) {
+    container.dataset.bound = '1';
+    container.addEventListener('click', (e) => {
+      const addBtn = e.target.closest('.favorite-add-btn');
+      if (addBtn) {
+        const idx = parseInt(addBtn.getAttribute('data-index'), 10);
+        const fav = (appState.favorites || [])[idx];
+        if (fav) {
+          const category = opts.category ? opts.category() : null;
+          addFavoriteToActiveLog(fav, category);
+          if (opts.afterAdd) opts.afterAdd();
+        }
+        return;
+      }
+      const removeBtn = e.target.closest('.favorite-remove-btn');
+      if (removeBtn) {
+        const idx = parseInt(removeBtn.getAttribute('data-remove'), 10);
+        if (!isNaN(idx) && appState.favorites[idx]) {
+          const removed = appState.favorites.splice(idx, 1)[0];
+          saveState();
+          refreshAllFavorites();
+          showToast(`Odebráno z oblíbených: ${removed.name}`);
+        }
+      }
+    });
+  }
+}
+
+// Favorites inside the add-wizard (screen-add, step 2)
+function renderFavoritesList() {
+  buildFavoritesList(document.getElementById('favorites-list'), {
+    category: () => {
+      const sel = document.getElementById('input-food-category');
+      return sel && sel.value ? sel.value : guessMealCategoryByTime();
+    }
+  });
+}
+
+// Favorites inside the food-log bottom sheet (the FAB "Přidat jídlo" scan menu)
+function renderFlsFavorites() {
+  buildFavoritesList(document.getElementById('fls-favorites-list'), {
+    // Use the meal the user tapped "+" on; fall back to a time-based guess.
+    category: () => window.flsSheetCategory || guessMealCategoryByTime(),
+    afterAdd: () => { if (window.closeFoodLogSheet) window.closeFoodLogSheet(); }
+  });
+}
+
+function refreshAllFavorites() {
+  renderFavoritesList();
+  renderFlsFavorites();
+}
+
+function addFavoriteToActiveLog(fav, category) {
+  const categoryStr = category || guessMealCategoryByTime();
+
+  const dateStr = getActiveDateString();
+  if (!appState.logs[dateStr]) appState.logs[dateStr] = [];
+
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  appState.logs[dateStr].push({
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+    time: timeStr,
+    name: fav.name,
+    amount: fav.amount || '100g',
+    calories: Math.round(Number(fav.calories || 0)),
+    protein: Math.round(Number(fav.protein || 0) * 10) / 10,
+    carbs: Math.round(Number(fav.carbs || 0) * 10) / 10,
+    fat: Math.round(Number(fav.fat || 0) * 10) / 10,
+    category: categoryStr
+  });
+
+  saveState();
+  renderDashboard();
+  showToast(`Přidáno: ${fav.name} ⭐`);
 }
 
 function setWizardCategory(categoryId) {
@@ -284,8 +469,11 @@ function showToast(message) {
 // ==========================================================================
 function renderDashboard() {
   updateCalendarRow();
+  // Food list/totals follow the day selected in the calendar (defaults to today).
+  // Water tracking stays on the real "today".
   const todayStr = getTodayDateString();
-  const todayFood = appState.logs[todayStr] || [];
+  const activeStr = getActiveDateString();
+  const todayFood = appState.logs[activeStr] || [];
   
   // Calculate Totals
   let totalCal = 0;
@@ -441,6 +629,10 @@ function renderDashboard() {
     catCard.className = 'meal-card category-header';
     catCard.style.cursor = 'pointer';
     
+    const leftoverBtnHtml = catItems.length > 0
+      ? `<button class="btn-leftover-cat" data-category="${cat.id}" title="Nedojedeno – zapsat zbytek">🥡</button>`
+      : '';
+
     catCard.innerHTML = `
       <div class="meal-left">
         <div class="meal-icon">${cat.icon}</div>
@@ -450,11 +642,17 @@ function renderDashboard() {
         </div>
       </div>
       <div class="meal-actions">
+        ${leftoverBtnHtml}
         <button class="btn-add-meal" onclick="window.openFoodLogSheet('${cat.id}')">+</button>
       </div>`;
-      
+
     catCard.addEventListener('click', (e) => {
       if (e.target.closest('.btn-add-meal')) return;
+      if (e.target.closest('.btn-leftover-cat')) {
+        e.stopPropagation();
+        window.startCategoryLeftoverCapture(getActiveDateString(), cat.id);
+        return;
+      }
       toggleCategoryCollapse(cat.id);
     });
     
@@ -505,10 +703,21 @@ function renderDashboard() {
             }
           });
         } else {
+          const hasLeftovers = item.leftovers && item.leftovers.length > 0;
+          let macrosHtml;
+          if (hasLeftovers) {
+            const orig = item.original || item;
+            const left = sumLeftovers(item);
+            macrosHtml = `
+              <span class="meal-sub-macros"><span class="leftover-net-val">${item.calories} kcal</span>${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+              <span class="meal-sub-leftover">Původně ${Math.round(orig.calories)} kcal · zbytek −${Math.round(left.calories)} kcal</span>`;
+          } else {
+            macrosHtml = `<span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>`;
+          }
           subItem.innerHTML = `
             <div class="meal-sub-details" style="cursor: pointer; flex: 1;" data-id="${item.id}" title="Klikni pro úpravu množství">
               <span class="meal-sub-name">${item.name}</span>
-              <span class="meal-sub-macros">${item.calories} kcal${amountStr} (B:${item.protein}g S:${item.carbs}g T:${item.fat}g)</span>
+              ${macrosHtml}
             </div>
             <button class="btn-item-actions" data-id="${item.id}">›</button>`;
         }
@@ -572,7 +781,7 @@ function burnAndRemove(el, done) {
 }
 
 function deleteFoodItem(id) {
-  const todayStr = getTodayDateString();
+  const todayStr = getActiveDateString();
   if (appState.logs[todayStr]) {
     const itemIndex = appState.logs[todayStr].findIndex(item => item.id === id);
     if (itemIndex !== -1) {
@@ -599,6 +808,266 @@ function deleteFoodItem(id) {
       }
     }
   }
+}
+
+// ==========================================================================
+// LEFTOVERS ("Nedojedeno") — subtract the uneaten portion from a meal entry
+// ==========================================================================
+let pendingLeftoverMacros = null;
+window.activeLeftover = null; // { date, categoryId }
+
+function getCategoryName(catId) {
+  const names = {
+    'Breakfast': 'Snídaně',
+    'Morning snack': 'Dopolední svačina',
+    'Lunch': 'Oběd',
+    'Afternoon snack': 'Odpolední svačina',
+    'Dinner': 'Večeře',
+    'Second dinner': 'Druhá večeře'
+  };
+  return names[catId] || catId;
+}
+
+function sumLeftovers(item) {
+  const acc = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+  (item.leftovers || []).forEach(l => {
+    acc.calories += Number(l.calories || 0);
+    acc.protein  += Number(l.protein  || 0);
+    acc.carbs    += Number(l.carbs    || 0);
+    acc.fat      += Number(l.fat      || 0);
+  });
+  acc.calories = Math.round(acc.calories);
+  acc.protein  = Math.round(acc.protein * 10) / 10;
+  acc.carbs    = Math.round(acc.carbs   * 10) / 10;
+  acc.fat      = Math.round(acc.fat     * 10) / 10;
+  return acc;
+}
+
+// Recompute the live (net) macros = original − all leftovers, clamped at 0.
+// Returns true if leftovers exceed the original (net was clamped).
+function recomputeItemNet(item) {
+  if (!item.original) return false;
+  const left = sumLeftovers(item);
+  const exceeded =
+    (item.original.calories - left.calories) < 0 ||
+    (item.original.protein  - left.protein)  < 0 ||
+    (item.original.carbs    - left.carbs)    < 0 ||
+    (item.original.fat      - left.fat)      < 0;
+  item.calories = Math.max(0, Math.round(item.original.calories - left.calories));
+  item.protein  = Math.max(0, Math.round((item.original.protein - left.protein) * 10) / 10);
+  item.carbs    = Math.max(0, Math.round((item.original.carbs   - left.carbs)   * 10) / 10);
+  item.fat      = Math.max(0, Math.round((item.original.fat     - left.fat)     * 10) / 10);
+  return exceeded;
+}
+
+// Pull a single {calories,protein,carbs,fat} total out of a Gemini response.
+function parseLeftoverMacros(geminiData) {
+  let t = null;
+  if (geminiData) {
+    if (geminiData.total) {
+      t = geminiData.total;
+    } else if (Array.isArray(geminiData.items) && geminiData.items.length) {
+      t = geminiData.items.reduce((s, x) => ({
+        calories: s.calories + Number(x.calories || 0),
+        protein:  s.protein  + Number(x.protein  || 0),
+        carbs:    s.carbs    + Number(x.carbs    || 0),
+        fat:      s.fat      + Number(x.fat      || 0)
+      }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    } else if (Array.isArray(geminiData.choices) && geminiData.choices[0]) {
+      t = geminiData.choices[0].total || null;
+    }
+  }
+  if (!t) return null;
+  return {
+    calories: Math.round(Number(t.calories || 0)),
+    protein:  Math.round(Number(t.protein  || 0) * 10) / 10,
+    carbs:    Math.round(Number(t.carbs    || 0) * 10) / 10,
+    fat:      Math.round(Number(t.fat      || 0) * 10) / 10
+  };
+}
+
+function getCategoryItems(date, categoryId) {
+  return (appState.logs[date] || []).filter(i => getFoodCategory(i) === categoryId);
+}
+
+// "Original" calories the category was logged with (pre-leftovers).
+function categoryOriginalCalories(items) {
+  return items.reduce((s, i) => s + (i.original ? Number(i.original.calories || 0) : Number(i.calories || 0)), 0);
+}
+
+// Current net calories of the category.
+function categoryNetCalories(items) {
+  return items.reduce((s, i) => s + Number(i.calories || 0), 0);
+}
+
+// Entry point from the category header "leftover" button.
+window.startCategoryLeftoverCapture = function(date, categoryId) {
+  const items = getCategoryItems(date, categoryId);
+  if (items.length === 0) { showToast('V této kategorii není žádné jídlo.'); return; }
+  window.activeLeftover = { date, categoryId };
+  openLeftoverSourceSheet();
+};
+
+function openLeftoverSourceSheet() {
+  const sheet = document.getElementById('leftover-source-sheet');
+  if (sheet) sheet.classList.add('active');
+}
+
+function closeLeftoverSourceSheet() {
+  const sheet = document.getElementById('leftover-source-sheet');
+  if (sheet) sheet.classList.remove('active');
+}
+
+function showLeftoverStage(name) {
+  const analyzing = document.getElementById('leftover-analyzing');
+  const result = document.getElementById('leftover-result');
+  if (analyzing) analyzing.style.display = name === 'analyzing' ? 'flex' : 'none';
+  if (result) result.style.display = name === 'result' ? 'block' : 'none';
+}
+
+function openLeftoverModal() {
+  const modal = document.getElementById('leftover-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeLeftoverModal() {
+  const modal = document.getElementById('leftover-modal');
+  if (modal) modal.classList.remove('active');
+  pendingLeftoverMacros = null;
+}
+
+async function analyzeLeftover(base64) {
+  if (!window.activeLeftover) return;
+  const { date, categoryId } = window.activeLeftover;
+  const items = getCategoryItems(date, categoryId);
+  if (items.length === 0) return;
+
+  openLeftoverModal();
+  showLeftoverStage('analyzing');
+  const nameEl = document.getElementById('leftover-meal-name');
+  if (nameEl) nameEl.innerText = getCategoryName(categoryId);
+
+  try {
+    const data = await callGeminiAPI(null, base64, { leftover: true });
+    const macros = parseLeftoverMacros(data);
+    if (!macros || macros.calories <= 0) {
+      throw new Error('Na fotce se nepodařilo rozpoznat žádný zbytek jídla.');
+    }
+    pendingLeftoverMacros = macros;
+    renderLeftoverResult(items, macros);
+    showLeftoverStage('result');
+  } catch (err) {
+    closeLeftoverModal();
+    showToast('Analýza zbytku selhala: ' + err.message);
+  }
+}
+
+function renderLeftoverResult(items, macros) {
+  const valuesEl = document.getElementById('leftover-values');
+  if (valuesEl) {
+    valuesEl.innerHTML =
+      `<div class="leftover-big">−${macros.calories} kcal</div>
+       <div class="leftover-macros-line">B: ${macros.protein} g · S: ${macros.carbs} g · T: ${macros.fat} g</div>`;
+  }
+  // Warn if the leftover exceeds what's currently left in the category.
+  const wouldExceed = macros.calories > categoryNetCalories(items);
+  const warn = document.getElementById('leftover-warning');
+  if (warn) warn.style.display = wouldExceed ? 'block' : 'none';
+}
+
+function confirmLeftover() {
+  if (!window.activeLeftover || !pendingLeftoverMacros) { closeLeftoverModal(); return; }
+  const { date, categoryId } = window.activeLeftover;
+  const items = getCategoryItems(date, categoryId);
+  if (items.length === 0) { closeLeftoverModal(); return; }
+
+  const catOrigCal = categoryOriginalCalories(items);
+  if (catOrigCal <= 0) { closeLeftoverModal(); return; }
+
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  let exceeded = false;
+
+  // Distribute the leftover across the category's items, proportional to each
+  // item's original share of the meal.
+  items.forEach(item => {
+    const itemOrigCal = item.original ? Number(item.original.calories || 0) : Number(item.calories || 0);
+    const frac = itemOrigCal / catOrigCal;
+    if (frac <= 0) return;
+
+    if (!item.original) {
+      item.original = {
+        calories: Math.round(Number(item.calories || 0)),
+        protein:  Math.round(Number(item.protein  || 0) * 10) / 10,
+        carbs:    Math.round(Number(item.carbs    || 0) * 10) / 10,
+        fat:      Math.round(Number(item.fat      || 0) * 10) / 10
+      };
+    }
+    if (!Array.isArray(item.leftovers)) item.leftovers = [];
+    item.leftovers.push({
+      calories: Math.round(pendingLeftoverMacros.calories * frac),
+      protein:  Math.round(pendingLeftoverMacros.protein * frac * 10) / 10,
+      carbs:    Math.round(pendingLeftoverMacros.carbs   * frac * 10) / 10,
+      fat:      Math.round(pendingLeftoverMacros.fat     * frac * 10) / 10,
+      time: timeStr
+    });
+    if (recomputeItemNet(item)) exceeded = true;
+  });
+
+  saveState();
+  renderDashboard();
+  closeLeftoverModal();
+
+  const newCatCal = Math.round(categoryNetCalories(getCategoryItems(date, categoryId)));
+  window.activeLeftover = null;
+
+  if (exceeded) {
+    showToast(`⚠️ Zbytek překročil porci — čistý příjem omezen`);
+  } else {
+    showToast(`Čistý příjem upraven: ${newCatCal} kcal`);
+  }
+}
+
+function initLeftoverHandlers() {
+  const inputCamera = document.getElementById('leftover-input-camera');
+  const inputPhoto  = document.getElementById('leftover-input-photo');
+  const inputFile   = document.getElementById('leftover-input-file');
+
+  [inputCamera, inputPhoto, inputFile].forEach(input => {
+    if (!input) return;
+    input.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = ev => analyzeLeftover(ev.target.result);
+      reader.readAsDataURL(file);
+    });
+  });
+
+  // Source chooser (must click() the input within the same user gesture).
+  const triggerInput = (input) => {
+    closeLeftoverSourceSheet();
+    if (input) { input.value = ''; input.click(); }
+  };
+  const btnCam = document.getElementById('btn-leftover-camera');
+  const btnPhoto = document.getElementById('btn-leftover-photo');
+  const btnFile = document.getElementById('btn-leftover-file');
+  const btnSrcCancel = document.getElementById('btn-leftover-source-cancel');
+  if (btnCam) btnCam.addEventListener('click', () => triggerInput(inputCamera));
+  if (btnPhoto) btnPhoto.addEventListener('click', () => triggerInput(inputPhoto));
+  if (btnFile) btnFile.addEventListener('click', () => triggerInput(inputFile));
+  if (btnSrcCancel) btnSrcCancel.addEventListener('click', closeLeftoverSourceSheet);
+  const srcSheet = document.getElementById('leftover-source-sheet');
+  if (srcSheet) srcSheet.addEventListener('click', (e) => { if (e.target === srcSheet) closeLeftoverSourceSheet(); });
+
+  const modal = document.getElementById('leftover-modal');
+  const btnCancel = document.getElementById('leftover-cancel');
+  const btnConfirm = document.getElementById('leftover-confirm');
+  const btnClose = document.getElementById('leftover-close');
+  if (btnCancel) btnCancel.addEventListener('click', closeLeftoverModal);
+  if (btnClose) btnClose.addEventListener('click', closeLeftoverModal);
+  if (btnConfirm) btnConfirm.addEventListener('click', confirmLeftover);
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeLeftoverModal(); });
 }
 
 // ==========================================================================
@@ -740,6 +1209,7 @@ function renderSettings() {
   document.getElementById('input-goal-p').value = appState.goals.protein || 130;
   document.getElementById('input-goal-c').value = appState.goals.carbs || 220;
   document.getElementById('input-goal-f').value = appState.goals.fat || 65;
+  if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
 }
 
 function saveSettingsFromUI() {
@@ -821,6 +1291,8 @@ function initFoodLogSheet() {
   function openSheet(presetCategory) {
     flsPresetCategory = (typeof presetCategory === 'string' && MEALS.some(m => m.id === presetCategory))
       ? presetCategory : null;
+    // Expose for the favorites quick-add so it logs to the tapped meal.
+    window.flsSheetCategory = flsPresetCategory;
     scrim.classList.add('open');
     sheet.classList.add('open');
     showStage('capture');
@@ -830,6 +1302,7 @@ function initFoodLogSheet() {
     flsPickedCategory = null;
     capturePreview.style.display = 'none';
     vfPlaceholder.style.display = '';
+    renderFlsFavorites();
   }
 
   function renderMealPicker() {
@@ -1042,7 +1515,7 @@ function initFoodLogSheet() {
 
   function saveItems() {
     if (flsItems.length === 0) { closeSheet(); return; }
-    const todayStr = getTodayDateString();
+    const todayStr = getActiveDateString();
     if (!appState.logs[todayStr]) appState.logs[todayStr] = [];
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -1098,6 +1571,7 @@ function initFoodLogSheet() {
   });
 
   window.openFoodLogSheet = openSheet;
+  window.closeFoodLogSheet = closeSheet;
 }
 
 // ==========================================================================
@@ -1424,14 +1898,48 @@ function initPhotoHandlers() {
 // ==========================================================================
 // GEMINI AI SERVICE INTEGRATION
 // ==========================================================================
-async function callGeminiAPI(textPrompt, imageBase64) {
-  if (!appState.apiKey) {
-    throw new Error("Gemini API Key není nastaven. Zadej ho v Nastavení.");
+
+// Downscale a data-URL image to at most maxDim on its longest side and
+// re-encode as JPEG. Keeps the request small enough for the serverless proxy
+// and speeds up analysis without hurting recognition quality.
+function downscaleImage(dataUrl, maxDim = 1024, quality = 0.8) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round(height * (maxDim / width));
+            width = maxDim;
+          } else {
+            width = Math.round(width * (maxDim / height));
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(dataUrl); // fall back to original on error
+      img.src = dataUrl;
+    } catch (e) {
+      resolve(dataUrl);
+    }
+  });
+}
+
+async function callGeminiAPI(textPrompt, imageBase64, options = {}) {
+  const isLeftover = options.leftover === true;
+
+  // Shrink the photo before sending it through the backend proxy.
+  if (imageBase64) {
+    imageBase64 = await downscaleImage(imageBase64, 1024, 0.8);
   }
-  
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${appState.apiKey}`;
-  
-  const systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
+
+  let systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
 
 KLÍČOVÁ PRAVIDLA PRO ODHAD HMOTNOSTI (nejdůležitější!):
 - NIKDY nepoužívej 100 g jako automatickou výchozí hodnotu. 100 g je špatný "kulatý" odhad — vždy spočítej skutečnou hmotnost podle počtu kusů nebo vizuální velikosti.
@@ -1499,6 +2007,12 @@ Pravidla pro výstup:
 
 Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdný text_result s nulovými hodnotami.`;
 
+  if (isLeftover) {
+    systemInstructionText += `
+
+REŽIM ZBYTKY (DŮLEŽITÉ): Tato fotka ukazuje ZBYTEK porce jídla, který NEBYL snězen — tedy to, co po jídle ZBYLO na talíři. NEPŘEDPOKLÁDEJ, že jde o nové, celé jídlo. Odhadni kalorie a makra POUZE toho, co je viditelné na fotce (nedojedený zbytek). Vrať VŽDY JSON typu "text_result" s jednou nebo více položkami a polem "total" (součet zbytku). Nevracej "image_choices" ani 3 varianty.`;
+  }
+
   // Assemble Gemini Parts
   const parts = [];
   
@@ -1524,7 +2038,11 @@ Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdn�
       }
     });
     
-    parts.push({ text: "Odhadni 3 nejčastější varianty jídla zobrazeného na fotce a rozepiš je podle pravidel." });
+    if (isLeftover) {
+      parts.push({ text: "Tato fotka ukazuje ZBYTEK (nedojedenou část) jídla. Odhadni kalorie a makra POUZE toho, co je na fotce vidět, a vrať jeden výsledek typu text_result s polem total." });
+    } else {
+      parts.push({ text: "Odhadni 3 nejčastější varianty jídla zobrazeného na fotce a rozepiš je podle pravidel." });
+    }
   }
 
   const payload = {
@@ -1543,10 +2061,13 @@ Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdn�
     }
   };
 
-  const response = await fetch(url, {
+  // Route through the backend proxy so the API key stays server-side.
+  const session = getSession();
+  const response = await fetch('/api/gemini', {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${session ? session.token : ''}`
     },
     body: JSON.stringify(payload)
   });
@@ -1750,17 +2271,17 @@ function saveReviewedItemsToLog() {
     return;
   }
   
-  const todayStr = getTodayDateString();
+  const todayStr = getActiveDateString();
   if (!appState.logs[todayStr]) {
     appState.logs[todayStr] = [];
   }
-  
+
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  
+
   const categorySelect = document.getElementById('input-food-category');
   const categoryStr = categorySelect ? categorySelect.value : 'Breakfast';
-  
+
   tempDetectedItems.forEach(item => {
     appState.logs[todayStr].push({
       id: Date.now() + Math.random().toString(36).substr(2, 5),
@@ -1848,14 +2369,14 @@ function initFormHandlers() {
     const carbs = parseFloat(document.getElementById('input-food-c').value) || 0;
     const fat = parseFloat(document.getElementById('input-food-f').value) || 0;
     
-    const todayStr = getTodayDateString();
+    const todayStr = getActiveDateString();
     if (!appState.logs[todayStr]) {
       appState.logs[todayStr] = [];
     }
-    
+
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    
+
     appState.logs[todayStr].push({
       id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
       time: timeStr,
@@ -2101,7 +2622,11 @@ async function syncToCloud() {
       water: appState.water,
       weight: appState.weight,
       weightTarget: appState.weightTarget,
-      weightLogs: appState.weightLogs
+      weightLogs: appState.weightLogs,
+      favorites: appState.favorites,
+      coachChats: appState.coachChats,
+      coachMemories: appState.coachMemories,
+      coachMemoryEnabled: appState.coachMemoryEnabled
     };
 
     await fetch('/api/sync', {
@@ -2145,9 +2670,28 @@ async function syncFromCloud() {
       if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
       if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
       if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
-      
+      if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
+      if (Array.isArray(cloudState.coachHistory)) appState.coachHistory = cloudState.coachHistory;
+      if (Array.isArray(cloudState.coachChats)) appState.coachChats = cloudState.coachChats;
+      if (Array.isArray(cloudState.coachMemories)) appState.coachMemories = cloudState.coachMemories;
+      if (cloudState.coachMemoryEnabled !== undefined) appState.coachMemoryEnabled = cloudState.coachMemoryEnabled;
+      migrateCoachChats();
+
       saveState(true);
       renderDashboard();
+      refreshAllFavorites();
+      // If the coach is open, re-point the active chat to the synced copy and
+      // refresh the list (the array objects were just replaced).
+      const coachModal = document.getElementById('coach-modal');
+      if (coachModal && coachModal.classList.contains('active')) {
+        if (activeCoachChat) {
+          const synced = getCoachChats().find((c) => c.id === activeCoachChat.id);
+          if (synced) { activeCoachChat = synced; renderActiveCoachChat(); }
+        }
+        renderCoachChatList();
+      }
+      // Refresh the memory settings panel if it's on screen.
+      if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
       showToast('☁️ Data synchronizována z cloudu');
     }
   } catch (err) {
@@ -2189,6 +2733,34 @@ function showAppAfterLogin() {
 }
 
 // ==========================================================================
+// SCREEN WAKE LOCK — udrží displej rozsvícený, dokud je aplikace otevřená
+// ==========================================================================
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return; // nepodporováno (starší prohlížeč)
+  if (document.visibilityState !== 'visible') return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (err) {
+    // Např. nízká baterie nebo zamítnuto systémem — tiše ignoruj.
+    wakeLock = null;
+  }
+}
+
+function initWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  requestWakeLock();
+  // Wake lock se uvolní, když se stránka skryje — po návratu ho obnov.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wakeLock === null) {
+      requestWakeLock();
+    }
+  });
+}
+
+// ==========================================================================
 // APPLICATION INITIALIZATION
 // ==========================================================================
 function init() {
@@ -2202,6 +2774,17 @@ function init() {
   initBarcodeAndSearch();
   initWizard();
   initItemActionsHandlers();
+  initLeftoverHandlers();
+  initWakeLock();
+
+  // Calendar "go back to today" button
+  const backToTodayBtn = document.getElementById('btn-back-to-today');
+  if (backToTodayBtn) {
+    backToTodayBtn.addEventListener('click', () => {
+      selectedDate = null;
+      renderDashboard();
+    });
+  }
 
   // Logout button
   const logoutBtn = document.getElementById('btn-logout');
@@ -2241,12 +2824,12 @@ function init() {
 
     const closeWeightModal = () => weightModal.classList.remove('active');
     if (btnCloseWeight) btnCloseWeight.addEventListener('click', closeWeightModal);
-    
+
     if (btnSaveWeight) btnSaveWeight.addEventListener('click', () => {
       const parsedCurrent = parseFloat(inputCurrentWeight.value);
       if (!isNaN(parsedCurrent) && parsedCurrent > 0) {
         appState.weight = parsedCurrent;
-        
+
         const todayStr = getTodayDateString();
         appState.weightLogs = appState.weightLogs.filter(log => log.date !== todayStr);
         appState.weightLogs.push({ date: todayStr, weight: parsedCurrent });
@@ -2262,12 +2845,39 @@ function init() {
     });
   }
 
+  // WHOOP Integration buttons
+  const btnWhoopConnect = document.getElementById('btn-whoop-connect');
+  const btnWhoopRefresh = document.getElementById('btn-whoop-refresh');
+  const btnWhoopDisconnect = document.getElementById('btn-whoop-disconnect');
+
+  if (btnWhoopConnect) {
+    btnWhoopConnect.addEventListener('click', initiateWhoopAuth);
+  }
+  if (btnWhoopRefresh) {
+    btnWhoopRefresh.addEventListener('click', refreshWhoopData);
+  }
+  if (btnWhoopDisconnect) {
+    btnWhoopDisconnect.addEventListener('click', disconnectWhoop);
+  }
+
+  // Check WHOOP connection status
+  checkWhoopStatus();
+
+  // AI Coach chat
+  initCoachHandlers();
+
   // Check if already logged in
   const session = getSession();
   if (session) {
     showAppAfterLogin();
     // Background cloud sync
     syncFromCloud();
+    // If we just returned from the WHOOP OAuth flow, jump to Settings.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('screen') === 'settings' && window.switchAppScreen) {
+      window.switchAppScreen('screen-settings');
+      history.replaceState(null, '', '/');
+    }
   } else {
     // Show login screen, hide nav
     document.querySelector('.bottom-nav').style.display = 'none';
@@ -2940,14 +3550,14 @@ function initBarcodeAndSearch() {
       const categorySelect = document.getElementById('input-food-category');
       const categoryStr = categorySelect ? categorySelect.value : 'Breakfast';
       
-      const todayStr = getTodayDateString();
+      const todayStr = getActiveDateString();
       if (!appState.logs[todayStr]) {
         appState.logs[todayStr] = [];
       }
-      
+
       const now = new Date();
       const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      
+
       appState.logs[todayStr].push({
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
         time: timeStr,
@@ -3275,7 +3885,7 @@ function initItemActionsHandlers() {
       if (actionBtn) {
         e.stopPropagation();
         const foodId = actionBtn.getAttribute('data-id');
-        const todayStr = getTodayDateString();
+        const todayStr = getActiveDateString();
         const logs = appState.logs[todayStr] || [];
         const item = logs.find(i => i.id === foodId);
         if (item) {
@@ -3307,7 +3917,7 @@ function initItemActionsHandlers() {
       const subDetails = e.target.closest('.meal-sub-details');
       if (subDetails) {
         const foodId = subDetails.getAttribute('data-id');
-        const todayStr = getTodayDateString();
+        const todayStr = getActiveDateString();
         const logs = appState.logs[todayStr] || [];
         const item = logs.find(i => i.id === foodId);
         if (!item) return;
@@ -3320,11 +3930,25 @@ function initItemActionsHandlers() {
           if (oldParsed.value > 0 && newParsed.value >= 0) {
             const ratio = newParsed.value / oldParsed.value;
             item.amount = newAmountStr.trim();
-            item.calories = Math.round(item.calories * ratio);
-            item.protein = Math.round(item.protein * ratio * 10) / 10;
-            item.carbs = Math.round(item.carbs * ratio * 10) / 10;
-            item.fat = Math.round(item.fat * ratio * 10) / 10;
-            
+            if (item.original && item.leftovers && item.leftovers.length) {
+              // Scale the original portion and every logged leftover, then
+              // recompute the net so the breakdown stays consistent.
+              const scale = (m) => {
+                m.calories = Math.round(m.calories * ratio);
+                m.protein = Math.round(m.protein * ratio * 10) / 10;
+                m.carbs = Math.round(m.carbs * ratio * 10) / 10;
+                m.fat = Math.round(m.fat * ratio * 10) / 10;
+              };
+              scale(item.original);
+              item.leftovers.forEach(scale);
+              recomputeItemNet(item);
+            } else {
+              item.calories = Math.round(item.calories * ratio);
+              item.protein = Math.round(item.protein * ratio * 10) / 10;
+              item.carbs = Math.round(item.carbs * ratio * 10) / 10;
+              item.fat = Math.round(item.fat * ratio * 10) / 10;
+            }
+
             saveState();
             renderDashboard();
             showToast("Množství upraveno! ✏️");
@@ -3396,19 +4020,21 @@ function initItemActionsHandlers() {
   // Copy item from action sheet
   if (btnActCopy) {
     btnActCopy.addEventListener('click', () => {
-      if (!window.activeActionItem) return;
+      const item = window.activeActionItem;
+      if (!item) return;
       window.copyMoveActionType = 'copy';
+      window.copyMoveItem = item; // preserve before the sheet clears activeActionItem
       closeItemActionsSheet();
-      
+
       // Open copy/move modal
       if (copyMoveModal) {
         const titleEl = document.getElementById('copy-move-modal-title');
         if (titleEl) titleEl.innerText = 'Zkopírovat jídlo';
-        
+
         // Prefill date/category
-        if (copyMoveDate) copyMoveDate.value = getTodayDateString();
-        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(window.activeActionItem) || 'Breakfast';
-        
+        if (copyMoveDate) copyMoveDate.value = getActiveDateString();
+        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(item) || 'Breakfast';
+
         copyMoveModal.classList.add('active');
       }
     });
@@ -3417,19 +4043,21 @@ function initItemActionsHandlers() {
   // Move item from action sheet
   if (btnActMove) {
     btnActMove.addEventListener('click', () => {
-      if (!window.activeActionItem) return;
+      const item = window.activeActionItem;
+      if (!item) return;
       window.copyMoveActionType = 'move';
+      window.copyMoveItem = item; // preserve before the sheet clears activeActionItem
       closeItemActionsSheet();
-      
+
       // Open copy/move modal
       if (copyMoveModal) {
         const titleEl = document.getElementById('copy-move-modal-title');
         if (titleEl) titleEl.innerText = 'Přemístit na jiný den';
-        
+
         // Prefill date/category
-        if (copyMoveDate) copyMoveDate.value = getTodayDateString();
-        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(window.activeActionItem) || 'Breakfast';
-        
+        if (copyMoveDate) copyMoveDate.value = getActiveDateString();
+        if (copyMoveCategory) copyMoveCategory.value = getFoodCategory(item) || 'Breakfast';
+
         copyMoveModal.classList.add('active');
       }
     });
@@ -3453,9 +4081,9 @@ function initItemActionsHandlers() {
   // Confirm copy/move
   if (btnSaveCopyMove) {
     btnSaveCopyMove.addEventListener('click', () => {
-      const item = window.activeActionItem;
+      const item = window.copyMoveItem;
       if (!item) return;
-      
+
       const targetDate = copyMoveDate.value;
       const targetCategory = copyMoveCategory.value;
       
@@ -3543,7 +4171,7 @@ function initItemActionsHandlers() {
         return;
       }
       
-      const todayStr = getTodayDateString();
+      const todayStr = getActiveDateString();
       const todayFood = appState.logs[todayStr] || [];
       const selectedFoods = todayFood.filter(f => selectedIds.has(f.id));
       
@@ -3628,6 +4256,624 @@ function initItemActionsHandlers() {
       showToast("Jídla sloučena! 🍲");
     });
   }
+}
+
+// ==========================================================================
+// WHOOP API INTEGRATION
+// ==========================================================================
+
+// Paint the WHOOP metrics card from the snapshot the server returns.
+function renderWhoopMetrics(w) {
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  const rec = w && w.recovery;
+  const str = w && w.strain;
+  const slp = w && w.sleep;
+
+  set('whoop-recovery', rec && rec.recoveryScore != null ? `${rec.recoveryScore} %` : '—');
+  set('whoop-hrv', rec && rec.hrvMs != null ? `${rec.hrvMs} ms` : '—');
+  set('whoop-rhr', rec && rec.restingHeartRate != null ? `${rec.restingHeartRate} bpm` : '—');
+  set('whoop-strain', str && str.strain != null ? `${str.strain}` : '—');
+  set('whoop-burn', str && str.activeKcal != null ? `${str.activeKcal} kcal` : '—');
+  set('whoop-sleep', slp && slp.totalInBedMs != null ? `${(slp.totalInBedMs / 3600000).toFixed(1)} h` : '—');
+}
+
+async function checkWhoopStatus() {
+  try {
+    const session = getSession();
+    if (!session || !session.token) return;
+
+    const response = await fetch('/api/whoop', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await response.json();
+
+    const statusEl = document.getElementById('whoop-status');
+    const metricsEl = document.getElementById('whoop-metrics');
+    const connectBtn = document.getElementById('btn-whoop-connect');
+    const refreshBtn = document.getElementById('btn-whoop-refresh');
+    const disconnectBtn = document.getElementById('btn-whoop-disconnect');
+
+    if (data.connected) {
+      if (statusEl) statusEl.innerHTML = 'Stav: <strong style="color:var(--ios-green,#30D158);">Připojeno ✓</strong>';
+      if (metricsEl) metricsEl.style.display = 'block';
+      renderWhoopMetrics(data.data);
+      if (connectBtn) connectBtn.style.display = 'none';
+      if (refreshBtn) refreshBtn.style.display = 'block';
+      if (disconnectBtn) disconnectBtn.style.display = 'block';
+    } else {
+      if (statusEl) statusEl.innerHTML = 'Stav: <strong style="color:var(--text-3);">Nepřipojeno</strong>';
+      if (metricsEl) metricsEl.style.display = 'none';
+      if (connectBtn) connectBtn.style.display = 'block';
+      if (refreshBtn) refreshBtn.style.display = 'none';
+      if (disconnectBtn) disconnectBtn.style.display = 'none';
+      if (data.authUrl) window._whoopAuthUrl = data.authUrl;
+    }
+  } catch (error) {
+    console.error('Error checking WHOOP status:', error);
+  }
+}
+
+function initiateWhoopAuth() {
+  const session = getSession();
+  if (!session || !session.token) {
+    showToast('Chyba: Nejste přihlášen');
+    return;
+  }
+  // Persist the session token so the OAuth callback page can finish the exchange.
+  localStorage.setItem('_fitai_session_token', session.token);
+
+  if (window._whoopAuthUrl) {
+    window.location.href = window._whoopAuthUrl;
+  } else {
+    showToast('Chyba: Nelze inicializovat WHOOP přihlášení');
+  }
+}
+
+async function refreshWhoopData() {
+  try {
+    const session = getSession();
+    if (!session || !session.token) {
+      showToast('Chyba: Nejste přihlášen');
+      return;
+    }
+    const response = await fetch('/api/whoop', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await response.json();
+
+    if (data.connected) {
+      renderWhoopMetrics(data.data);
+      showToast('WHOOP data obnovena ✓');
+    } else {
+      showToast('WHOOP odpojen, připoj se prosím znovu');
+      checkWhoopStatus();
+    }
+  } catch (error) {
+    console.error('Error refreshing WHOOP data:', error);
+    showToast('Chyba: ' + error.message);
+  }
+}
+
+async function disconnectWhoop() {
+  if (!confirm('Opravdu chcete odpojit WHOOP?')) return;
+  try {
+    const session = getSession();
+    if (!session || !session.token) {
+      showToast('Chyba: Nejste přihlášen');
+      return;
+    }
+    const response = await fetch('/api/whoop', {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await response.json();
+    if (data.success) {
+      showToast('WHOOP odpojena');
+      checkWhoopStatus();
+    } else {
+      showToast('Chyba: ' + (data.error || 'Nepodařilo se odpojit'));
+    }
+  } catch (error) {
+    console.error('Error disconnecting WHOOP:', error);
+    showToast('Chyba: ' + error.message);
+  }
+}
+
+// ==========================================================================
+// AI COACH CHAT
+// ==========================================================================
+// Master switch for the coach's memory (conversation + manual facts).
+function coachMemoryOn() {
+  return appState.coachMemoryEnabled !== false;
+}
+
+// Conversations are stored as a list of chats. Each chat:
+//   { id, title, messages: [{role, text}], createdAt, updatedAt }
+// When memory is ON they live in appState.coachChats (persisted + synced).
+// When OFF, the active chat is ephemeral and never saved.
+let activeCoachChat = null;
+
+function genCoachId() {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+function getCoachChats() {
+  if (!Array.isArray(appState.coachChats)) appState.coachChats = [];
+  return appState.coachChats;
+}
+
+// One-time migration: fold a legacy single coachHistory into a chat.
+function migrateCoachChats() {
+  if (!Array.isArray(appState.coachChats)) appState.coachChats = [];
+  if (appState.coachChats.length === 0 && Array.isArray(appState.coachHistory) && appState.coachHistory.length) {
+    const firstUser = appState.coachHistory.find((m) => m && m.role === 'user');
+    appState.coachChats.push({
+      id: genCoachId(),
+      title: (firstUser ? firstUser.text : 'Chat').slice(0, 40),
+      messages: appState.coachHistory.slice(),
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    appState.coachHistory = [];
+  }
+}
+
+// ---- Manual memories (facts the user wants the coach to always know) ----
+function getCoachMemories() {
+  if (!Array.isArray(appState.coachMemories)) appState.coachMemories = [];
+  return appState.coachMemories;
+}
+
+function addCoachMemory() {
+  const input = document.getElementById('coach-memory-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  getCoachMemories().push({
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+    text
+  });
+  input.value = '';
+  saveState();
+  renderCoachMemorySettings();
+  showToast('Přidáno do paměti ✓');
+}
+
+function removeCoachMemory(id) {
+  appState.coachMemories = getCoachMemories().filter((m) => m.id !== id);
+  saveState();
+  renderCoachMemorySettings();
+}
+
+function toggleCoachMemory() {
+  appState.coachMemoryEnabled = !coachMemoryOn();
+  saveState();
+  renderCoachMemorySettings();
+  showToast(coachMemoryOn() ? 'Paměť zapnuta' : 'Paměť vypnuta');
+}
+
+// Paint the memory settings panel (toggle state, chat count, fact list).
+function renderCoachMemorySettings() {
+  const toggle = document.getElementById('btn-toggle-coach-memory');
+  if (toggle) toggle.setAttribute('aria-checked', coachMemoryOn() ? 'true' : 'false');
+
+  const stats = document.getElementById('coach-memory-stats');
+  if (stats) {
+    const chats = getCoachChats();
+    const msgs = chats.reduce((s, c) => s + (Array.isArray(c.messages) ? c.messages.length : 0), 0);
+    stats.textContent = coachMemoryOn()
+      ? `Uloženo ${chats.length} chatů (${msgs} zpráv)`
+      : 'Paměť je vypnutá — chaty se neukládají';
+  }
+
+  const list = document.getElementById('coach-memory-list');
+  if (list) {
+    const mems = getCoachMemories();
+    list.innerHTML = '';
+    if (mems.length === 0) {
+      list.innerHTML = '<div class="mem-empty">Zatím žádná uložená fakta.</div>';
+    } else {
+      mems.forEach((m) => {
+        const row = document.createElement('div');
+        row.className = 'mem-item';
+        const txt = document.createElement('div');
+        txt.className = 'mem-item-text';
+        txt.textContent = m.text;
+        const del = document.createElement('button');
+        del.className = 'mem-item-del';
+        del.textContent = '×';
+        del.setAttribute('aria-label', 'Odstranit');
+        del.addEventListener('click', () => removeCoachMemory(m.id));
+        row.appendChild(txt);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+  }
+}
+
+function openCoach() {
+  const modal = document.getElementById('coach-modal');
+  if (!modal) return;
+  modal.classList.add('active');
+  hideCoachChatList();
+  newCoachChat(); // a fresh chat every time the coach is opened
+  setTimeout(() => {
+    const input = document.getElementById('coach-input');
+    if (input) input.focus();
+  }, 250);
+}
+
+function closeCoach() {
+  const modal = document.getElementById('coach-modal');
+  if (modal) modal.classList.remove('active');
+  hideCoachChatList();
+}
+
+function renderCoachEmpty() {
+  const box = document.getElementById('coach-messages');
+  if (!box) return;
+  box.innerHTML = `<div class="coach-empty">Ahoj! 👋 Jsem tvůj AI kouč.<br>Vidím tvá WHOOP data, jídla a kalorie.<br><br>Zeptej se mě třeba:<br>„Jak na tom dnes jsem?"<br>„Co bych měl sníst k večeři?"<br>„Mám dneska trénovat?"</div>`;
+}
+
+// Start a brand-new (empty, not-yet-saved) chat as the active one.
+function newCoachChat() {
+  activeCoachChat = {
+    id: genCoachId(),
+    title: '',
+    messages: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  hideCoachChatList();
+  renderActiveCoachChat();
+}
+
+// Repaint the active chat's messages (no animation — instant).
+function renderActiveCoachChat() {
+  const box = document.getElementById('coach-messages');
+  if (!box) return;
+  if (!activeCoachChat || activeCoachChat.messages.length === 0) { renderCoachEmpty(); return; }
+  box.innerHTML = '';
+  activeCoachChat.messages.forEach((m) => appendCoachBubble(m.text, m.role === 'assistant' ? 'assistant' : 'user', false));
+  box.scrollTop = box.scrollHeight;
+}
+
+// Load a saved chat by id and make it active.
+function loadCoachChat(id) {
+  const chat = getCoachChats().find((c) => c.id === id);
+  if (!chat) return;
+  activeCoachChat = chat;
+  hideCoachChatList();
+  renderActiveCoachChat();
+}
+
+function deleteCoachChat(id) {
+  if (!confirm('Smazat tento chat?')) return;
+  appState.coachChats = getCoachChats().filter((c) => c.id !== id);
+  if (activeCoachChat && activeCoachChat.id === id) {
+    newCoachChat();
+  }
+  saveState();
+  renderCoachChatList();
+  if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
+}
+
+// ---- Chat list drawer ----
+function showCoachChatList() {
+  renderCoachChatList();
+  const drawer = document.getElementById('coach-chatlist');
+  const scrim = document.getElementById('coach-chatlist-scrim');
+  if (drawer) drawer.classList.add('active');
+  if (scrim) scrim.classList.add('active');
+}
+
+function hideCoachChatList() {
+  const drawer = document.getElementById('coach-chatlist');
+  const scrim = document.getElementById('coach-chatlist-scrim');
+  if (drawer) drawer.classList.remove('active');
+  if (scrim) scrim.classList.remove('active');
+}
+
+function toggleCoachChatList() {
+  const drawer = document.getElementById('coach-chatlist');
+  if (drawer && drawer.classList.contains('active')) hideCoachChatList();
+  else showCoachChatList();
+}
+
+function renderCoachChatList() {
+  const items = document.getElementById('coach-chatlist-items');
+  if (!items) return;
+  const chats = getCoachChats().slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  items.innerHTML = '';
+  if (chats.length === 0) {
+    items.innerHTML = '<div class="coach-chatlist-empty">Zatím žádné uložené chaty.<br>Napiš zprávu a chat se uloží.</div>';
+    return;
+  }
+  chats.forEach((chat) => {
+    const row = document.createElement('div');
+    row.className = 'coach-chat-item' + (activeCoachChat && activeCoachChat.id === chat.id ? ' active' : '');
+    const title = document.createElement('div');
+    title.className = 'coach-chat-item-title';
+    title.textContent = chat.title || 'Nový chat';
+    title.addEventListener('click', () => loadCoachChat(chat.id));
+    const del = document.createElement('button');
+    del.className = 'coach-chat-item-del';
+    del.textContent = '×';
+    del.setAttribute('aria-label', 'Smazat chat');
+    del.addEventListener('click', (e) => { e.stopPropagation(); deleteCoachChat(chat.id); });
+    row.appendChild(title);
+    row.appendChild(del);
+    items.appendChild(row);
+  });
+}
+
+// Clear ALL chats (used by the Memory settings "clear history" button).
+function clearCoachHistoryAll() {
+  if (!confirm('Smazat všechny chaty s AI Koučem?')) return;
+  appState.coachChats = [];
+  appState.coachHistory = [];
+  newCoachChat();
+  saveState();
+  if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
+  showToast('Všechny chaty smazány');
+}
+
+// Render the AI's light markdown (bold/italic/bullets) safely as HTML.
+function formatCoachText(text) {
+  const esc = String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return esc
+    // **bold**
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    // *italic* and _italic_ (not touching ** which is already handled)
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>')
+    // bullet markers at line start -> •
+    .replace(/^[ \t]*[-*][ \t]+/gm, '• ');
+}
+
+// Wrap each word inside a line element in a span that pops in, keeping any
+// markdown tags (<strong>/<em>) intact. Returns the running word index so the
+// stagger continues across lines. Reveals line by line, word by word.
+function wrapCoachWords(lineEl, startIndex, box) {
+  const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT, null);
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  let i = startIndex;
+  textNodes.forEach((node) => {
+    const parts = node.textContent.split(/(\s+)/); // keep whitespace chunks
+    const frag = document.createDocumentFragment();
+    parts.forEach((part) => {
+      if (part === '' || /^\s+$/.test(part)) {
+        frag.appendChild(document.createTextNode(part));
+      } else {
+        const span = document.createElement('span');
+        span.className = 'coach-word';
+        span.textContent = part;
+        span.style.animationDelay = (i * 0.04) + 's';
+        // Scroll to follow the reveal as each word appears.
+        if (box) span.addEventListener('animationstart', () => { box.scrollTop = box.scrollHeight; });
+        i++;
+        frag.appendChild(span);
+      }
+    });
+    node.parentNode.replaceChild(frag, node);
+  });
+  return i;
+}
+
+// Reveal an assistant reply progressively: lines are ADDED to the DOM over
+// time (so the bubble grows from the top down and scrolls — "posunuje"), and
+// within each line the words pop in one after another. Adding lines over time
+// (instead of rendering them all invisible up front) avoids the giant empty
+// box that reserved space for not-yet-revealed text.
+const COACH_WORD_STEP_MS = 40; // delay between words within a line
+const COACH_LINE_GAP_MS = 110; // extra pause between lines
+
+function renderCoachLines(el, text, box) {
+  el.innerHTML = '';
+  const lines = String(text).split('\n').filter((l) => l.trim() !== '');
+  let lineDelay = 0;
+  el._coachTimers = el._coachTimers || [];
+
+  lines.forEach((line) => {
+    const wordCount = line.trim().split(/\s+/).length;
+    const t = setTimeout(() => {
+      const lineEl = document.createElement('div');
+      lineEl.className = 'coach-line';
+      lineEl.innerHTML = formatCoachText(line);
+      // Word delays restart per line (the line itself is already time-offset).
+      wrapCoachWords(lineEl, 0, box);
+      el.appendChild(lineEl);
+      if (box) box.scrollTop = box.scrollHeight;
+    }, lineDelay);
+    el._coachTimers.push(t);
+    lineDelay += wordCount * COACH_WORD_STEP_MS + COACH_LINE_GAP_MS;
+  });
+}
+
+function appendCoachBubble(text, role, animate) {
+  const box = document.getElementById('coach-messages');
+  if (!box) return null;
+  const empty = box.querySelector('.coach-empty');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = `coach-bubble ${role}`;
+  // Assistant replies may contain markdown; render it. User text stays literal.
+  if (role === 'assistant') {
+    if (animate) {
+      renderCoachLines(div, text, box);
+    } else {
+      div.innerHTML = formatCoachText(text);
+    }
+  } else {
+    div.textContent = text;
+  }
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div;
+}
+
+// Build the food/calorie context for the currently viewed day.
+function buildFoodContext() {
+  const date = (typeof getViewingDate === 'function')
+    ? getViewingDate()
+    : (selectedDate || getTodayDateString());
+  const items = (appState.logs[date] || []).map(i => ({
+    name: i.name,
+    amount: i.amount,
+    calories: i.calories,
+    protein: i.protein,
+    carbs: i.carbs,
+    fat: i.fat
+  }));
+  const totals = items.reduce((s, i) => ({
+    calories: s.calories + Number(i.calories || 0),
+    protein: s.protein + Number(i.protein || 0),
+    carbs: s.carbs + Number(i.carbs || 0),
+    fat: s.fat + Number(i.fat || 0)
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  totals.calories = Math.round(totals.calories);
+  totals.protein = Math.round(totals.protein * 10) / 10;
+  totals.carbs = Math.round(totals.carbs * 10) / 10;
+  totals.fat = Math.round(totals.fat * 10) / 10;
+
+  return {
+    date,
+    goals: appState.goals,
+    totals,
+    items,
+    weight: appState.weight
+  };
+}
+
+async function sendCoachMessage() {
+  const input = document.getElementById('coach-input');
+  const sendBtn = document.getElementById('coach-send');
+  if (!input) return;
+  const message = input.value.trim();
+  if (!message) return;
+
+  const session = getSession();
+  if (!session || !session.token) {
+    showToast('Chyba: Nejste přihlášen');
+    return;
+  }
+
+  input.value = '';
+  if (sendBtn) sendBtn.disabled = true;
+  const memOn = coachMemoryOn();
+  if (!activeCoachChat) newCoachChat();
+  const chat = activeCoachChat;
+  const isFirstMessage = chat.messages.length === 0;
+
+  appendCoachBubble(message, 'user');
+  chat.messages.push({ role: 'user', text: message });
+  chat.updatedAt = Date.now();
+  if (isFirstMessage) {
+    chat.title = message.slice(0, 40);
+    // Save the chat into the list on its first message (when memory is on).
+    if (memOn && !getCoachChats().some((c) => c.id === chat.id)) {
+      getCoachChats().unshift(chat);
+    }
+  }
+  if (memOn) saveState(); // persist the question (local + cloud)
+
+  const typing = appendCoachBubble('Píše…', 'assistant');
+  if (typing) typing.classList.add('typing');
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.token}`
+      },
+      body: JSON.stringify({
+        message,
+        // Send recent context from THIS chat (the backend trims further).
+        history: chat.messages.slice(0, -1).slice(-20),
+        // Manual facts the coach should always know (only when memory is on).
+        memories: memOn ? getCoachMemories().map((m) => m.text) : [],
+        foodContext: buildFoodContext()
+      })
+    });
+    const data = await response.json();
+    if (typing) typing.remove();
+
+    if (data.success && data.reply) {
+      appendCoachBubble(data.reply, 'assistant', true);
+      chat.messages.push({ role: 'assistant', text: data.reply });
+      chat.updatedAt = Date.now();
+      // Cap a single chat so it can't grow without bound.
+      if (chat.messages.length > 200) chat.messages = chat.messages.slice(-200);
+      if (memOn) saveState(); // persist the reply (local + cloud)
+    } else {
+      appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
+    }
+  } catch (error) {
+    console.error('Coach error:', error);
+    if (typing) typing.remove();
+    appendCoachBubble('Chyba spojení. Zkontroluj připojení a zkus to znovu.', 'assistant');
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+function initCoachHandlers() {
+  const openBtn = document.getElementById('btn-open-coach');
+  const navCoachBtn = document.getElementById('nav-coach');
+  const closeBtn = document.getElementById('btn-close-coach');
+  const chatsBtn = document.getElementById('btn-coach-chats');
+  const newChatBtn = document.getElementById('btn-new-coach-chat');
+  const chatlistScrim = document.getElementById('coach-chatlist-scrim');
+  const sendBtn = document.getElementById('coach-send');
+  const input = document.getElementById('coach-input');
+  const modal = document.getElementById('coach-modal');
+
+  if (openBtn) openBtn.addEventListener('click', openCoach);
+  if (navCoachBtn) navCoachBtn.addEventListener('click', openCoach);
+  if (closeBtn) closeBtn.addEventListener('click', closeCoach);
+  if (chatsBtn) chatsBtn.addEventListener('click', toggleCoachChatList);
+  if (newChatBtn) newChatBtn.addEventListener('click', newCoachChat);
+  if (chatlistScrim) chatlistScrim.addEventListener('click', hideCoachChatList);
+  if (sendBtn) sendBtn.addEventListener('click', sendCoachMessage);
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendCoachMessage(); }
+    });
+  }
+  // Tap outside the sheet to dismiss.
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeCoach();
+    });
+  }
+
+  // ---- Memory settings (in the Settings screen) ----
+  const memToggle = document.getElementById('btn-toggle-coach-memory');
+  const memAddBtn = document.getElementById('btn-add-coach-memory');
+  const memInput = document.getElementById('coach-memory-input');
+  const histClearBtn = document.getElementById('btn-clear-coach-history');
+
+  if (memToggle) memToggle.addEventListener('click', toggleCoachMemory);
+  if (memAddBtn) memAddBtn.addEventListener('click', addCoachMemory);
+  if (memInput) {
+    memInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addCoachMemory(); }
+    });
+  }
+  if (histClearBtn) histClearBtn.addEventListener('click', clearCoachHistoryAll);
 }
 
 // Run app init

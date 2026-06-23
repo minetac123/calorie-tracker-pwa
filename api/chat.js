@@ -1,0 +1,189 @@
+// AI coach chat endpoint. Combines the user's WHOOP metrics (fetched
+// server-side from the stored token) with the food/calorie context sent by
+// the client, then asks Gemini for a personalised answer.
+const { extractUsername, getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
+
+// The coach can use its own dedicated key + model (set COACH_API_KEY /
+// COACH_MODEL in Vercel). Falls back to the shared GEMINI_API_KEY and a
+// smart-but-fast default model.
+const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
+const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
+
+function fmtWhoop(w) {
+  if (!w) return 'WHOOP není připojen nebo nemá dnes žádná data.';
+  const lines = [];
+  if (w.recovery) {
+    lines.push(`- Recovery: ${w.recovery.recoveryScore != null ? w.recovery.recoveryScore + '%' : 'n/a'}`);
+    if (w.recovery.hrvMs != null) lines.push(`- HRV: ${w.recovery.hrvMs} ms`);
+    if (w.recovery.restingHeartRate != null) lines.push(`- Klidová tepová frekvence: ${w.recovery.restingHeartRate} bpm`);
+    if (w.recovery.spo2 != null) lines.push(`- SpO2: ${w.recovery.spo2} %`);
+  }
+  if (w.strain) {
+    if (w.strain.strain != null) lines.push(`- Denní strain: ${w.strain.strain}`);
+    if (w.strain.activeKcal != null) lines.push(`- Spáleno (WHOOP odhad): ${w.strain.activeKcal} kcal`);
+    if (w.strain.averageHeartRate != null) lines.push(`- Průměrná tepovka: ${w.strain.averageHeartRate} bpm`);
+  }
+  if (w.sleep) {
+    if (w.sleep.performancePercentage != null) lines.push(`- Výkon spánku: ${w.sleep.performancePercentage} %`);
+    if (w.sleep.totalInBedMs != null) lines.push(`- Spánek (v posteli): ${(w.sleep.totalInBedMs / 3600000).toFixed(1)} h`);
+    if (w.sleep.respiratoryRate != null) lines.push(`- Dechová frekvence: ${Math.round(w.sleep.respiratoryRate * 10) / 10} /min`);
+  }
+  return lines.length ? lines.join('\n') : 'WHOOP připojen, ale dnes zatím nejsou data.';
+}
+
+function fmtFood(food) {
+  if (!food) return 'Žádný kontext o jídle nebyl poskytnut.';
+  const lines = [];
+  if (food.date) lines.push(`Datum: ${food.date}`);
+  if (food.goals) {
+    lines.push(`Denní cíle: ${food.goals.calories} kcal, B ${food.goals.protein} g, S ${food.goals.carbs} g, T ${food.goals.fat} g`);
+  }
+  if (food.totals) {
+    lines.push(`Snězeno dnes: ${food.totals.calories} kcal, B ${food.totals.protein} g, S ${food.totals.carbs} g, T ${food.totals.fat} g`);
+  }
+  if (Array.isArray(food.items) && food.items.length) {
+    lines.push('Jídla dnes:');
+    food.items.forEach((it) => {
+      lines.push(`  • ${it.name} (${it.amount || ''}) – ${it.calories} kcal, B ${it.protein} g, S ${it.carbs} g, T ${it.fat} g`);
+    });
+  } else {
+    lines.push('Dnes zatím nebylo zapsáno žádné jídlo.');
+  }
+  if (food.weight != null) lines.push(`Aktuální váha: ${food.weight} kg`);
+  return lines.join('\n');
+}
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Metoda není povolena' });
+  }
+
+  const username = extractUsername(req.headers.authorization);
+  if (!username) {
+    return res.status(401).json({ error: 'Nepřihlášen' });
+  }
+
+  if (!COACH_API_KEY) {
+    return res.status(500).json({ error: 'AI Kouč není nakonfigurován (chybí COACH_API_KEY / GEMINI_API_KEY).' });
+  }
+
+  try {
+    const { message, history, foodContext, memories } = req.body || {};
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Prázdná zpráva' });
+    }
+
+    // Manual facts the user asked the coach to always remember.
+    const memBlock = (Array.isArray(memories) && memories.length)
+      ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
+      : 'Žádná uložená fakta.';
+
+    // Pull WHOOP metrics server-side (token never leaves the backend).
+    let whoopSnapshot = null;
+    const token = await getValidToken(username);
+    if (token && !token._expired) {
+      whoopSnapshot = await fetchWhoopSnapshot(token.accessToken);
+    }
+
+    const systemInstruction = `Jsi osobní zdravotní a fitness kouč v aplikaci FitAI. Mluvíš česky, přátelsky, stručně a konkrétně. Máš přístup k datům uživatele z náramku WHOOP (regenerace, spánek, zátěž, tepová frekvence) a k jeho dnešnímu jídelníčku a kaloriím z aplikace.
+
+Tvým úkolem je propojit tato data a dávat praktické rady: např. když je nízká regenerace, doporuč odpočinek a vhodnou výživu; když uživatel překračuje kalorický cíl, upozorni ho; spoj kvalitu spánku, zátěž a příjem kalorií do smysluplných doporučení. Nediagnostikuj nemoci a u vážných zdravotních potíží doporuč lékaře. Odpovídej v běžném textu (ne JSON), klidně používej krátké odrážky a emoji střídmě.
+
+=== CO SI MÁŠ PAMATOVAT O UŽIVATELI ===
+${memBlock}
+
+=== WHOOP DATA ===
+${fmtWhoop(whoopSnapshot)}
+
+=== JÍDLO A KALORIE (z aplikace) ===
+${fmtFood(foodContext)}`;
+
+    // Build Gemini conversation contents from prior history + new message.
+    const contents = [];
+    if (Array.isArray(history)) {
+      history.slice(-12).forEach((m) => {
+        if (!m || !m.text) return;
+        contents.push({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.text }]
+        });
+      });
+    }
+    contents.push({ role: 'user', parts: [{ text: message }] });
+
+    const payload = {
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      contents,
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 2048,
+        // gemini-2.5-flash is a thinking model and "thinking" tokens count
+        // against the output budget — disable it so the whole budget goes to
+        // the visible answer (otherwise replies get cut off mid-sentence).
+        thinkingConfig: { thinkingBudget: 0 }
+      }
+    };
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${COACH_MODEL}:generateContent?key=${COACH_API_KEY}`;
+
+    // Gemini occasionally returns transient 429/500/503 (overloaded). Retry a
+    // few times with backoff before giving up so a single blip doesn't surface
+    // as "AI nedostupná".
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let gResp;
+    let lastErrText = '';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      gResp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (gResp.ok) break;
+      lastErrText = await gResp.text().catch(() => '');
+      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
+      console.error(`Gemini error (attempt ${attempt + 1}):`, gResp.status, lastErrText.slice(0, 300));
+      if (!transient || attempt === 3) break;
+      await sleep(500 * Math.pow(2, attempt)); // 0.5s, 1s, 2s
+    }
+
+    if (!gResp.ok) {
+      const overloaded = gResp.status === 429 || gResp.status === 503;
+      return res.status(503).json({
+        error: overloaded
+          ? 'AI je momentálně přetížená, zkus to prosím za chvíli znovu.'
+          : 'AI služba je dočasně nedostupná, zkus to prosím znovu.'
+      });
+    }
+
+    const gData = await gResp.json();
+    const cand = gData && gData.candidates && gData.candidates[0];
+    // Join every text part (some responses split the answer across parts).
+    let reply = null;
+    if (cand && cand.content && Array.isArray(cand.content.parts)) {
+      reply = cand.content.parts
+        .map((p) => (p && p.text) ? p.text : '')
+        .join('')
+        .trim() || null;
+    }
+
+    if (!reply) {
+      // Surface the model's stop reason so truncation/safety blocks are visible.
+      console.error('Empty reply. finishReason:', cand && cand.finishReason, JSON.stringify(gData).slice(0, 500));
+      return res.status(502).json({ error: 'AI nevrátila odpověď' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      reply,
+      whoopConnected: !!whoopSnapshot
+    });
+  } catch (error) {
+    console.error('Chat error:', error);
+    return res.status(500).json({ error: 'Chyba serveru: ' + error.message });
+  }
+};
