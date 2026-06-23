@@ -3,8 +3,11 @@
 // the client, then asks Gemini for a personalised answer.
 const { extractUsername, getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
 
-// Gemini key comes from the environment (set GEMINI_API_KEY in Vercel).
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+// The coach can use its own dedicated key + model (set COACH_API_KEY /
+// COACH_MODEL in Vercel). Falls back to the shared GEMINI_API_KEY and a
+// smart-but-fast default model.
+const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
+const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
 
 function fmtWhoop(w) {
   if (!w) return 'WHOOP není připojen nebo nemá dnes žádná data.';
@@ -65,8 +68,8 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Nepřihlášen' });
   }
 
-  if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: 'AI Kouč není nakonfigurován (chybí GEMINI_API_KEY).' });
+  if (!COACH_API_KEY) {
+    return res.status(500).json({ error: 'AI Kouč není nakonfigurován (chybí COACH_API_KEY / GEMINI_API_KEY).' });
   }
 
   try {
@@ -126,7 +129,7 @@ ${fmtFood(foodContext)}`;
       }
     };
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${COACH_MODEL}:generateContent?key=${COACH_API_KEY}`;
 
     // Gemini occasionally returns transient 429/500/503 (overloaded). Retry a
     // few times with backoff before giving up so a single blip doesn't surface
