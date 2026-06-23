@@ -2448,3 +2448,93 @@ input, textarea, select, button {
 }
 .mem-item-del:active { background: var(--color-danger); color: #fff; }
 .mem-empty { font-size: 13px; color: var(--text-3); font-style: italic; }
+
+/* AI coach: chat list drawer */
+.coach-content { position: relative; }
+.coach-chatlist-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 5;
+}
+.coach-chatlist-scrim.active { opacity: 1; pointer-events: auto; }
+.coach-chatlist {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 80%;
+  max-width: 320px;
+  background: var(--bg-elevated-2);
+  border-right: 0.5px solid var(--sep-strong);
+  border-radius: 26px 0 0 0;
+  z-index: 6;
+  transform: translateX(-105%);
+  transition: transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 6px 0 24px rgba(0,0,0,0.4);
+}
+.coach-chatlist.active { transform: translateX(0); }
+.coach-chatlist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 16px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  border-bottom: 0.5px solid var(--sep-strong);
+}
+.coach-newchat-btn {
+  background: var(--ios-blue);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.coach-newchat-btn:active { opacity: 0.85; }
+.coach-chatlist-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+.coach-chat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px;
+  border-radius: 10px;
+  background: var(--bg-input);
+  cursor: pointer;
+}
+.coach-chat-item.active { background: var(--bg-elevated-3); border: 0.5px solid var(--ios-blue); }
+.coach-chat-item-title {
+  flex: 1;
+  font-size: 14px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.coach-chat-item-del {
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--bg-elevated-3);
+  color: var(--text-2);
+  border: none;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.coach-chat-item-del:active { background: var(--color-danger); color: #fff; }
+.coach-chatlist-empty { color: var(--text-3); font-size: 13px; font-style: italic; padding: 16px; text-align: center; }

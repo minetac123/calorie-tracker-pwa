@@ -560,7 +560,7 @@
         </div>
 
         <div style="height:14px;"></div>
-        <button class="btn btn-secondary btn-danger" id="btn-clear-coach-history">Smazat historii konverzace</button>
+        <button class="btn btn-secondary btn-danger" id="btn-clear-coach-history">Smazat všechny chaty</button>
       </div>
 
       <div class="dark-card danger-card">
@@ -571,7 +571,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.5.1 (Cache v19)
+        Verze: 2.6.0 (Cache v20)
       </div>
     </section>
 
@@ -799,11 +799,9 @@
   <div class="modal-overlay" id="coach-modal">
     <div class="modal-content coach-content">
       <div class="modal-header">
-        <h2>🤖 AI Kouč</h2>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <button class="modal-close" id="btn-clear-coach" title="Smazat historii" aria-label="Smazat historii" style="font-size:15px;">🗑</button>
-          <button class="modal-close" id="btn-close-coach">×</button>
-        </div>
+        <button class="modal-close" id="btn-coach-chats" title="Chaty" aria-label="Seznam chatů" style="font-size:17px;">☰</button>
+        <h2 style="flex:1; text-align:center;">🤖 AI Kouč</h2>
+        <button class="modal-close" id="btn-close-coach">×</button>
       </div>
       <div class="coach-messages" id="coach-messages">
         <!-- messages injected here -->
@@ -814,6 +812,16 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
         </button>
       </div>
+
+      <!-- Chat list drawer -->
+      <div class="coach-chatlist-scrim" id="coach-chatlist-scrim"></div>
+      <aside class="coach-chatlist" id="coach-chatlist">
+        <div class="coach-chatlist-head">
+          <span>Chaty</span>
+          <button id="btn-new-coach-chat" class="coach-newchat-btn">+ Nový chat</button>
+        </div>
+        <div class="coach-chatlist-items" id="coach-chatlist-items"></div>
+      </aside>
     </div>
   </div>
 
