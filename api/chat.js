@@ -127,16 +127,34 @@ ${fmtFood(foodContext)}`;
     };
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-    const gResp = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+
+    // Gemini occasionally returns transient 429/500/503 (overloaded). Retry a
+    // few times with backoff before giving up so a single blip doesn't surface
+    // as "AI nedostupná".
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let gResp;
+    let lastErrText = '';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      gResp = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (gResp.ok) break;
+      lastErrText = await gResp.text().catch(() => '');
+      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
+      console.error(`Gemini error (attempt ${attempt + 1}):`, gResp.status, lastErrText.slice(0, 300));
+      if (!transient || attempt === 3) break;
+      await sleep(500 * Math.pow(2, attempt)); // 0.5s, 1s, 2s
+    }
 
     if (!gResp.ok) {
-      const txt = await gResp.text();
-      console.error('Gemini error:', gResp.status, txt);
-      return res.status(502).json({ error: 'AI služba nedostupná' });
+      const overloaded = gResp.status === 429 || gResp.status === 503;
+      return res.status(503).json({
+        error: overloaded
+          ? 'AI je momentálně přetížená, zkus to prosím za chvíli znovu.'
+          : 'AI služba je dočasně nedostupná, zkus to prosím znovu.'
+      });
     }
 
     const gData = await gResp.json();
