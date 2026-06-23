@@ -4,8 +4,8 @@
   "description": "Chytrý kalorický tracker s umělou inteligencí Gemini.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#050510",
-  "theme_color": "#050510",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "orientation": "portrait-primary",
   "icons": [
     {
