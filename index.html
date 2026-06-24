@@ -534,6 +534,30 @@
       </div>
 
       <div class="dark-card">
+        <h2>Telegram Kouč</h2>
+        <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;">
+          Chatuj s koučem přímo přes Telegram — vidí tvá data a jídlo v reálném čase. Každé ráno ti pošle check-in.
+        </p>
+        <div id="tg-connected-status" style="display:none; background:var(--bg-2); border-radius:10px; padding:12px; margin-bottom:14px; font-size:14px; color:#30d158;">
+          Propojeno s Telegramem
+        </div>
+        <div id="tg-code-box" style="display:none; background:var(--bg-2); border-radius:10px; padding:14px; margin-bottom:14px;">
+          <div style="font-size:13px; color:var(--text-2); margin-bottom:8px;">Otevri bota a tap Start (odkaz nize):</div>
+          <div id="tg-code-display" style="font-family:monospace; font-size:22px; font-weight:700; text-align:center; letter-spacing:4px; color:#fff; margin-bottom:12px;"></div>
+          <a id="tg-bot-link" href="#" target="_blank" rel="noopener" class="btn btn-secondary" style="display:block; text-align:center; text-decoration:none;">Otevrit Telegram bota</a>
+          <div style="height:8px;"></div>
+          <button class="btn btn-secondary" id="btn-tg-verify">Overit spojeni</button>
+          <div style="font-size:12px; color:var(--text-3); margin-top:8px; text-align:center;">Kod plati 15 minut</div>
+        </div>
+        <div id="tg-connect-wrap">
+          <button class="btn btn-secondary" id="btn-tg-connect">Pripojit Telegram</button>
+        </div>
+        <div id="tg-disconnect-wrap" style="display:none;">
+          <button class="btn btn-secondary btn-danger" id="btn-tg-disconnect">Odpojit Telegram</button>
+        </div>
+      </div>
+
+      <div class="dark-card">
         <h2>🧠 Paměť AI Kouče</h2>
         <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;">
           Kouč si pamatuje vaše konverzace a fakta o vás. Tady je můžeš spravovat.
@@ -572,7 +596,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.9.1 (Cache v35)
+        Verze: 2.10.0 (Cache v36)
       </div>
     </section>
 

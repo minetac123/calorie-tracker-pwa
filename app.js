@@ -1210,6 +1210,109 @@ function renderSettings() {
   document.getElementById('input-goal-c').value = appState.goals.carbs || 220;
   document.getElementById('input-goal-f').value = appState.goals.fat || 65;
   if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
+  renderTelegramStatus();
+}
+
+// ==========================================================================
+// TELEGRAM CONNECT
+// ==========================================================================
+function renderTelegramStatus(connected) {
+  const connStatus = document.getElementById('tg-connected-status');
+  const connectWrap = document.getElementById('tg-connect-wrap');
+  const disconnectWrap = document.getElementById('tg-disconnect-wrap');
+  const codeBox = document.getElementById('tg-code-box');
+  if (!connStatus) return;
+  if (connected === true) {
+    connStatus.style.display = '';
+    connectWrap.style.display = 'none';
+    disconnectWrap.style.display = '';
+    if (codeBox) codeBox.style.display = 'none';
+  } else if (connected === false) {
+    connStatus.style.display = 'none';
+    connectWrap.style.display = '';
+    disconnectWrap.style.display = 'none';
+  }
+  // If connected === undefined, leave as-is (initial state, check in progress)
+}
+
+async function checkTelegramStatus() {
+  const session = getSession();
+  if (!session) return;
+  try {
+    const resp = await fetch('/api/telegram-connect', {
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await resp.json();
+    renderTelegramStatus(!!data.connected);
+  } catch (e) { /* ignore */ }
+}
+
+async function connectTelegram() {
+  const session = getSession();
+  if (!session) return;
+  const btn = document.getElementById('btn-tg-connect');
+  if (btn) { btn.disabled = true; btn.textContent = 'Načítám...'; }
+  try {
+    const resp = await fetch('/api/telegram-connect', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.code) throw new Error(data.error || 'Chyba');
+
+    const codeBox = document.getElementById('tg-code-box');
+    const codeDisplay = document.getElementById('tg-code-display');
+    const botLink = document.getElementById('tg-bot-link');
+    if (codeBox) codeBox.style.display = '';
+    if (codeDisplay) codeDisplay.textContent = data.code;
+    if (botLink && data.botUsername) {
+      botLink.href = `https://t.me/${data.botUsername}?start=${data.code}`;
+    }
+    const connectWrap = document.getElementById('tg-connect-wrap');
+    if (connectWrap) connectWrap.style.display = 'none';
+  } catch (e) {
+    showToast('Chyba: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Pripojit Telegram'; }
+  }
+}
+
+async function verifyTelegram() {
+  const session = getSession();
+  if (!session) return;
+  const btn = document.getElementById('btn-tg-verify');
+  if (btn) { btn.disabled = true; btn.textContent = 'Ověřuji...'; }
+  try {
+    const resp = await fetch('/api/telegram-connect', {
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    const data = await resp.json();
+    if (data.connected) {
+      renderTelegramStatus(true);
+      showToast('Telegram propojen!');
+    } else {
+      showToast('Ještě nepropojeno — otevři bota a tap Start');
+    }
+  } catch (e) {
+    showToast('Chyba při ověřování');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Overit spojeni'; }
+  }
+}
+
+async function disconnectTelegram() {
+  const session = getSession();
+  if (!session) return;
+  try {
+    await fetch('/api/telegram-connect', {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${session.token}` }
+    });
+    renderTelegramStatus(false);
+    showToast('Telegram odpojen');
+  } catch (e) {
+    showToast('Chyba při odpojování');
+  }
 }
 
 function saveSettingsFromUI() {
@@ -1648,6 +1751,7 @@ function initNavigation() {
           renderHistory();
         } else if (targetScreenId === 'screen-settings') {
           renderSettings();
+          checkTelegramStatus();
         } else if (targetScreenId === 'screen-add') {
           showWizardStep(1);
         }
@@ -2912,6 +3016,14 @@ function init() {
   // Manual sync button
   const syncBtn = document.getElementById('btn-sync-cloud');
   if (syncBtn) syncBtn.addEventListener('click', syncFromCloud);
+
+  // Telegram connect buttons
+  const btnTgConnect = document.getElementById('btn-tg-connect');
+  if (btnTgConnect) btnTgConnect.addEventListener('click', connectTelegram);
+  const btnTgVerify = document.getElementById('btn-tg-verify');
+  if (btnTgVerify) btnTgVerify.addEventListener('click', verifyTelegram);
+  const btnTgDisconnect = document.getElementById('btn-tg-disconnect');
+  if (btnTgDisconnect) btnTgDisconnect.addEventListener('click', disconnectTelegram);
 
   // Water Intake add button
   const waterAddBtn = document.querySelector('.water-add');
