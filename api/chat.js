@@ -153,7 +153,7 @@ Pravidla:
       contents,
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 3072,
         // gemini-2.5-flash is a thinking model and "thinking" tokens count
         // against the output budget — disable it so the whole budget goes to
         // the visible answer (otherwise replies get cut off mid-sentence).
@@ -210,17 +210,36 @@ Pravidla:
     }
 
     // Extract an optional food-management action proposal from the reply.
+    // Be robust: the model sometimes omits the closing [[/ACTION]] marker, so
+    // pull the JSON object out by brace-matching and strip everything from the
+    // [[ACTION]] marker onward (so raw JSON is never shown to the user).
     let action = null;
-    const am = reply.match(/\[\[ACTION\]\]([\s\S]*?)\[\[\/ACTION\]\]/);
-    if (am) {
-      try {
-        action = JSON.parse(am[1].trim());
-      } catch (e) {
-        console.error('Bad ACTION JSON:', am[1].slice(0, 200));
-        action = null;
+    const startIdx = reply.indexOf('[[ACTION]]');
+    if (startIdx !== -1) {
+      const after = reply.slice(startIdx + '[[ACTION]]'.length);
+      const jsonStart = after.indexOf('{');
+      if (jsonStart !== -1) {
+        let depth = 0, end = -1, inStr = false, esc = false;
+        for (let i = jsonStart; i < after.length; i++) {
+          const c = after[i];
+          if (esc) { esc = false; continue; }
+          if (c === '\\') { esc = true; continue; }
+          if (c === '"') { inStr = !inStr; continue; }
+          if (inStr) continue;
+          if (c === '{') depth++;
+          else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+        }
+        if (end !== -1) {
+          try {
+            action = JSON.parse(after.slice(jsonStart, end + 1));
+          } catch (e) {
+            console.error('Bad ACTION JSON:', after.slice(jsonStart, end + 1).slice(0, 200));
+            action = null;
+          }
+        }
       }
-      reply = reply.replace(am[0], '').trim();
-      if (!reply) reply = 'Připravil jsem návrh změny 👇';
+      reply = reply.slice(0, startIdx).trim();
+      if (!reply) reply = action ? 'Připravil jsem návrh změny 👇' : 'Promiň, zkus to prosím znovu.';
     }
 
     return res.status(200).json({
