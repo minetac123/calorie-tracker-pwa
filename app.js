@@ -4919,26 +4919,42 @@ async function sendCoachMessage() {
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
 
+  const requestBody = JSON.stringify({
+    message,
+    image: image || undefined,
+    history: chat.messages.slice(0, -1).slice(-20),
+    memories: memOn ? getCoachMemories().map((m) => m.text) : [],
+    foodContext: buildFoodContext(),
+    today: getTodayDateString()
+  });
+
   try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.token}`
-      },
-      body: JSON.stringify({
-        message,
-        image: image || undefined,
-        history: chat.messages.slice(0, -1).slice(-20),
-        memories: memOn ? getCoachMemories().map((m) => m.text) : [],
-        foodContext: buildFoodContext(),
-        today: getTodayDateString()
-      })
-    });
-    const data = await response.json();
+    let data = null;
+    let lastStatus = 0;
+    // Auto-retry on the client too: if every model is overloaded at once
+    // (503), try again automatically so the user never has to retype.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.token}`
+        },
+        body: requestBody
+      });
+      lastStatus = response.status;
+      data = await response.json().catch(() => ({}));
+      if (data && data.success && data.reply) break;
+      if (response.status === 503 && attempt < 2) {
+        if (typing) typing.textContent = 'AI je vytížená, zkouším znovu…';
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      break;
+    }
     if (typing) typing.remove();
 
-    if (data.success && data.reply) {
+    if (data && data.success && data.reply) {
       // Safeguard: never show a raw action block even if the backend missed it.
       const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'Hotovo.';
       appendCoachBubble(replyText, 'assistant', true);
@@ -4951,7 +4967,7 @@ async function sendCoachMessage() {
         renderCoachActionCard(data.action);
       }
     } else {
-      appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
+      appendCoachBubble((data && data.error) || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
     }
   } catch (error) {
     console.error('Coach error:', error);
