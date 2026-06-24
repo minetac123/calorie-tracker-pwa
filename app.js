@@ -4637,7 +4637,7 @@ function closeCoach() {
 function renderCoachEmpty() {
   const box = document.getElementById('coach-messages');
   if (!box) return;
-  box.innerHTML = `<div class="coach-empty">Ahoj! 👋 Jsem tvůj AI kouč.<br>Vidím tvá WHOOP data, jídla a kalorie.<br><br>Zeptej se mě třeba:<br>„Jak na tom dnes jsem?"<br>„Co bych měl sníst k večeři?"<br>„Mám dneska trénovat?"</div>`;
+  box.innerHTML = `<div class="coach-empty">čau bro, jsem tvůj kouč<br>vidím tvý whoop data, jídlo a kalorie<br><br>klidně se ptej:<br>„jak na tom dnes jsem"<br>„co si dát k večeři"<br>„mám dneska trénovat"</div>`;
 }
 
 // Start a brand-new (empty, not-yet-saved) chat as the active one.
@@ -4948,7 +4948,7 @@ async function sendCoachMessage() {
       netError = false;
       if (data && data.success && data.reply) break;
       if (response.status === 503 && attempt < 1) {
-        if (typing) typing.textContent = 'AI je vytížená, zkouším znovu…';
+        if (typing) typing.textContent = 'jsem dost cooked, zkouším znovu…';
         await new Promise((r) => setTimeout(r, 1500));
         continue;
       }
@@ -4969,7 +4969,7 @@ async function sendCoachMessage() {
 
     if (data && data.success && data.reply) {
       // Safeguard: never show a raw action block even if the backend missed it.
-      const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'Hotovo.';
+      const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'mám to';
       appendCoachBubble(replyText, 'assistant', true);
       chat.messages.push({ role: 'assistant', text: replyText });
       chat.updatedAt = Date.now();
@@ -4980,9 +4980,9 @@ async function sendCoachMessage() {
         renderCoachActionCard(data.action);
       }
     } else if (netError) {
-      appendCoachBubble('Spojení vypadlo. Zkus to prosím znovu.', 'assistant');
+      appendCoachBubble('spojení vypadlo bro, zkus to ještě jednou', 'assistant');
     } else {
-      appendCoachBubble((data && data.error) || 'Promiň, AI je teď přetížená. Zkus to prosím za chvíli.', 'assistant');
+      appendCoachBubble((data && data.error) || 'sorry, jsem teď dost cooked, zkus to za chvíli', 'assistant');
     }
   } finally {
     if (sendBtn) sendBtn.disabled = false;
@@ -5228,10 +5228,10 @@ function renderCoachActionCard(action) {
     const result = executeCoachAction(action);
     saveState();
     renderDashboard();
-    finish(`✅ Hotovo. ${result}`);
+    finish(`done, ${result.toLowerCase()}`);
     showToast('Jídelníček upraven ✓');
   });
-  no.addEventListener('click', () => finish('Dobře, nic jsem nezměnil. 👍'));
+  no.addEventListener('click', () => finish('ok, nechávám to bejt'));
 
   box.appendChild(card);
   box.scrollTop = box.scrollHeight;
