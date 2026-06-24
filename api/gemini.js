@@ -50,7 +50,7 @@ module.exports = async function handler(req, res) {
     // is overloaded, so try it right after the primary and give each call a
     // generous timeout (function maxDuration is 30s).
     const modelChain = [...new Set([GEMINI_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-flash-lite-latest'])];
-    const deadline = Date.now() + 24000;
+    const deadline = Date.now() + 27000;
 
     let okResp = null;
     let primaryResp = null;
@@ -59,7 +59,10 @@ module.exports = async function handler(req, res) {
       if (remaining < 3000) break;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelChain[i]}:generateContent?key=${GEMINI_API_KEY}`;
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), Math.min(13000, remaining));
+      // Give the primary model a long window (it tends to queue under load);
+      // fallbacks 503 instantly so they don't need much.
+      const callTimeout = i === 0 ? Math.min(18000, remaining) : Math.min(9000, remaining);
+      const timer = setTimeout(() => ctrl.abort(), callTimeout);
       let resp = null;
       try {
         resp = await fetch(url, {
