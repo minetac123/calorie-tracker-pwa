@@ -148,47 +148,46 @@ Pravidla:
     }
     contents.push({ role: 'user', parts: userParts });
 
-    const payload = {
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 3072,
-        // gemini-2.5-flash is a thinking model and "thinking" tokens count
-        // against the output budget — disable it so the whole budget goes to
-        // the visible answer (otherwise replies get cut off mid-sentence).
-        thinkingConfig: { thinkingBudget: 0 }
-      }
-    };
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${COACH_MODEL}:generateContent?key=${COACH_API_KEY}`;
-
-    // Gemini occasionally returns transient 429/500/503 (overloaded). Retry a
-    // few times with backoff before giving up so a single blip doesn't surface
-    // as "AI nedostupná".
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    let gResp;
-    let lastErrText = '';
-    for (let attempt = 0; attempt < 4; attempt++) {
-      gResp = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (gResp.ok) break;
-      lastErrText = await gResp.text().catch(() => '');
-      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
-      console.error(`Gemini error (attempt ${attempt + 1}):`, gResp.status, lastErrText.slice(0, 300));
-      if (!transient || attempt === 3) break;
-      await sleep(500 * Math.pow(2, attempt)); // 0.5s, 1s, 2s
+
+    // Fallback chain: gemini-2.5-flash is frequently overloaded (503 "high
+    // demand"). When the primary model is unavailable after a retry, fall back
+    // to other models that are usually less loaded, so the coach still answers.
+    const modelChain = [...new Set([COACH_MODEL, 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite'])];
+
+    let gResp = null;
+    let succeeded = false;
+    for (const model of modelChain) {
+      const genConfig = { temperature: 0.7, maxOutputTokens: 3072 };
+      // thinkingConfig is a 2.5 feature; only send it to 2.5 models.
+      if (/^gemini-2\.5/.test(model)) genConfig.thinkingConfig = { thinkingBudget: 0 };
+      const payload = {
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        generationConfig: genConfig
+      };
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${COACH_API_KEY}`;
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        gResp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (gResp.ok) { succeeded = true; break; }
+        const status = gResp.status;
+        const txt = await gResp.text().catch(() => '');
+        console.error(`Gemini ${model} attempt ${attempt + 1}: ${status} ${txt.slice(0, 160)}`);
+        const transient = status === 429 || status === 500 || status === 503;
+        if (!transient) break;          // not load-related → try next model
+        if (attempt < 1) await sleep(600);
+      }
+      if (succeeded) break;             // got an answer → stop trying models
     }
 
-    if (!gResp.ok) {
-      const overloaded = gResp.status === 429 || gResp.status === 503;
+    if (!gResp || !gResp.ok) {
       return res.status(503).json({
-        error: overloaded
-          ? 'AI je momentálně přetížená, zkus to prosím za chvíli znovu.'
-          : 'AI služba je dočasně nedostupná, zkus to prosím znovu.'
+        error: 'AI je teď hodně vytížená 😕 Zkus to prosím za chvilku znovu.'
       });
     }
 
