@@ -19,6 +19,10 @@ const {
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
 
+// Stable production URL for the Telegram Mini App. Vercel sets
+// VERCEL_PROJECT_PRODUCTION_URL (no scheme), or fall back to hardcoded domain.
+const APP_DOMAIN = process.env.VERCEL_PROJECT_PRODUCTION_URL || 'project-8rjn0.vercel.app';
+
 // ---- Food context helpers (mirrors app.js client-side logic) ----
 
 const CATEGORY_NAMES = {
@@ -438,12 +442,21 @@ module.exports = async function handler(req, res) {
   if (action) {
     await savePendingAction(chatId, action);
     const desc = describeAction(action);
+    // For add/edit actions offer an "Edit in mini app" button; delete just needs confirm/cancel
+    const canEdit = action.type === 'add' || action.type === 'edit';
+    const buttons = canEdit
+      ? [[
+          { text: 'Jo', callback_data: 'tg_confirm' },
+          { text: 'Upravit', web_app: { url: `https://${APP_DOMAIN}/telegram-miniapp.html?chatId=${chatId}` } },
+          { text: 'Ne', callback_data: 'tg_cancel' }
+        ]]
+      : [[
+          { text: 'Jo', callback_data: 'tg_confirm' },
+          { text: 'Ne', callback_data: 'tg_cancel' }
+        ]];
     await sendMessage(chatId, `${replyText}\n\n${desc}`, {
       reply_markup: {
-        inline_keyboard: [[
-          { text: 'Potvrdit', callback_data: 'tg_confirm' },
-          { text: 'Zrusit', callback_data: 'tg_cancel' }
-        ]]
+        inline_keyboard: buttons
       }
     });
   } else {
