@@ -4939,8 +4939,10 @@ async function sendCoachMessage() {
     if (typing) typing.remove();
 
     if (data.success && data.reply) {
-      appendCoachBubble(data.reply, 'assistant', true);
-      chat.messages.push({ role: 'assistant', text: data.reply });
+      // Safeguard: never show a raw action block even if the backend missed it.
+      const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'Hotovo.';
+      appendCoachBubble(replyText, 'assistant', true);
+      chat.messages.push({ role: 'assistant', text: replyText });
       chat.updatedAt = Date.now();
       if (chat.messages.length > 200) chat.messages = chat.messages.slice(-200);
       if (memOn) saveState();
