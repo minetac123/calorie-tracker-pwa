@@ -1931,9 +1931,10 @@ function downscaleImage(dataUrl, maxDim = 1024, quality = 0.8) {
   });
 }
 
-// Match AI-detected foods against the user's saved foods (favorites) and swap
-// in the saved values, so a known item like "Proteinové kafe" always uses the
-// numbers the user already entered instead of a fresh AI estimate.
+// Match AI-detected foods against foods the user already knows — both
+// favorites AND anything previously logged — and swap in the saved values, so
+// a known item like "Proteinové kafe" uses the numbers the user already
+// entered instead of a fresh AI estimate.
 function normalizeFoodName(s) {
   return String(s || '')
     .toLowerCase()
@@ -1943,15 +1944,46 @@ function normalizeFoodName(s) {
     .trim();
 }
 
-function findKnownFood(name) {
-  const favs = appState.favorites || [];
+// Collect known foods: favorites first (curated → priority), then previously
+// logged entries (most recent first), deduped by normalized name. For logged
+// items with leftovers, use the original (full-portion) values.
+function getKnownFoods(limit = 100) {
+  const map = new Map();
+  const add = (f) => {
+    if (!f || !f.name) return;
+    const key = normalizeFoodName(f.name);
+    if (!key || map.has(key)) return;
+    const src = f.original || f; // prefer the as-logged original portion
+    map.set(key, {
+      name: f.name,
+      amount: f.amount || src.amount || '100g',
+      calories: Number(src.calories) || 0,
+      protein: Number(src.protein) || 0,
+      carbs: Number(src.carbs) || 0,
+      fat: Number(src.fat) || 0
+    });
+  };
+  (appState.favorites || []).forEach(add);
+  const dates = Object.keys(appState.logs || {}).sort((a, b) => b.localeCompare(a));
+  for (const d of dates) {
+    const items = appState.logs[d] || [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      add(items[i]);
+      if (map.size >= limit) break;
+    }
+    if (map.size >= limit) break;
+  }
+  return Array.from(map.values());
+}
+
+function matchKnownFood(name, known) {
   const n = normalizeFoodName(name);
   if (!n) return null;
   // 1) exact normalized match
-  let hit = favs.find((f) => normalizeFoodName(f.name) === n);
+  let hit = known.find((f) => normalizeFoodName(f.name) === n);
   if (hit) return hit;
   // 2) one name contained in the other (only for sufficiently specific names)
-  hit = favs.find((f) => {
+  hit = known.find((f) => {
     const fn = normalizeFoodName(f.name);
     if (fn.length < 5) return false;
     return fn.includes(n) || n.includes(fn);
@@ -1959,9 +1991,9 @@ function findKnownFood(name) {
   return hit || null;
 }
 
-function applyKnownFoodToItem(item) {
+function applyKnownFoodToItem(item, known) {
   if (!item || !item.name) return item;
-  const fav = findKnownFood(item.name);
+  const fav = matchKnownFood(item.name, known);
   if (!fav) return item;
   item.name = fav.name; // canonical saved name
   item.amount = fav.amount || item.amount;
@@ -1985,16 +2017,18 @@ function sumItemsTotal(items) {
 // Walk a Gemini result (choices or items) and substitute known foods.
 function applyKnownFoods(geminiData) {
   if (!geminiData) return geminiData;
+  const known = getKnownFoods();
+  if (known.length === 0) return geminiData;
   if (Array.isArray(geminiData.choices)) {
     geminiData.choices.forEach((ch) => {
       if (Array.isArray(ch.items)) {
-        ch.items.forEach(applyKnownFoodToItem);
+        ch.items.forEach((it) => applyKnownFoodToItem(it, known));
         ch.total = sumItemsTotal(ch.items);
       }
     });
   }
   if (Array.isArray(geminiData.items)) {
-    geminiData.items.forEach(applyKnownFoodToItem);
+    geminiData.items.forEach((it) => applyKnownFoodToItem(it, known));
     geminiData.total = sumItemsTotal(geminiData.items);
   }
   return geminiData;
@@ -2081,14 +2115,15 @@ Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdn�
 
 REŽIM ZBYTKY (DŮLEŽITÉ): Tato fotka ukazuje ZBYTEK porce jídla, který NEBYL snězen — tedy to, co po jídle ZBYLO na talíři. NEPŘEDPOKLÁDEJ, že jde o nové, celé jídlo. Odhadni kalorie a makra POUZE toho, co je viditelné na fotce (nedojedený zbytek). Vrať VŽDY JSON typu "text_result" s jednou nebo více položkami a polem "total" (součet zbytku). Nevracej "image_choices" ani 3 varianty.`;
   } else {
-    // Tell the model about the user's known foods so it labels a recognised
-    // item with the exact saved name — we then swap in the saved values.
-    const knownFoods = (appState.favorites || []).map((f) => f && f.name).filter(Boolean);
-    if (knownFoods.length) {
+    // Tell the model about the user's known foods (favorites + previously
+    // logged) so it labels a recognised item with the exact saved name — we
+    // then swap in the saved values.
+    const knownNames = getKnownFoods().map((f) => f.name).filter(Boolean).slice(0, 80);
+    if (knownNames.length) {
       systemInstructionText += `
 
-ZNÁMÁ JÍDLA UŽIVATELE (jeho oblíbená / dříve zadaná):
-${knownFoods.map((n) => `- ${n}`).join('\n')}
+ZNÁMÁ JÍDLA UŽIVATELE (jeho oblíbená a dříve zadaná jídla):
+${knownNames.map((n) => `- ${n}`).join('\n')}
 Pokud rozpoznané jídlo odpovídá některému z těchto známých jídel uživatele, POUŽIJ PŘESNĚ jeho název (stejný zápis) jako "name" alespoň v jedné z variant. Tím se spáruje s jeho uloženými nutričními hodnotami.`;
     }
   }
