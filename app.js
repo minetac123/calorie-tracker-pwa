@@ -4928,12 +4928,12 @@ async function sendCoachMessage() {
     today: getTodayDateString()
   });
 
-  try {
-    let data = null;
-    let lastStatus = 0;
-    // Auto-retry on the client too: if every model is overloaded at once
-    // (503), try again automatically so the user never has to retype.
-    for (let attempt = 0; attempt < 3; attempt++) {
+  let data = null;
+  let netError = false;
+  // Auto-retry on the client: retry on overload (503) AND on a dropped
+  // connection, so a single blip never makes the user retype.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -4942,16 +4942,27 @@ async function sendCoachMessage() {
         },
         body: requestBody
       });
-      lastStatus = response.status;
       data = await response.json().catch(() => ({}));
+      netError = false;
       if (data && data.success && data.reply) break;
-      if (response.status === 503 && attempt < 2) {
+      if (response.status === 503 && attempt < 1) {
         if (typing) typing.textContent = 'AI je vytížená, zkouším znovu…';
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 1500));
         continue;
       }
       break;
+    } catch (error) {
+      console.error('Coach fetch error:', error);
+      netError = true;
+      if (attempt < 1) {
+        if (typing) typing.textContent = 'Zkouším znovu…';
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
     }
+  }
+
+  try {
     if (typing) typing.remove();
 
     if (data && data.success && data.reply) {
@@ -4966,13 +4977,11 @@ async function sendCoachMessage() {
       if (data.action && typeof data.action === 'object') {
         renderCoachActionCard(data.action);
       }
+    } else if (netError) {
+      appendCoachBubble('Spojení vypadlo. Zkus to prosím znovu.', 'assistant');
     } else {
-      appendCoachBubble((data && data.error) || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
+      appendCoachBubble((data && data.error) || 'Promiň, AI je teď přetížená. Zkus to prosím za chvíli.', 'assistant');
     }
-  } catch (error) {
-    console.error('Coach error:', error);
-    if (typing) typing.remove();
-    appendCoachBubble('Chyba spojení. Zkontroluj připojení a zkus to znovu.', 'assistant');
   } finally {
     if (sendBtn) sendBtn.disabled = false;
     input.focus();

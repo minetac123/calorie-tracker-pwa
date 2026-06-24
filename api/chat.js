@@ -148,18 +148,20 @@ Pravidla:
     }
     contents.push({ role: 'user', parts: userParts });
 
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    // Fallback chain: gemini-2.5-flash is frequently overloaded (503 "high
-    // demand"). When the primary model is unavailable after a retry, fall back
-    // to other models that are usually less loaded, so the coach still answers.
-    const modelChain = [...new Set([COACH_MODEL, 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite'])];
+    // Fallback chain for when gemini-2.5-flash is overloaded (503). Try each
+    // model ONCE, switching immediately on a transient error. A global deadline
+    // + per-call timeout keeps the whole request safely under the serverless
+    // function limit (so a slow/overloaded Gemini never causes a timeout).
+    const modelChain = [...new Set([COACH_MODEL, 'gemini-2.0-flash', 'gemini-2.0-flash-lite'])];
+    const deadline = Date.now() + 9000;
 
     let gResp = null;
     let succeeded = false;
     for (const model of modelChain) {
+      const remaining = deadline - Date.now();
+      if (remaining < 2000) break; // not enough time to try another model
+
       const genConfig = { temperature: 0.7, maxOutputTokens: 3072 };
-      // thinkingConfig is a 2.5 feature; only send it to 2.5 models.
       if (/^gemini-2\.5/.test(model)) genConfig.thinkingConfig = { thinkingBudget: 0 };
       const payload = {
         systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -168,24 +170,31 @@ Pravidla:
       };
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${COACH_API_KEY}`;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), Math.min(7000, remaining));
+      try {
         gResp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: ctrl.signal
         });
-        if (gResp.ok) { succeeded = true; break; }
-        const status = gResp.status;
-        const txt = await gResp.text().catch(() => '');
-        console.error(`Gemini ${model} attempt ${attempt + 1}: ${status} ${txt.slice(0, 160)}`);
-        const transient = status === 429 || status === 500 || status === 503;
-        if (!transient) break;          // not load-related → try next model
-        if (attempt < 1) await sleep(600);
+      } catch (e) {
+        clearTimeout(timer);
+        console.error(`Gemini ${model} fetch failed:`, e.name === 'AbortError' ? 'timeout' : e.message);
+        continue; // try next model
       }
-      if (succeeded) break;             // got an answer → stop trying models
+      clearTimeout(timer);
+
+      if (gResp.ok) { succeeded = true; break; }
+      const status = gResp.status;
+      const txt = await gResp.text().catch(() => '');
+      console.error(`Gemini ${model}: ${status} ${txt.slice(0, 140)}`);
+      if (status !== 429 && status !== 500 && status !== 503) break; // not load-related
+      // transient → fall straight through to the next model (no sleep)
     }
 
-    if (!gResp || !gResp.ok) {
+    if (!gResp || !gResp.ok || !succeeded) {
       return res.status(503).json({
         error: 'AI je teď hodně vytížená 😕 Zkus to prosím za chvilku znovu.'
       });

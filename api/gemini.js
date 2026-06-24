@@ -42,28 +42,41 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // Fall back to less-loaded models when the primary 503s ("high demand").
-    const modelChain = [...new Set([GEMINI_MODEL, 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite'])];
+    // Try each once, with a global deadline + per-call timeout so the request
+    // stays under the serverless function limit even when Gemini is slow.
+    const modelChain = [...new Set([GEMINI_MODEL, 'gemini-2.0-flash', 'gemini-2.0-flash-lite'])];
+    const deadline = Date.now() + 9000;
 
     let gResp = null;
     let succeeded = false;
     for (const model of modelChain) {
+      const remaining = deadline - Date.now();
+      if (remaining < 2500) break;
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), Math.min(7500, remaining));
+      try {
         gResp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: ctrl.signal
         });
-        if (gResp.ok) { succeeded = true; break; }
-        const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
-        if (!transient) break;
-        if (attempt < 1) await sleep(600);
+      } catch (e) {
+        clearTimeout(timer);
+        console.error(`Gemini ${model} fetch failed:`, e.name === 'AbortError' ? 'timeout' : e.message);
+        continue;
       }
-      if (succeeded) break;
+      clearTimeout(timer);
+      if (gResp.ok) { succeeded = true; break; }
+      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
+      if (!transient) break;
     }
 
+    if (!gResp) {
+      return res.status(503).json({ error: { message: 'AI je teď vytížená, zkus to prosím znovu.' } });
+    }
     // Forward Google's status + body verbatim so the client parses as before.
     const data = await gResp.json().catch(() => ({}));
     return res.status(gResp.status).json(data);
