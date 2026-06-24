@@ -1931,6 +1931,75 @@ function downscaleImage(dataUrl, maxDim = 1024, quality = 0.8) {
   });
 }
 
+// Match AI-detected foods against the user's saved foods (favorites) and swap
+// in the saved values, so a known item like "Proteinové kafe" always uses the
+// numbers the user already entered instead of a fresh AI estimate.
+function normalizeFoodName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findKnownFood(name) {
+  const favs = appState.favorites || [];
+  const n = normalizeFoodName(name);
+  if (!n) return null;
+  // 1) exact normalized match
+  let hit = favs.find((f) => normalizeFoodName(f.name) === n);
+  if (hit) return hit;
+  // 2) one name contained in the other (only for sufficiently specific names)
+  hit = favs.find((f) => {
+    const fn = normalizeFoodName(f.name);
+    if (fn.length < 5) return false;
+    return fn.includes(n) || n.includes(fn);
+  });
+  return hit || null;
+}
+
+function applyKnownFoodToItem(item) {
+  if (!item || !item.name) return item;
+  const fav = findKnownFood(item.name);
+  if (!fav) return item;
+  item.name = fav.name; // canonical saved name
+  item.amount = fav.amount || item.amount;
+  item.calories = Number(fav.calories) || 0;
+  item.protein = Number(fav.protein) || 0;
+  item.carbs = Number(fav.carbs) || 0;
+  item.fat = Number(fav.fat) || 0;
+  item.fromFavorite = true;
+  return item;
+}
+
+function sumItemsTotal(items) {
+  return (items || []).reduce((t, x) => ({
+    calories: Math.round(t.calories + (Number(x.calories) || 0)),
+    protein: Math.round((t.protein + (Number(x.protein) || 0)) * 10) / 10,
+    carbs: Math.round((t.carbs + (Number(x.carbs) || 0)) * 10) / 10,
+    fat: Math.round((t.fat + (Number(x.fat) || 0)) * 10) / 10
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+}
+
+// Walk a Gemini result (choices or items) and substitute known foods.
+function applyKnownFoods(geminiData) {
+  if (!geminiData) return geminiData;
+  if (Array.isArray(geminiData.choices)) {
+    geminiData.choices.forEach((ch) => {
+      if (Array.isArray(ch.items)) {
+        ch.items.forEach(applyKnownFoodToItem);
+        ch.total = sumItemsTotal(ch.items);
+      }
+    });
+  }
+  if (Array.isArray(geminiData.items)) {
+    geminiData.items.forEach(applyKnownFoodToItem);
+    geminiData.total = sumItemsTotal(geminiData.items);
+  }
+  return geminiData;
+}
+
 async function callGeminiAPI(textPrompt, imageBase64, options = {}) {
   const isLeftover = options.leftover === true;
 
@@ -2011,6 +2080,17 @@ Pokud nelze jídlo vůbec identifikovat nebo je vstup nesmyslný, vrať prázdn�
     systemInstructionText += `
 
 REŽIM ZBYTKY (DŮLEŽITÉ): Tato fotka ukazuje ZBYTEK porce jídla, který NEBYL snězen — tedy to, co po jídle ZBYLO na talíři. NEPŘEDPOKLÁDEJ, že jde o nové, celé jídlo. Odhadni kalorie a makra POUZE toho, co je viditelné na fotce (nedojedený zbytek). Vrať VŽDY JSON typu "text_result" s jednou nebo více položkami a polem "total" (součet zbytku). Nevracej "image_choices" ani 3 varianty.`;
+  } else {
+    // Tell the model about the user's known foods so it labels a recognised
+    // item with the exact saved name — we then swap in the saved values.
+    const knownFoods = (appState.favorites || []).map((f) => f && f.name).filter(Boolean);
+    if (knownFoods.length) {
+      systemInstructionText += `
+
+ZNÁMÁ JÍDLA UŽIVATELE (jeho oblíbená / dříve zadaná):
+${knownFoods.map((n) => `- ${n}`).join('\n')}
+Pokud rozpoznané jídlo odpovídá některému z těchto známých jídel uživatele, POUŽIJ PŘESNĚ jeho název (stejný zápis) jako "name" alespoň v jedné z variant. Tím se spáruje s jeho uloženými nutričními hodnotami.`;
+    }
   }
 
   // Assemble Gemini Parts
@@ -2098,7 +2178,9 @@ REŽIM ZBYTKY (DŮLEŽITÉ): Tato fotka ukazuje ZBYTEK porce jídla, který NEBY
   }
 
   try {
-    return JSON.parse(resultText.trim());
+    const parsed = JSON.parse(resultText.trim());
+    // Swap in saved values for foods the user already knows (not in leftover mode).
+    return isLeftover ? parsed : applyKnownFoods(parsed);
   } catch (e) {
     console.error("Neplatná JSON odpověď od Gemini: ", resultText);
     throw new Error("AI odpověď se nepodařilo zpracovat jako JSON.");
