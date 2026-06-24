@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>FitAI – Upravit jídlo</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #000;
+      --bg-card: #1c1c1e;
+      --bg-input: #2c2c2e;
+      --text: #fff;
+      --text-2: #aeaeb2;
+      --text-3: #636366;
+      --sep: rgba(255,255,255,0.08);
+      --blue: #0a84ff;
+      --green: #30d158;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-size: 16px; }
+    body { padding: 16px 16px 100px; }
+
+    #loading { display: flex; align-items: center; justify-content: center; height: 60vh; color: var(--text-2); font-size: 15px; }
+    #error-msg { display: none; padding: 24px; text-align: center; color: var(--text-2); font-size: 15px; }
+
+    .section-title { font-size: 12px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 8px; padding: 0 4px; }
+    .card { background: var(--bg-card); border-radius: 12px; overflow: hidden; }
+
+    .item-header { padding: 14px 16px 10px; }
+    .item-header input[type="text"] { width: 100%; background: none; border: none; color: var(--text); font-size: 17px; font-weight: 600; outline: none; }
+    .item-header input[type="text"]::placeholder { color: var(--text-3); }
+
+    .macros-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--sep); }
+    .macro-cell { background: var(--bg-card); padding: 12px 16px; }
+    .macro-label { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+    .macro-row { display: flex; align-items: center; gap: 6px; }
+    .macro-row input { flex: 1; background: var(--bg-input); border: none; border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 15px; font-weight: 600; outline: none; width: 100%; }
+    .macro-unit { font-size: 13px; color: var(--text-2); flex-shrink: 0; }
+
+    .amount-row { padding: 12px 16px; border-top: 1px solid var(--sep); display: flex; align-items: center; gap: 12px; }
+    .amount-row label { font-size: 14px; color: var(--text-2); flex-shrink: 0; }
+    .amount-row input { flex: 1; background: var(--bg-input); border: none; border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 15px; outline: none; }
+
+    .kcal-preview { text-align: center; padding: 14px; color: var(--text-3); font-size: 13px; }
+    .kcal-preview strong { color: var(--text); font-size: 18px; font-weight: 700; }
+
+    .add-item-btn { width: 100%; background: var(--bg-card); border: none; border-radius: 12px; padding: 14px; color: var(--blue); font-size: 16px; font-weight: 500; margin-top: 12px; cursor: pointer; }
+
+    .item-sep { height: 1px; background: var(--sep); margin: 0; }
+  </style>
+</head>
+<body>
+  <div id="loading">Načítám...</div>
+  <div id="error-msg"></div>
+  <div id="content" style="display:none"></div>
+
+  <script>
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    const params = new URLSearchParams(location.search);
+    const chatId = params.get('chatId');
+
+    let actionData = null;
+
+    async function init() {
+      if (!chatId) return showError('Chybí chatId — otevři přes Telegram bota');
+      try {
+        const resp = await fetch(`/api/telegram-miniapp?chatId=${encodeURIComponent(chatId)}`);
+        const data = await resp.json();
+        if (!resp.ok || !data.action) return showError('Akce nenalezena nebo vypršela');
+        actionData = data.action;
+        render(actionData);
+      } catch (e) {
+        showError('Chyba připojení');
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('loading').style.display = 'none';
+      const el = document.getElementById('error-msg');
+      el.textContent = msg;
+      el.style.display = '';
+    }
+
+    function round1(v) { return Math.round(Number(v || 0) * 10) / 10; }
+    function roundCal(v) { return Math.round(Number(v || 0)); }
+
+    function render(action) {
+      document.getElementById('loading').style.display = 'none';
+      const box = document.getElementById('content');
+      box.style.display = '';
+
+      if (action.type === 'add') {
+        renderAdd(box, action);
+      } else if (action.type === 'edit') {
+        renderEdit(box, action);
+      } else {
+        showError('Tento typ akce nelze upravit');
+        return;
+      }
+
+      setupMainButton();
+    }
+
+    function macroCell(label, value, unit, key, idx) {
+      return `<div class="macro-cell">
+        <div class="macro-label">${label}</div>
+        <div class="macro-row">
+          <input type="number" min="0" step="0.1" value="${value}" data-key="${key}" data-idx="${idx}" inputmode="decimal">
+          <span class="macro-unit">${unit}</span>
+        </div>
+      </div>`;
+    }
+
+    function calcKcal(el) {
+      const p = Number(el.querySelector('[data-key="protein"]')?.value || 0);
+      const c = Number(el.querySelector('[data-key="carbs"]')?.value || 0);
+      const f = Number(el.querySelector('[data-key="fat"]')?.value || 0);
+      const cal = el.querySelector('[data-key="calories"]');
+      if (cal && document.activeElement !== cal) {
+        cal.value = Math.round(p * 4 + c * 4 + f * 9);
+      }
+      updateKcalPreview(el);
+    }
+
+    function updateKcalPreview(el) {
+      const cal = Number(el.querySelector('[data-key="calories"]')?.value || 0);
+      const preview = el.querySelector('.kcal-preview strong');
+      if (preview) preview.textContent = Math.round(cal);
+    }
+
+    function renderAdd(box, action) {
+      const items = action.items || [];
+      let html = `<div class="section-title">Přidávaná jídla</div>`;
+
+      items.forEach((item, idx) => {
+        html += `<div class="card" id="item-${idx}" style="margin-bottom:12px">
+          <div class="item-header"><input type="text" value="${escHtml(item.name || '')}" placeholder="Název jídla" data-key="name" data-idx="${idx}"></div>
+          <div class="amount-row">
+            <label>Množství</label>
+            <input type="text" value="${escHtml(item.amount || '100g')}" placeholder="100g" data-key="amount" data-idx="${idx}" inputmode="text">
+          </div>
+          <div class="macros-grid">
+            ${macroCell('Kalorie', roundCal(item.calories), 'kcal', 'calories', idx)}
+            ${macroCell('Bílkoviny', round1(item.protein), 'g', 'protein', idx)}
+            ${macroCell('Sacharidy', round1(item.carbs), 'g', 'carbs', idx)}
+            ${macroCell('Tuky', round1(item.fat), 'g', 'fat', idx)}
+          </div>
+          <div class="kcal-preview">celkem <strong>${roundCal(item.calories)}</strong> kcal</div>
+        </div>`;
+      });
+
+      box.innerHTML = html;
+
+      // Live recalc
+      box.querySelectorAll('input[data-key="protein"], input[data-key="carbs"], input[data-key="fat"]').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const card = inp.closest('.card');
+          calcKcal(card);
+        });
+      });
+      box.querySelectorAll('input[data-key="calories"]').forEach(inp => {
+        inp.addEventListener('input', () => updateKcalPreview(inp.closest('.card')));
+      });
+    }
+
+    function renderEdit(box, action) {
+      const ch = action.changes || {};
+      let html = `<div class="section-title">Upravit položku</div>
+        <div class="card" id="item-0">
+          <div class="amount-row">
+            <label>Množství</label>
+            <input type="text" value="${escHtml(ch.amount || '')}" placeholder="200g" data-key="amount" data-idx="0" inputmode="text">
+          </div>
+          <div class="macros-grid">
+            ${macroCell('Kalorie', roundCal(ch.calories), 'kcal', 'calories', 0)}
+            ${macroCell('Bílkoviny', round1(ch.protein), 'g', 'protein', 0)}
+            ${macroCell('Sacharidy', round1(ch.carbs), 'g', 'carbs', 0)}
+            ${macroCell('Tuky', round1(ch.fat), 'g', 'fat', 0)}
+          </div>
+          <div class="kcal-preview">celkem <strong>${roundCal(ch.calories)}</strong> kcal</div>
+        </div>`;
+      box.innerHTML = html;
+
+      box.querySelectorAll('input[data-key="protein"], input[data-key="carbs"], input[data-key="fat"]').forEach(inp => {
+        inp.addEventListener('input', () => calcKcal(inp.closest('.card')));
+      });
+      box.querySelectorAll('input[data-key="calories"]').forEach(inp => {
+        inp.addEventListener('input', () => updateKcalPreview(inp.closest('.card')));
+      });
+    }
+
+    function collectAction() {
+      const action = JSON.parse(JSON.stringify(actionData));
+
+      if (action.type === 'add') {
+        (action.items || []).forEach((item, idx) => {
+          const card = document.getElementById(`item-${idx}`);
+          if (!card) return;
+          item.name    = card.querySelector('[data-key="name"]')?.value.trim() || item.name;
+          item.amount  = card.querySelector('[data-key="amount"]')?.value.trim() || item.amount;
+          item.calories = roundCal(card.querySelector('[data-key="calories"]')?.value);
+          item.protein  = round1(card.querySelector('[data-key="protein"]')?.value);
+          item.carbs    = round1(card.querySelector('[data-key="carbs"]')?.value);
+          item.fat      = round1(card.querySelector('[data-key="fat"]')?.value);
+        });
+      } else if (action.type === 'edit') {
+        const card = document.getElementById('item-0');
+        if (card) {
+          action.changes = action.changes || {};
+          const amt = card.querySelector('[data-key="amount"]')?.value.trim();
+          if (amt) action.changes.amount = amt;
+          action.changes.calories = roundCal(card.querySelector('[data-key="calories"]')?.value);
+          action.changes.protein  = round1(card.querySelector('[data-key="protein"]')?.value);
+          action.changes.carbs    = round1(card.querySelector('[data-key="carbs"]')?.value);
+          action.changes.fat      = round1(card.querySelector('[data-key="fat"]')?.value);
+        }
+      }
+
+      return action;
+    }
+
+    function setupMainButton() {
+      if (!tg) return;
+      tg.MainButton.setText('Uložit a potvrdit');
+      tg.MainButton.show();
+      tg.MainButton.onClick(async () => {
+        tg.MainButton.showProgress(true);
+        tg.MainButton.disable();
+        try {
+          const action = collectAction();
+          const resp = await fetch('/api/telegram-miniapp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId, action })
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'Chyba');
+          tg.close();
+        } catch (e) {
+          tg.MainButton.hideProgress();
+          tg.MainButton.enable();
+          alert('Chyba: ' + e.message);
+        }
+      });
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    init();
+  </script>
+</body>
+</html>

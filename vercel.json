@@ -3,6 +3,12 @@
   "functions": {
     "api/*.js": { "maxDuration": 30 }
   },
+  "crons": [
+    {
+      "path": "/api/telegram-cron",
+      "schedule": "0 7 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/sw.js",
