@@ -2037,9 +2037,11 @@ function applyKnownFoods(geminiData) {
 async function callGeminiAPI(textPrompt, imageBase64, options = {}) {
   const isLeftover = options.leftover === true;
 
-  // Shrink the photo before sending it through the backend proxy.
+  // Shrink the photo before sending it through the backend proxy. Smaller =
+  // faster for the model to process (less likely to time out when Gemini is
+  // busy); 768px is still plenty for food recognition.
   if (imageBase64) {
-    imageBase64 = await downscaleImage(imageBase64, 1024, 0.8);
+    imageBase64 = await downscaleImage(imageBase64, 768, 0.72);
   }
 
   let systemInstructionText = `Jsi PROFESIONÁLNÍ NUTRIČNÍ SPECIALISTA a přesný měřič kalorií s mnohaletou praxí v odhadu velikosti porcí z fotografií. Tvým úkolem je analyzovat vstup uživatele a vrátit přesná, realistická data o jídlech a jejich nutričních hodnotách v JSON formátu.
