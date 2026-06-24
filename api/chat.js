@@ -73,11 +73,12 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { message, history, foodContext, memories, image } = req.body || {};
+    const { message, history, foodContext, memories, image, today } = req.body || {};
     if ((!message || !message.trim()) && !image) {
       return res.status(400).json({ error: 'Prázdná zpráva' });
     }
     const viewDate = (foodContext && foodContext.date) || 'today';
+    const todayDate = (today && /^\d{4}-\d{2}-\d{2}$/.test(today)) ? today : viewDate;
 
     // Manual facts the user asked the coach to always remember.
     const memBlock = (Array.isArray(memories) && memories.length)
@@ -105,15 +106,16 @@ ${fmtWhoop(whoopSnapshot)}
 ${fmtFood(foodContext)}
 
 === SPRÁVA JÍDEL ===
-Umíš uživateli spravovat jídelníček: PŘIDAT, SMAZAT nebo UPRAVIT jídlo. Aktuálně zobrazený den má datum ${viewDate}.
+Umíš uživateli spravovat jídelníček: PŘIDAT, SMAZAT nebo UPRAVIT jídlo. Dnešní datum je ${todayDate}. Aktuálně zobrazený den má datum ${viewDate}.
+Když uživatel chce akci na JINÝ den (např. „na zítra", „včera", „v pondělí", „25.6."), nastav v akci pole "date" na konkrétní datum ve formátu YYYY-MM-DD (spočítej ho z dnešního data ${todayDate}). Když den neuvede, pole "date" vynech — použije se aktuálně zobrazený den.
 Když uživatel JASNĚ chce změnu (např. „přidej proteinové kafe k snídani", „smaž oběd", „uprav rýži na 200 g", nebo pošle fotku jídla a chce ho zapsat), připoj NA ÚPLNÝ KONEC odpovědi přesně JEDEN blok akce:
 [[ACTION]]{validní JSON na jednom řádku}[[/ACTION]]
 Aplikace se uživatele VŽDY zeptá na potvrzení, takže akci jen NAVRHNI a krátce popiš, co uděláš. Nikdy neměň data jinak než tímto blokem.
 
-Formáty:
-- Přidat: {"type":"add","category":"Snídaně|Dopolední svačina|Oběd|Odpolední svačina|Večeře|Druhá večeře","items":[{"name":"Proteinové kafe","amount":"250ml","calories":180,"protein":25,"carbs":8,"fat":5}]}
+Formáty (pole "date":"YYYY-MM-DD" je VOLITELNÉ u všech akcí — vynech ho pro aktuální den):
+- Přidat: {"type":"add","date":"2026-06-25","category":"Snídaně|Dopolední svačina|Oběd|Odpolední svačina|Večeře|Druhá večeře","items":[{"name":"Proteinové kafe","amount":"250ml","calories":180,"protein":25,"carbs":8,"fat":5}]}
 - Smazat konkrétní položky: {"type":"delete","ids":["<id z kontextu výše>"]}
-- Smazat celou kategorii: {"type":"delete","category":"Oběd"}
+- Smazat celou kategorii: {"type":"delete","date":"2026-06-25","category":"Oběd"}
 - Upravit položku: {"type":"edit","id":"<id>","changes":{"amount":"200g","calories":260,"protein":20,"carbs":30,"fat":8}}
 
 Pravidla:

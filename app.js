@@ -4931,7 +4931,8 @@ async function sendCoachMessage() {
         image: image || undefined,
         history: chat.messages.slice(0, -1).slice(-20),
         memories: memOn ? getCoachMemories().map((m) => m.text) : [],
-        foodContext: buildFoodContext()
+        foodContext: buildFoodContext(),
+        today: getTodayDateString()
       })
     });
     const data = await response.json();
@@ -5004,9 +5005,41 @@ function czCategoryToId(cz) {
   return map[n] || 'Breakfast';
 }
 
+function shiftDateString(base, deltaDays) {
+  const dt = new Date(base + 'T00:00:00');
+  dt.setDate(dt.getDate() + deltaDays);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
 function resolveActionDate(action) {
-  if (action && action.date && /^\d{4}-\d{2}-\d{2}$/.test(action.date)) return action.date;
+  const raw = action && action.date != null ? String(action.date).trim() : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (raw) {
+    // Fallback: resolve common relative keywords against the real today.
+    const today = getTodayDateString();
+    const n = normalizeFoodName(raw); // lowercased, diacritics stripped
+    if (n === 'dnes' || n === 'today') return today;
+    if (n === 'zitra' || n === 'tomorrow') return shiftDateString(today, 1);
+    if (n === 'pozitri') return shiftDateString(today, 2);
+    if (n === 'vcera' || n === 'yesterday') return shiftDateString(today, -1);
+    if (n === 'predevcirem') return shiftDateString(today, -2);
+  }
   return getActiveDateString();
+}
+
+// A short "📅 Po 25.6." label when an action targets a day other than the
+// currently viewed one (so the user sees which day will change).
+function actionDateNote(action) {
+  const date = resolveActionDate(action);
+  if (date === getActiveDateString()) return '';
+  const dt = new Date(date + 'T00:00:00');
+  const days = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+  const today = getTodayDateString();
+  let rel = '';
+  if (date === today) rel = ' (dnes)';
+  else if (date === shiftDateString(today, 1)) rel = ' (zítra)';
+  else if (date === shiftDateString(today, -1)) rel = ' (včera)';
+  return `\n📅 ${days[dt.getDay()]} ${dt.getDate()}.${dt.getMonth() + 1}.${rel}`;
 }
 
 // Find a logged item by id across all days (returns {date, item} or null).
@@ -5024,7 +5057,7 @@ function describeCoachAction(action) {
   if (action.type === 'add') {
     const cat = getCategoryName(czCategoryToId(action.category));
     const items = (action.items || []).map((i) => `${i.name} (${i.amount || ''}, ${Math.round(Number(i.calories) || 0)} kcal)`);
-    return `➕ Přidat do „${cat}":\n${items.map((t) => '• ' + t).join('\n')}`;
+    return `➕ Přidat do „${cat}":${actionDateNote(action)}\n${items.map((t) => '• ' + t).join('\n')}`;
   }
   if (action.type === 'delete') {
     if (Array.isArray(action.ids) && action.ids.length) {
@@ -5038,7 +5071,7 @@ function describeCoachAction(action) {
       const catId = czCategoryToId(action.category);
       const date = resolveActionDate(action);
       const count = (appState.logs[date] || []).filter((i) => getFoodCategory(i) === catId).length;
-      return `🗑️ Smazat celou kategorii „${getCategoryName(catId)}" (${count} položek)`;
+      return `🗑️ Smazat celou kategorii „${getCategoryName(catId)}" (${count} položek)${actionDateNote(action)}`;
     }
     return '🗑️ Smazat jídlo';
   }
