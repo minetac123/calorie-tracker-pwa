@@ -4818,13 +4818,20 @@ function renderCoachLines(el, text, box) {
   });
 }
 
-function appendCoachBubble(text, role, animate) {
+function appendCoachBubble(text, role, animate, imageDataUrl) {
   const box = document.getElementById('coach-messages');
   if (!box) return null;
   const empty = box.querySelector('.coach-empty');
   if (empty) empty.remove();
   const div = document.createElement('div');
   div.className = `coach-bubble ${role}`;
+  // Optional attached image (user messages).
+  if (imageDataUrl) {
+    const img = document.createElement('img');
+    img.className = 'coach-bubble-img';
+    img.src = imageDataUrl;
+    div.appendChild(img);
+  }
   // Assistant replies may contain markdown; render it. User text stays literal.
   if (role === 'assistant') {
     if (animate) {
@@ -4832,8 +4839,9 @@ function appendCoachBubble(text, role, animate) {
     } else {
       div.innerHTML = formatCoachText(text);
     }
-  } else {
-    div.textContent = text;
+  } else if (text) {
+    // User text — append as a text node so any image thumbnail is preserved.
+    div.appendChild(document.createTextNode(text));
   }
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
@@ -4842,12 +4850,12 @@ function appendCoachBubble(text, role, animate) {
 
 // Build the food/calorie context for the currently viewed day.
 function buildFoodContext() {
-  const date = (typeof getViewingDate === 'function')
-    ? getViewingDate()
-    : (selectedDate || getTodayDateString());
+  const date = getActiveDateString();
   const items = (appState.logs[date] || []).map(i => ({
+    id: i.id,
     name: i.name,
     amount: i.amount,
+    category: getCategoryName(getFoodCategory(i)),
     calories: i.calories,
     protein: i.protein,
     carbs: i.carbs,
@@ -4878,7 +4886,8 @@ async function sendCoachMessage() {
   const sendBtn = document.getElementById('coach-send');
   if (!input) return;
   const message = input.value.trim();
-  if (!message) return;
+  const image = coachPendingImage; // may be null
+  if (!message && !image) return;
 
   const session = getSession();
   if (!session || !session.token) {
@@ -4887,23 +4896,25 @@ async function sendCoachMessage() {
   }
 
   input.value = '';
+  clearCoachImage();
   if (sendBtn) sendBtn.disabled = true;
   const memOn = coachMemoryOn();
   if (!activeCoachChat) newCoachChat();
   const chat = activeCoachChat;
   const isFirstMessage = chat.messages.length === 0;
 
-  appendCoachBubble(message, 'user');
-  chat.messages.push({ role: 'user', text: message });
+  // User bubble: image thumbnail (if any) + text.
+  appendCoachBubble(message, 'user', false, image);
+  const storedText = image ? (message ? message + ' 📷' : '📷 (fotka)') : message;
+  chat.messages.push({ role: 'user', text: storedText });
   chat.updatedAt = Date.now();
   if (isFirstMessage) {
-    chat.title = message.slice(0, 40);
-    // Save the chat into the list on its first message (when memory is on).
+    chat.title = (storedText || 'Fotka').slice(0, 40);
     if (memOn && !getCoachChats().some((c) => c.id === chat.id)) {
       getCoachChats().unshift(chat);
     }
   }
-  if (memOn) saveState(); // persist the question (local + cloud)
+  if (memOn) saveState();
 
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
@@ -4917,9 +4928,8 @@ async function sendCoachMessage() {
       },
       body: JSON.stringify({
         message,
-        // Send recent context from THIS chat (the backend trims further).
+        image: image || undefined,
         history: chat.messages.slice(0, -1).slice(-20),
-        // Manual facts the coach should always know (only when memory is on).
         memories: memOn ? getCoachMemories().map((m) => m.text) : [],
         foodContext: buildFoodContext()
       })
@@ -4931,9 +4941,12 @@ async function sendCoachMessage() {
       appendCoachBubble(data.reply, 'assistant', true);
       chat.messages.push({ role: 'assistant', text: data.reply });
       chat.updatedAt = Date.now();
-      // Cap a single chat so it can't grow without bound.
       if (chat.messages.length > 200) chat.messages = chat.messages.slice(-200);
-      if (memOn) saveState(); // persist the reply (local + cloud)
+      if (memOn) saveState();
+      // If the coach proposed a food change, ask the user to confirm it.
+      if (data.action && typeof data.action === 'object') {
+        renderCoachActionCard(data.action);
+      }
     } else {
       appendCoachBubble(data.error || 'Promiň, něco se pokazilo. Zkus to znovu.', 'assistant');
     }
@@ -4947,6 +4960,221 @@ async function sendCoachMessage() {
   }
 }
 
+// ---- Coach image attachment ----
+let coachPendingImage = null;
+
+async function handleCoachImageFile(file) {
+  if (!file) return;
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    coachPendingImage = await downscaleImage(dataUrl, 1024, 0.8);
+    const preview = document.getElementById('coach-image-preview');
+    const thumb = document.getElementById('coach-image-thumb');
+    if (thumb) thumb.src = coachPendingImage;
+    if (preview) preview.style.display = 'flex';
+  } catch (e) {
+    showToast('Nepodařilo se načíst obrázek');
+  }
+}
+
+function clearCoachImage() {
+  coachPendingImage = null;
+  const preview = document.getElementById('coach-image-preview');
+  const fileInput = document.getElementById('coach-image-input');
+  if (preview) preview.style.display = 'none';
+  if (fileInput) fileInput.value = '';
+}
+
+// ---- Coach food-management actions (proposed by AI, confirmed by user) ----
+function czCategoryToId(cz) {
+  const n = normalizeFoodName(cz);
+  const map = {
+    'snidane': 'Breakfast', 'breakfast': 'Breakfast',
+    'dopoledni svacina': 'Morning snack', 'morning snack': 'Morning snack',
+    'obed': 'Lunch', 'lunch': 'Lunch',
+    'odpoledni svacina': 'Afternoon snack', 'afternoon snack': 'Afternoon snack',
+    'vecere': 'Dinner', 'dinner': 'Dinner',
+    'druha vecere': 'Second dinner', 'second dinner': 'Second dinner'
+  };
+  return map[n] || 'Breakfast';
+}
+
+function resolveActionDate(action) {
+  if (action && action.date && /^\d{4}-\d{2}-\d{2}$/.test(action.date)) return action.date;
+  return getActiveDateString();
+}
+
+// Find a logged item by id across all days (returns {date, item} or null).
+function findLoggedItemById(id) {
+  for (const d of Object.keys(appState.logs || {})) {
+    const it = (appState.logs[d] || []).find((x) => x.id === id);
+    if (it) return { date: d, item: it };
+  }
+  return null;
+}
+
+// Human-readable summary of a proposed action (no mutation).
+function describeCoachAction(action) {
+  if (!action || !action.type) return 'Neznámá akce.';
+  if (action.type === 'add') {
+    const cat = getCategoryName(czCategoryToId(action.category));
+    const items = (action.items || []).map((i) => `${i.name} (${i.amount || ''}, ${Math.round(Number(i.calories) || 0)} kcal)`);
+    return `➕ Přidat do „${cat}":\n${items.map((t) => '• ' + t).join('\n')}`;
+  }
+  if (action.type === 'delete') {
+    if (Array.isArray(action.ids) && action.ids.length) {
+      const names = action.ids.map((id) => {
+        const f = findLoggedItemById(id);
+        return f ? f.item.name : id;
+      });
+      return `🗑️ Smazat: ${names.join(', ')}`;
+    }
+    if (action.category) {
+      const catId = czCategoryToId(action.category);
+      const date = resolveActionDate(action);
+      const count = (appState.logs[date] || []).filter((i) => getFoodCategory(i) === catId).length;
+      return `🗑️ Smazat celou kategorii „${getCategoryName(catId)}" (${count} položek)`;
+    }
+    return '🗑️ Smazat jídlo';
+  }
+  if (action.type === 'edit') {
+    const f = findLoggedItemById(action.id);
+    const name = f ? f.item.name : 'položku';
+    const ch = action.changes || {};
+    const parts = [];
+    if (ch.amount != null) parts.push(`množství → ${ch.amount}`);
+    if (ch.calories != null) parts.push(`${Math.round(Number(ch.calories))} kcal`);
+    if (ch.name != null) parts.push(`název → ${ch.name}`);
+    return `✏️ Upravit „${name}": ${parts.join(', ') || 'změny'}`;
+  }
+  return 'Neznámá akce.';
+}
+
+// Apply a confirmed action to the logs. Returns a short result string.
+function executeCoachAction(action) {
+  if (!action || !action.type) return 'Nic se nestalo.';
+
+  if (action.type === 'add') {
+    const date = resolveActionDate(action);
+    if (!appState.logs[date]) appState.logs[date] = [];
+    const catId = czCategoryToId(action.category);
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    let n = 0;
+    (action.items || []).forEach((it) => {
+      if (!it || !it.name) return;
+      appState.logs[date].push({
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+        time: timeStr,
+        name: it.name,
+        amount: it.amount || '100g',
+        calories: Math.round(Number(it.calories) || 0),
+        protein: Math.round((Number(it.protein) || 0) * 10) / 10,
+        carbs: Math.round((Number(it.carbs) || 0) * 10) / 10,
+        fat: Math.round((Number(it.fat) || 0) * 10) / 10,
+        category: catId
+      });
+      n++;
+    });
+    return `Přidáno ${n} ${n === 1 ? 'jídlo' : 'jídel'}.`;
+  }
+
+  if (action.type === 'delete') {
+    let removed = 0;
+    if (Array.isArray(action.ids) && action.ids.length) {
+      const idset = new Set(action.ids);
+      Object.keys(appState.logs).forEach((d) => {
+        const before = appState.logs[d].length;
+        appState.logs[d] = appState.logs[d].filter((i) => !idset.has(i.id));
+        removed += before - appState.logs[d].length;
+      });
+    } else if (action.category) {
+      const catId = czCategoryToId(action.category);
+      const date = resolveActionDate(action);
+      const before = (appState.logs[date] || []).length;
+      appState.logs[date] = (appState.logs[date] || []).filter((i) => getFoodCategory(i) !== catId);
+      removed = before - (appState.logs[date] || []).length;
+    }
+    return `Smazáno ${removed} ${removed === 1 ? 'položka' : 'položek'}.`;
+  }
+
+  if (action.type === 'edit') {
+    const f = findLoggedItemById(action.id);
+    if (!f) return 'Položka nenalezena.';
+    const ch = action.changes || {};
+    const it = f.item;
+    if (ch.name != null) it.name = ch.name;
+    if (ch.amount != null) it.amount = ch.amount;
+    if (ch.calories != null) it.calories = Math.round(Number(ch.calories) || 0);
+    if (ch.protein != null) it.protein = Math.round((Number(ch.protein) || 0) * 10) / 10;
+    if (ch.carbs != null) it.carbs = Math.round((Number(ch.carbs) || 0) * 10) / 10;
+    if (ch.fat != null) it.fat = Math.round((Number(ch.fat) || 0) * 10) / 10;
+    // Editing overrides any prior leftover bookkeeping.
+    delete it.original;
+    delete it.leftovers;
+    return 'Upraveno.';
+  }
+
+  return 'Neznámá akce.';
+}
+
+// Render a confirmation card for a proposed action with Confirm / Cancel.
+function renderCoachActionCard(action) {
+  const box = document.getElementById('coach-messages');
+  if (!box) return;
+  const card = document.createElement('div');
+  card.className = 'coach-action-card';
+
+  const summary = document.createElement('div');
+  summary.className = 'coach-action-summary';
+  summary.textContent = describeCoachAction(action);
+  card.appendChild(summary);
+
+  const ask = document.createElement('div');
+  ask.className = 'coach-action-ask';
+  ask.textContent = 'Můžu to provést?';
+  card.appendChild(ask);
+
+  const row = document.createElement('div');
+  row.className = 'coach-action-buttons';
+  const yes = document.createElement('button');
+  yes.className = 'coach-action-btn confirm';
+  yes.textContent = '✓ Potvrdit';
+  const no = document.createElement('button');
+  no.className = 'coach-action-btn cancel';
+  no.textContent = '✕ Zrušit';
+  row.appendChild(no);
+  row.appendChild(yes);
+  card.appendChild(row);
+
+  const finish = (noteText) => {
+    card.remove();
+    appendCoachBubble(noteText, 'assistant', false);
+    if (activeCoachChat) {
+      activeCoachChat.messages.push({ role: 'assistant', text: noteText });
+      activeCoachChat.updatedAt = Date.now();
+      if (coachMemoryOn()) saveState();
+    }
+  };
+
+  yes.addEventListener('click', () => {
+    const result = executeCoachAction(action);
+    saveState();
+    renderDashboard();
+    finish(`✅ Hotovo. ${result}`);
+    showToast('Jídelníček upraven ✓');
+  });
+  no.addEventListener('click', () => finish('Dobře, nic jsem nezměnil. 👍'));
+
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+}
+
 function initCoachHandlers() {
   const openBtn = document.getElementById('btn-open-coach');
   const navCoachBtn = document.getElementById('nav-coach');
@@ -4957,6 +5185,9 @@ function initCoachHandlers() {
   const sendBtn = document.getElementById('coach-send');
   const input = document.getElementById('coach-input');
   const modal = document.getElementById('coach-modal');
+  const attachBtn = document.getElementById('coach-attach');
+  const imageInput = document.getElementById('coach-image-input');
+  const imageRemove = document.getElementById('coach-image-remove');
 
   if (openBtn) openBtn.addEventListener('click', openCoach);
   if (navCoachBtn) navCoachBtn.addEventListener('click', openCoach);
@@ -4965,6 +5196,14 @@ function initCoachHandlers() {
   if (newChatBtn) newChatBtn.addEventListener('click', newCoachChat);
   if (chatlistScrim) chatlistScrim.addEventListener('click', hideCoachChatList);
   if (sendBtn) sendBtn.addEventListener('click', sendCoachMessage);
+  if (attachBtn && imageInput) {
+    attachBtn.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) handleCoachImageFile(file);
+    });
+  }
+  if (imageRemove) imageRemove.addEventListener('click', clearCoachImage);
   if (input) {
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); sendCoachMessage(); }
