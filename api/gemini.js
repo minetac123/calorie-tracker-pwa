@@ -42,21 +42,26 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-    // Retry transient 429/500/503 (overloaded) with backoff before forwarding.
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    let gResp;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      gResp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (gResp.ok) break;
-      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
-      if (!transient || attempt === 3) break;
-      await sleep(500 * Math.pow(2, attempt));
+    // Fall back to less-loaded models when the primary 503s ("high demand").
+    const modelChain = [...new Set([GEMINI_MODEL, 'gemini-2.0-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash-lite'])];
+
+    let gResp = null;
+    let succeeded = false;
+    for (const model of modelChain) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        gResp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (gResp.ok) { succeeded = true; break; }
+        const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
+        if (!transient) break;
+        if (attempt < 1) await sleep(600);
+      }
+      if (succeeded) break;
     }
 
     // Forward Google's status + body verbatim so the client parses as before.
