@@ -148,11 +148,11 @@ Pravidla:
     }
     contents.push({ role: 'user', parts: userParts });
 
-    // Fallback chain for when gemini-2.5-flash is overloaded (503). Try each
-    // model ONCE, switching immediately on a transient error. A global deadline
-    // + per-call timeout keeps the whole request safely under the serverless
-    // function limit (so a slow/overloaded Gemini never causes a timeout).
-    const modelChain = [...new Set([COACH_MODEL, 'gemini-2.0-flash', 'gemini-2.0-flash-lite'])];
+    // Fallback chain for when the primary model is overloaded (503). Only
+    // valid model names. Try each once, bounded by a deadline + per-call
+    // timeout. A bad/unavailable fallback model is just skipped (we keep
+    // trying), and the coach never surfaces a raw Google model error.
+    const modelChain = [...new Set([COACH_MODEL, 'gemini-2.5-flash-lite', 'gemini-flash-latest'])];
     const deadline = Date.now() + 9000;
 
     let gResp = null;
@@ -190,8 +190,7 @@ Pravidla:
       const status = gResp.status;
       const txt = await gResp.text().catch(() => '');
       console.error(`Gemini ${model}: ${status} ${txt.slice(0, 140)}`);
-      if (status !== 429 && status !== 500 && status !== 503) break; // not load-related
-      // transient → fall straight through to the next model (no sleep)
+      // Any failure (overload OR an unavailable/bad model) → try the next one.
     }
 
     if (!gResp || !gResp.ok || !succeeded) {

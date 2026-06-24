@@ -43,21 +43,23 @@ module.exports = async function handler(req, res) {
 
   try {
     // Fall back to less-loaded models when the primary 503s ("high demand").
-    // Try each once, with a global deadline + per-call timeout so the request
-    // stays under the serverless function limit even when Gemini is slow.
-    const modelChain = [...new Set([GEMINI_MODEL, 'gemini-2.0-flash', 'gemini-2.0-flash-lite'])];
+    // Only valid model names — try each once, bounded by a deadline + per-call
+    // timeout. Errors from FALLBACK models are never surfaced to the user; we
+    // only ever forward a success, or the PRIMARY model's own error.
+    const modelChain = [...new Set([GEMINI_MODEL, 'gemini-2.5-flash-lite', 'gemini-flash-latest'])];
     const deadline = Date.now() + 9000;
 
-    let gResp = null;
-    let succeeded = false;
-    for (const model of modelChain) {
+    let okResp = null;
+    let primaryResp = null;
+    for (let i = 0; i < modelChain.length; i++) {
       const remaining = deadline - Date.now();
       if (remaining < 2500) break;
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelChain[i]}:generateContent?key=${GEMINI_API_KEY}`;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), Math.min(7500, remaining));
+      let resp = null;
       try {
-        gResp = await fetch(url, {
+        resp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -65,21 +67,33 @@ module.exports = async function handler(req, res) {
         });
       } catch (e) {
         clearTimeout(timer);
-        console.error(`Gemini ${model} fetch failed:`, e.name === 'AbortError' ? 'timeout' : e.message);
+        console.error(`Gemini ${modelChain[i]} fetch failed:`, e.name === 'AbortError' ? 'timeout' : e.message);
         continue;
       }
       clearTimeout(timer);
-      if (gResp.ok) { succeeded = true; break; }
-      const transient = gResp.status === 429 || gResp.status === 500 || gResp.status === 503;
-      if (!transient) break;
+      if (resp.ok) { okResp = resp; break; }
+
+      const transient = resp.status === 429 || resp.status === 500 || resp.status === 503;
+      if (i === 0) {
+        primaryResp = resp; // remember the primary's real error
+        if (!transient) break; // real error about the request → forward it
+      } else {
+        console.error(`Gemini fallback ${modelChain[i]}: ${resp.status}`);
+      }
+      // transient (or fallback error) → try the next model
     }
 
-    if (!gResp) {
-      return res.status(503).json({ error: { message: 'AI je teď vytížená, zkus to prosím znovu.' } });
+    if (okResp) {
+      const data = await okResp.json().catch(() => ({}));
+      return res.status(okResp.status).json(data);
     }
-    // Forward Google's status + body verbatim so the client parses as before.
-    const data = await gResp.json().catch(() => ({}));
-    return res.status(gResp.status).json(data);
+    // No success. If the primary failed with a real (non-overload) error,
+    // forward it; otherwise show a clean overload message.
+    if (primaryResp && !(primaryResp.status === 429 || primaryResp.status === 500 || primaryResp.status === 503)) {
+      const data = await primaryResp.json().catch(() => ({}));
+      return res.status(primaryResp.status).json(data);
+    }
+    return res.status(503).json({ error: { message: 'AI je teď vytížená, zkus to prosím za chvíli znovu.' } });
   } catch (error) {
     console.error('Gemini proxy error:', error);
     return res.status(502).json({ error: { message: 'AI služba nedostupná: ' + error.message } });
