@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "@vercel/blob": "^0.27.0"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
   }
 }

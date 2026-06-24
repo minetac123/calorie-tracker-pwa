@@ -1,64 +1,65 @@
 /* ==========================================================================
-   FITAI — "AURORA DARK" DESIGN SYSTEM  (visual redesign, v2)
-   Premium dark UI with a violet→indigo→sky brand identity, ambient glow,
-   glassy elevated surfaces and springy micro-interactions.
+   FITAI — "MONO" DESIGN SYSTEM  (black & white, Apple-minimal redesign)
+   Pure monochrome dark UI: true-black canvas, white as the single accent,
+   hairline separators, flat surfaces and restrained motion. One reserved
+   hue — system red — used ONLY for destructive / over-limit states.
    NOTE: every class / id / CSS variable used by app.js & index.html is
    preserved so all features keep working — only the look changes.
    ========================================================================== */
 :root {
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', system-ui, sans-serif;
 
-  /* ---- Base surfaces (cool near-black with real depth) ---- */
-  --bg-app: #08080C;
-  --bg-elevated:   #16161D;
-  --bg-elevated-2: #20202A;
-  --bg-elevated-3: #2C2C38;
-  --bg-card:       #14141B;
-  --bg-input: rgba(255, 255, 255, 0.05);
+  /* ---- Base surfaces (true black with subtle elevation) ---- */
+  --bg-app: #000000;
+  --bg-elevated:   #141416;
+  --bg-elevated-2: #1C1C1F;
+  --bg-elevated-3: #2A2A2E;
+  --bg-card:       #101012;
+  --bg-input: rgba(255, 255, 255, 0.06);
 
   /* ---- Separators / hairlines ---- */
-  --sep: rgba(255, 255, 255, 0.07);
-  --sep-strong: rgba(255, 255, 255, 0.13);
+  --sep: rgba(255, 255, 255, 0.10);
+  --sep-strong: rgba(255, 255, 255, 0.18);
 
   /* ---- Text ---- */
   --text-1: #FFFFFF;
-  --text-2: rgba(255, 255, 255, 0.58);
-  --text-3: rgba(255, 255, 255, 0.34);
-  --text-4: rgba(255, 255, 255, 0.16);
+  --text-2: rgba(255, 255, 255, 0.62);
+  --text-3: rgba(255, 255, 255, 0.40);
+  --text-4: rgba(255, 255, 255, 0.20);
   --text-secondary: var(--text-2);   /* referenced by JS — was undefined */
   --text-muted: var(--text-3);       /* referenced inline — was undefined */
 
-  /* ---- Brand identity (the signature aurora gradient) ---- */
-  --brand-1: #8B5CF6;   /* violet */
-  --brand-2: #6366F1;   /* indigo */
-  --brand-3: #38BDF8;   /* sky     */
-  --brand: #6D6BF0;     /* solid fallback */
-  --brand-grad: linear-gradient(135deg, #8B5CF6 0%, #6366F1 50%, #38BDF8 100%);
-  --brand-soft: rgba(124, 108, 246, 0.16);
-  --brand-glow: rgba(124, 108, 246, 0.45);
+  /* ---- Brand identity → monochrome (white is the accent) ---- */
+  --brand-1: #FFFFFF;
+  --brand-2: #EBEBEB;
+  --brand-3: #C7C7C7;
+  --brand: #FFFFFF;
+  --brand-grad: linear-gradient(135deg, #FFFFFF 0%, #DCDCDC 100%);
+  --brand-soft: rgba(255, 255, 255, 0.10);
+  --brand-glow: rgba(255, 255, 255, 0.22);
 
-  /* ---- Activity rings (semantic, vivid) ---- */
-  --ring-1:  #FF6B81;   /* calories (warm energy) */
-  --ring-1b: #FF8A5B;
-  --ring-2:  #FBBF24;   /* carbs */
-  --ring-2b: #FCD34D;
-  --ring-3:  #34D399;   /* protein */
-  --ring-3b: #6EE7B7;
+  /* ---- Activity rings → grayscale shades ---- */
+  --ring-1:  #FFFFFF;   /* calories — brightest */
+  --ring-1b: #E6E6E6;
+  --ring-2:  #B0B0B0;   /* carbs — mid */
+  --ring-2b: #C4C4C4;
+  --ring-3:  #8E8E93;   /* protein — dim */
+  --ring-3b: #A8A8AD;
 
-  /* ---- System accent colors (refined) ---- */
-  --ios-blue:   #5B8CFF;
-  --ios-green:  #34D399;
-  --ios-orange: #FBBF24;
-  --ios-red:    #FF5A6B;
-  --ios-pink:   #FF6B9D;
-  --ios-purple: #A78BFA;
-  --ios-teal:   #38BDF8;
+  /* ---- System accents → white (monochrome) ---- */
+  --ios-blue:   #FFFFFF;
+  --ios-green:  #FFFFFF;
+  --ios-orange: #FFFFFF;
+  --ios-red:    #FF453A;   /* the one reserved hue: destructive / over-limit */
+  --ios-pink:   #FFFFFF;
+  --ios-purple: #FFFFFF;
+  --ios-teal:   #FFFFFF;
 
   /* ---- Semantic ---- */
-  --color-protein: var(--ring-3);
-  --color-carbs:   var(--ring-2);
-  --color-fat:     var(--ios-pink);
-  --color-water:   var(--ios-blue);
+  --color-protein: #FFFFFF;
+  --color-carbs:   #B0B0B0;
+  --color-fat:     #8E8E93;
+  --color-water:   #FFFFFF;
   --color-danger:  var(--ios-red);
 
   /* ---- Compat aliases (keep JS / inline refs valid) ---- */
@@ -73,25 +74,25 @@
   --pad: 20px;
 
   /* ---- Radii ---- */
-  --r-xl: 32px;
-  --r-lg: 26px;
-  --r-md: 20px;
-  --r-sm: 14px;
-  --r-xs: 10px;
+  --r-xl: 28px;
+  --r-lg: 22px;
+  --r-md: 16px;
+  --r-sm: 12px;
+  --r-xs: 9px;
   --r-pill: 100px;
-  --radius-lg: 26px;
-  --radius-md: 20px;
-  --radius-sm: 14px;
+  --radius-lg: 22px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
 
-  /* ---- Shadows ---- */
-  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 30px rgba(0,0,0,0.45);
-  --shadow-pop:  0 18px 50px rgba(0,0,0,0.6);
+  /* ---- Shadows (neutral, soft) ---- */
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.03) inset, 0 4px 20px rgba(0,0,0,0.4);
+  --shadow-pop:  0 18px 50px rgba(0,0,0,0.65);
 
   /* ---- Easing ---- */
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
-  accent-color: var(--brand);
+  accent-color: #FFFFFF;
   color-scheme: dark;
 }
 
@@ -115,7 +116,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Ambient aurora glow — gives the OLED black real depth */
+/* Subtle neutral top glow — depth without colour */
 body::before {
   content: '';
   position: fixed;
@@ -123,9 +124,7 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(120% 70% at 50% -8%, rgba(139, 92, 246, 0.18), transparent 60%),
-    radial-gradient(90% 55% at 85% 8%, rgba(56, 189, 248, 0.10), transparent 55%),
-    radial-gradient(120% 60% at 50% 112%, rgba(56, 189, 248, 0.08), transparent 60%);
+    radial-gradient(120% 55% at 50% -10%, rgba(255, 255, 255, 0.045), transparent 60%);
 }
 
 input, textarea, select, button {
@@ -162,7 +161,7 @@ input, textarea, select, button {
 
 /* Desktop: float the phone canvas in the aurora */
 @media (min-width: 500px) {
-  body { background: #050507; }
+  body { background: #000000; }
   .app-container {
     min-height: 100vh;
     border-left: 0.5px solid rgba(255,255,255,0.06);
@@ -2616,3 +2615,166 @@ input, textarea, select, button {
 .coach-action-btn.confirm { background: #30D158; color: #042b12; }
 .coach-action-btn.cancel { background: var(--bg-elevated-3); color: var(--text-1, #fff); }
 .coach-action-btn:active { opacity: 0.85; }
+
+/* ==========================================================================
+   MONOCHROME OVERRIDES — pure black & white "Apple" reskin
+   Layered last so it wins by source order. Only colour / contrast is
+   touched here; all the layout, sizing and motion above is preserved.
+   Anything filled white gets a black glyph so it never vanishes.
+   ========================================================================== */
+
+/* ---- Primary call-to-action → solid white pill, black label ---- */
+.btn-primary {
+  background: #FFFFFF;
+  background-image: none;
+  color: #000000;
+  box-shadow: 0 6px 20px -10px rgba(255, 255, 255, 0.35);
+}
+.btn-primary:active { filter: none; opacity: 0.88; }
+
+/* ---- Destructive → the one reserved hue ---- */
+.btn-danger {
+  background: var(--color-danger);
+  color: #FFFFFF;
+  box-shadow: 0 6px 20px -12px rgba(255, 69, 58, 0.7);
+}
+
+/* ---- Round "+" add buttons → white disc, black glyph ---- */
+.btn-add-meal,
+.btn-quick-add-food,
+.favorite-add-btn {
+  background: #FFFFFF;
+  background-image: none;
+  color: #000000;
+  box-shadow: 0 4px 14px -8px rgba(255, 255, 255, 0.3);
+}
+
+/* ---- Floating action button → white disc, black plus ---- */
+.nav-fab {
+  background: #FFFFFF;
+  background-image: none;
+  box-shadow: 0 8px 26px -8px rgba(255, 255, 255, 0.28);
+}
+.nav-fab svg { stroke: #000000; }
+.nav-fab:active { box-shadow: 0 3px 12px -8px rgba(255, 255, 255, 0.28); }
+
+/* ---- "Back to today" pill ---- */
+.btn-back-today {
+  background: #FFFFFF;
+  background-image: none;
+  color: #000000;
+  box-shadow: 0 4px 14px -8px rgba(255, 255, 255, 0.3);
+}
+
+/* ---- Calendar day discs (white = ok, red = over limit) ---- */
+.cal-circle.active-goal,
+.cal-circle.under-limit {
+  background: #FFFFFF;
+  background-image: none;
+  color: #000000;
+  box-shadow: 0 4px 12px -8px rgba(255, 255, 255, 0.35);
+}
+.cal-circle.over-limit {
+  background: var(--color-danger);
+  background-image: none;
+  color: #FFFFFF;
+  box-shadow: 0 4px 12px -8px rgba(255, 69, 58, 0.5);
+}
+
+/* ---- Combine checkbox tick ---- */
+.combine-checkbox.checked { background: #FFFFFF; background-image: none; }
+.combine-checkbox.checked::after { color: #000000; }
+
+/* ---- Activity rings: uniform faint track + grayscale halo ---- */
+.ring-track { stroke: rgba(255, 255, 255, 0.12); opacity: 1; }
+.rings-wrapper::before {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.06), transparent 70%);
+}
+
+/* ---- Macro percentage chip + grayscale bar fills ---- */
+.macros-pct { color: #FFFFFF; background: rgba(255, 255, 255, 0.10); }
+#bar-p-new { background-image: linear-gradient(90deg, #FFFFFF, #E0E0E0); color: #FFFFFF; }
+#bar-c-new { background-image: linear-gradient(90deg, #BDBDBD, #A8A8A8); color: #BDBDBD; }
+#bar-f-new { background-image: linear-gradient(90deg, #8E8E93, #6E6E73); color: #8E8E93; }
+
+/* ---- Barcode-scan button (was violet-tinted) ---- */
+#btn-wizard-scan-barcode {
+  background: var(--brand-soft) !important;
+  border: 0.5px solid rgba(255, 255, 255, 0.18) !important;
+  color: #FFFFFF !important;
+}
+
+/* ---- Leftover values → neutral ---- */
+.leftover-net-val { color: #FFFFFF; }
+.leftover-big { color: #FFFFFF; }
+
+/* ---- Selected segment: clearer pill for a crisp mono control ---- */
+.segment-btn.active { background: #48484A; color: #FFFFFF; }
+
+/* ---- Surfaces: neutralise the faint blue tints ---- */
+.bottom-nav { background: rgba(0, 0, 0, 0.72); }
+.toast { background: rgba(24, 24, 26, 0.94); }
+
+/* ---- Food-log bottom sheet ---- */
+#fls-sheet { background: linear-gradient(180deg, #1A1A1C 0%, #0E0E10 22%); }
+.fls-bl-tl, .fls-bl-tr, .fls-bl-bl, .fls-bl-br { border-color: #FFFFFF; }
+.fls-shutter-inner {
+  box-shadow: 0 0 0 4px #0E0E10, 0 0 0 6px rgba(255, 255, 255, 0.85), 0 0 22px rgba(255, 255, 255, 0.22);
+}
+.fls-scan-line {
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.22) 70%, rgba(255, 255, 255, 0.85));
+  border-bottom: 2px solid #FFFFFF;
+  box-shadow: 0 0 24px rgba(255, 255, 255, 0.4);
+}
+.fls-spinner-blue { border-top-color: #FFFFFF; }
+.fls-dots span { background: #FFFFFF; }
+.fls-detected-item-kcal,
+.fls-choice-kcal { color: #FFFFFF; }
+.fls-choice-card:active { border-color: rgba(255, 255, 255, 0.4); }
+.fls-total-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 0.5px solid rgba(255, 255, 255, 0.14);
+}
+.fls-refine-input:focus {
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+.fls-refine-btn {
+  background: #FFFFFF;
+  background-image: none;
+  color: #000000;
+  box-shadow: 0 6px 16px -8px rgba(255, 255, 255, 0.4);
+}
+.fls-refine-btn .fls-refine-spin { border-color: rgba(0, 0, 0, 0.25); border-top-color: #000000; }
+.fls-save-btn {
+  background: #FFFFFF;
+  background-image: none;
+  color: #000000;
+  box-shadow: 0 12px 28px -12px rgba(255, 255, 255, 0.4);
+}
+
+/* ---- AI coach ---- */
+.coach-bubble.user { background: #FFFFFF; color: #000000; }
+.coach-input-row button { background: #FFFFFF; }
+.coach-input-row button svg { stroke: #000000; }
+.coach-newchat-btn { background: #FFFFFF; color: #000000; }
+
+/* ---- Memory toggle: white when on, dark knob for contrast ---- */
+.mem-toggle[aria-checked="true"] { background: #FFFFFF; }
+.mem-toggle[aria-checked="true"] .mem-toggle-knob { background: #000000; }
+
+/* ---- Delete "burn" animation → monochrome embers/smoke ---- */
+.burn-overlay::before {
+  background: linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(40,40,40,0.5) 28%, transparent 62%);
+}
+.burn-overlay::after {
+  background: linear-gradient(0deg, rgba(255,255,255,0) 0%, rgba(210,210,210,0.85) 45%, rgba(255,255,255,1) 78%, rgba(255,255,255,0.25) 100%);
+  box-shadow: 0 0 18px 5px rgba(255,255,255,0.7);
+}
+.burn-flame {
+  background: radial-gradient(ellipse at 50% 82%, #ffffff 0%, #e8e8e8 24%, #bdbdbd 54%, #8e8e93 82%, rgba(142,142,147,0) 100%);
+}
+.burn-ember {
+  background: #ffffff;
+  box-shadow: 0 0 6px 1px rgba(255,255,255,0.85);
+}

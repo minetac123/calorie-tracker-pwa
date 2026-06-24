@@ -10,7 +10,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FitAI">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#000000">
 
@@ -18,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=mono1">
 </head>
 <body>
   <div class="safe-area-top"></div>
@@ -78,12 +79,12 @@
           <svg class="activity-rings-svg" viewBox="0 0 200 200" aria-hidden="true">
             <defs>
               <linearGradient id="grad-kcal" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#FF6B6B"/>
-                <stop offset="100%" stop-color="#FF375F"/>
+                <stop offset="0%" stop-color="#FFFFFF"/>
+                <stop offset="100%" stop-color="#E0E0E0"/>
               </linearGradient>
               <linearGradient id="grad-prot" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#34C759"/>
-                <stop offset="100%" stop-color="#30D158"/>
+                <stop offset="0%" stop-color="#BDBDBD"/>
+                <stop offset="100%" stop-color="#9E9E9E"/>
               </linearGradient>
             </defs>
 
@@ -112,14 +113,14 @@
         <!-- Ring Legend -->
         <div class="rings-legend">
           <div class="rings-legend-item">
-            <div class="legend-dot" style="background: #FF375F;"></div>
+            <div class="legend-dot" style="background: #FFFFFF;"></div>
             <div class="legend-info">
               <span class="legend-label">Snězeno</span>
               <span class="legend-val" id="dash-eaten">0</span>
             </div>
           </div>
           <div class="rings-legend-item">
-            <div class="legend-dot" style="background: #30D158;"></div>
+            <div class="legend-dot" style="background: #9E9E9E;"></div>
             <div class="legend-info">
               <span class="legend-label">Bílkoviny</span>
               <span class="legend-val" id="dash-protein-legend">0g</span>
@@ -914,7 +915,7 @@
         <div class="fls-detected-header" style="animation:none;">
           <div class="fls-detected-header-thumb" id="fls-choices-thumb"></div>
           <div style="flex:1;">
-            <div style="font-size:13px; font-weight:700; color:#5B8CFF;">Co to nejspíš je?</div>
+            <div style="font-size:13px; font-weight:700; color:#FFFFFF;">Co to nejspíš je?</div>
             <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">Vyber správnou variantu</div>
           </div>
         </div>
@@ -948,6 +949,6 @@
   <div class="safe-area-bottom"></div>
 
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-  <script src="/app.js?v=48"></script>
+  <script src="/app.js?v=49"></script>
 </body>
 </html>
