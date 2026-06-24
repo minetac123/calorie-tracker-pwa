@@ -152,17 +152,19 @@ Pravidla:
     // valid model names. Try each once, bounded by a deadline + per-call
     // timeout. A bad/unavailable fallback model is just skipped (we keep
     // trying), and the coach never surfaces a raw Google model error.
-    const modelChain = [...new Set([COACH_MODEL, 'gemini-2.5-flash-lite', 'gemini-flash-latest'])];
-    const deadline = Date.now() + 9000;
+    const modelChain = [...new Set([COACH_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite'])];
+    const deadline = Date.now() + 20000;
 
     let gResp = null;
     let succeeded = false;
     for (const model of modelChain) {
       const remaining = deadline - Date.now();
-      if (remaining < 2000) break; // not enough time to try another model
+      if (remaining < 3000) break; // not enough time to try another model
 
       const genConfig = { temperature: 0.7, maxOutputTokens: 3072 };
-      if (/^gemini-2\.5/.test(model)) genConfig.thinkingConfig = { thinkingBudget: 0 };
+      // Disable "thinking" on 2.5-family models (incl. the -latest alias) so the
+      // whole token budget goes to the answer.
+      if (/^gemini-2\.5/.test(model) || model === 'gemini-flash-latest') genConfig.thinkingConfig = { thinkingBudget: 0 };
       const payload = {
         systemInstruction: { parts: [{ text: systemInstruction }] },
         contents,
@@ -171,7 +173,7 @@ Pravidla:
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${COACH_API_KEY}`;
 
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), Math.min(7000, remaining));
+      const timer = setTimeout(() => ctrl.abort(), Math.min(11000, remaining));
       try {
         gResp = await fetch(url, {
           method: 'POST',
