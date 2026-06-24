@@ -42,9 +42,9 @@ function fmtFood(food) {
     lines.push(`Snězeno dnes: ${food.totals.calories} kcal, B ${food.totals.protein} g, S ${food.totals.carbs} g, T ${food.totals.fat} g`);
   }
   if (Array.isArray(food.items) && food.items.length) {
-    lines.push('Jídla dnes:');
+    lines.push('Jídla dnes (s id pro úpravy/mazání):');
     food.items.forEach((it) => {
-      lines.push(`  • ${it.name} (${it.amount || ''}) – ${it.calories} kcal, B ${it.protein} g, S ${it.carbs} g, T ${it.fat} g`);
+      lines.push(`  • [id:${it.id}] ${it.name} (${it.amount || ''}) [${it.category || ''}] – ${it.calories} kcal, B ${it.protein} g, S ${it.carbs} g, T ${it.fat} g`);
     });
   } else {
     lines.push('Dnes zatím nebylo zapsáno žádné jídlo.');
@@ -73,10 +73,11 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { message, history, foodContext, memories } = req.body || {};
-    if (!message || !message.trim()) {
+    const { message, history, foodContext, memories, image } = req.body || {};
+    if ((!message || !message.trim()) && !image) {
       return res.status(400).json({ error: 'Prázdná zpráva' });
     }
+    const viewDate = (foodContext && foodContext.date) || 'today';
 
     // Manual facts the user asked the coach to always remember.
     const memBlock = (Array.isArray(memories) && memories.length)
@@ -101,7 +102,25 @@ ${memBlock}
 ${fmtWhoop(whoopSnapshot)}
 
 === JÍDLO A KALORIE (z aplikace) ===
-${fmtFood(foodContext)}`;
+${fmtFood(foodContext)}
+
+=== SPRÁVA JÍDEL ===
+Umíš uživateli spravovat jídelníček: PŘIDAT, SMAZAT nebo UPRAVIT jídlo. Aktuálně zobrazený den má datum ${viewDate}.
+Když uživatel JASNĚ chce změnu (např. „přidej proteinové kafe k snídani", „smaž oběd", „uprav rýži na 200 g", nebo pošle fotku jídla a chce ho zapsat), připoj NA ÚPLNÝ KONEC odpovědi přesně JEDEN blok akce:
+[[ACTION]]{validní JSON na jednom řádku}[[/ACTION]]
+Aplikace se uživatele VŽDY zeptá na potvrzení, takže akci jen NAVRHNI a krátce popiš, co uděláš. Nikdy neměň data jinak než tímto blokem.
+
+Formáty:
+- Přidat: {"type":"add","category":"Snídaně|Dopolední svačina|Oběd|Odpolední svačina|Večeře|Druhá večeře","items":[{"name":"Proteinové kafe","amount":"250ml","calories":180,"protein":25,"carbs":8,"fat":5}]}
+- Smazat konkrétní položky: {"type":"delete","ids":["<id z kontextu výše>"]}
+- Smazat celou kategorii: {"type":"delete","category":"Oběd"}
+- Upravit položku: {"type":"edit","id":"<id>","changes":{"amount":"200g","calories":260,"protein":20,"carbs":30,"fat":8}}
+
+Pravidla:
+- Pro smazání/úpravu používej "id" z kontextu jídel (pole [id:...]).
+- Při přidání odhadni reálná makra (calories ≈ protein*4 + carbs*4 + fat*9). Pokud uživatel poslal fotku jídla a chce ji přidat, rozpoznej jídlo a navrhni "add".
+- Když uživatel data měnit nechce (jen se ptá / radí), žádný blok akce NEPŘIDÁVEJ.
+- Blok [[ACTION]] musí být validní JSON na jednom řádku a nic nesmí být za uzavírací značkou.`;
 
     // Build Gemini conversation contents from prior history + new message.
     const contents = [];
@@ -114,7 +133,18 @@ ${fmtFood(foodContext)}`;
         });
       });
     }
-    contents.push({ role: 'user', parts: [{ text: message }] });
+    // Current turn: text and/or an attached image.
+    const userParts = [];
+    if (message && message.trim()) {
+      userParts.push({ text: message });
+    } else if (image) {
+      userParts.push({ text: '(uživatel poslal fotku jídla)' });
+    }
+    if (image) {
+      const im = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(image);
+      if (im) userParts.push({ inlineData: { mimeType: im[1], data: im[2] } });
+    }
+    contents.push({ role: 'user', parts: userParts });
 
     const payload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -177,9 +207,24 @@ ${fmtFood(foodContext)}`;
       return res.status(502).json({ error: 'AI nevrátila odpověď' });
     }
 
+    // Extract an optional food-management action proposal from the reply.
+    let action = null;
+    const am = reply.match(/\[\[ACTION\]\]([\s\S]*?)\[\[\/ACTION\]\]/);
+    if (am) {
+      try {
+        action = JSON.parse(am[1].trim());
+      } catch (e) {
+        console.error('Bad ACTION JSON:', am[1].slice(0, 200));
+        action = null;
+      }
+      reply = reply.replace(am[0], '').trim();
+      if (!reply) reply = 'Připravil jsem návrh změny 👇';
+    }
+
     return res.status(200).json({
       success: true,
       reply,
+      action,
       whoopConnected: !!whoopSnapshot
     });
   } catch (error) {
