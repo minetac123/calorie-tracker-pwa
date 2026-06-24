@@ -5039,7 +5039,8 @@ async function sendCoachMessage() {
     history: chat.messages.slice(0, -1).slice(-20),
     memories: memOn ? getCoachMemories().map((m) => m.text) : [],
     foodContext: buildFoodContext(),
-    today: getTodayDateString()
+    today: getTodayDateString(),
+    nowTime: (() => { const n = new Date(); return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`; })()
   });
 
   let data = null;

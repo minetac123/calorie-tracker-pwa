@@ -54,6 +54,18 @@ function getTodayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
+// Current wall-clock time in Czech timezone (server runs in UTC).
+function getNowTimeStr() {
+  try {
+    return new Intl.DateTimeFormat('cs-CZ', {
+      timeZone: 'Europe/Prague', hour: '2-digit', minute: '2-digit', hour12: false
+    }).format(new Date());
+  } catch (e) {
+    const n = new Date();
+    return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
+  }
+}
+
 function buildFoodContext(userData) {
   const today = getTodayStr();
   const logs = (userData && userData.logs && userData.logs[today]) || [];
@@ -131,7 +143,7 @@ async function callCoach(message, history, foodContext, memories, whoopSnapshot)
     : 'Žádná uložená fakta.';
 
   const systemInstruction = buildSystemInstruction({
-    memBlock, whoopSnapshot, foodContext, todayDate: today, viewDate: today
+    memBlock, whoopSnapshot, foodContext, todayDate: today, viewDate: today, nowTime: getNowTimeStr()
   });
 
   const contents = [];

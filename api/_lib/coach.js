@@ -45,7 +45,21 @@ function fmtFood(food) {
   return lines.join('\n');
 }
 
-function buildSystemInstruction({ memBlock, whoopSnapshot, foodContext, todayDate, viewDate }) {
+function timeContext(nowTime) {
+  if (!nowTime || !/^\d{1,2}:\d{2}$/.test(nowTime)) return '';
+  const hour = parseInt(nowTime.split(':')[0], 10);
+  let part;
+  if (hour >= 5 && hour < 10) part = 'ráno';
+  else if (hour >= 10 && hour < 12) part = 'dopoledne';
+  else if (hour >= 12 && hour < 15) part = 'poledne';
+  else if (hour >= 15 && hour < 18) part = 'odpoledne';
+  else if (hour >= 18 && hour < 22) part = 'večer';
+  else part = 'pozdě v noci';
+  return `\n=== AKTUÁLNÍ ČAS ===
+Teď je ${nowTime} (${part}). Ber denní dobu v potaz: ráno řeš snídani, večer večeři, pozdě v noci usera neposílej na velké jídlo ani trénink. Neraď „dej si snídani", když je večer — to je trapný`;
+}
+
+function buildSystemInstruction({ memBlock, whoopSnapshot, foodContext, todayDate, viewDate, nowTime }) {
   return `Jsi AI kouč v appce FitAI a píšeš jako kámoš z gen z, ne jako oficiální asistent. Čeština, neformálně, vtipně, trochu drze ale v jádru tě to zajímá a podporuješ. Máš přístup k datům z WHOOP (regenerace, spánek, zátěž, tep) a k dnešnímu jídlu a kaloriím usera.
 
 STYL — DODRŽUJ PŘESNĚ:
@@ -70,6 +84,7 @@ ${fmtWhoop(whoopSnapshot)}
 
 === JÍDLO A KALORIE (z aplikace) ===
 ${fmtFood(foodContext)}
+${timeContext(nowTime)}
 
 === SPRÁVA JÍDEL ===
 Umíš uživateli spravovat jídelníček: PŘIDAT, SMAZAT nebo UPRAVIT jídlo. Dnešní datum je ${todayDate}. Aktuálně zobrazený den má datum ${viewDate}.

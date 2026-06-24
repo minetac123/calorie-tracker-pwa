@@ -30,12 +30,13 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { message, history, foodContext, memories, image, today } = req.body || {};
+    const { message, history, foodContext, memories, image, today, nowTime } = req.body || {};
     if ((!message || !message.trim()) && !image) {
       return res.status(400).json({ error: 'Prázdná zpráva' });
     }
     const viewDate = (foodContext && foodContext.date) || 'today';
     const todayDate = (today && /^\d{4}-\d{2}-\d{2}$/.test(today)) ? today : viewDate;
+    const nowClock = (typeof nowTime === 'string' && /^\d{1,2}:\d{2}$/.test(nowTime)) ? nowTime : null;
 
     // Manual facts the user asked the coach to always remember.
     const memBlock = (Array.isArray(memories) && memories.length)
@@ -49,7 +50,7 @@ module.exports = async function handler(req, res) {
       whoopSnapshot = await fetchWhoopSnapshot(token.accessToken);
     }
 
-    const systemInstruction = buildSystemInstruction({ memBlock, whoopSnapshot, foodContext, todayDate, viewDate });
+    const systemInstruction = buildSystemInstruction({ memBlock, whoopSnapshot, foodContext, todayDate, viewDate, nowTime: nowClock });
 
     // Build Gemini conversation contents from prior history + new message.
     const contents = [];
