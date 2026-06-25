@@ -200,6 +200,25 @@ async function callCoach(message, history, foodContext, memories, whoopSnapshot)
   return cand.content.parts.map((p) => (p && p.text) ? p.text : '').join('').trim() || null;
 }
 
+// Split the coach reply into separate short chat bubbles on the ||| delimiter,
+// like a human firing off a couple of quick texts. Caps at 3 to avoid spam.
+function splitBubbles(text) {
+  return String(text || '')
+    .split(/\s*\|\|\|\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+async function sendBubbles(chatId, text) {
+  const parts = splitBubbles(text);
+  if (parts.length === 0) { await sendMessage(chatId, text); return; }
+  for (let i = 0; i < parts.length; i++) {
+    await sendMessage(chatId, parts[i]);
+    if (i < parts.length - 1) await new Promise((r) => setTimeout(r, 600));
+  }
+}
+
 // ---- [[ACTION]] block parser (mirrors api/chat.js logic) ----
 
 function parseAction(reply) {
@@ -446,7 +465,8 @@ module.exports = async function handler(req, res) {
 
   const { text: replyText, action } = parseAction(rawReply);
 
-  tgChat.messages.push({ role: 'assistant', text: replyText, ts: Date.now() });
+  // Store with the ||| split markers normalized to newlines so the app reads it fine.
+  tgChat.messages.push({ role: 'assistant', text: replyText.replace(/\s*\|\|\|\s*/g, '\n'), ts: Date.now() });
   tgChat.updatedAt = Date.now();
 
   await saveUserData(username, userData);
@@ -466,13 +486,18 @@ module.exports = async function handler(req, res) {
           { text: 'Jo', callback_data: 'tg_confirm' },
           { text: 'Ne', callback_data: 'tg_cancel' }
         ]];
-    await sendMessage(chatId, `${replyText}\n\n${desc}`, {
+    // Send the chatty part as separate bubbles, then the action card with buttons.
+    const bubbles = splitBubbles(replyText);
+    const lead = bubbles.slice(0, -1);
+    const last = bubbles.length ? bubbles[bubbles.length - 1] : replyText;
+    for (const b of lead) { await sendMessage(chatId, b); await new Promise((r) => setTimeout(r, 600)); }
+    await sendMessage(chatId, `${last}\n\n${desc}`, {
       reply_markup: {
         inline_keyboard: buttons
       }
     });
   } else {
-    await sendMessage(chatId, replyText);
+    await sendBubbles(chatId, replyText);
   }
 
   return res.status(200).end();
