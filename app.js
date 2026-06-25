@@ -5083,8 +5083,14 @@ async function sendCoachMessage() {
     if (data && data.success && data.reply) {
       // Safeguard: never show a raw action block even if the backend missed it.
       const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'mám to';
-      appendCoachBubble(replyText, 'assistant', true);
-      chat.messages.push({ role: 'assistant', text: replyText });
+      // The coach may split a reply into several short texts with ||| — show each
+      // as its own bubble like a human firing off quick messages.
+      const bubbles = replyText.split(/\s*\|\|\|\s*/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+      const parts = bubbles.length ? bubbles : [replyText];
+      parts.forEach((b, i) => {
+        setTimeout(() => appendCoachBubble(b, 'assistant', true), i * 500);
+      });
+      chat.messages.push({ role: 'assistant', text: parts.join('\n') });
       chat.updatedAt = Date.now();
       if (chat.messages.length > 200) chat.messages = chat.messages.slice(-200);
       if (memOn) saveState();
