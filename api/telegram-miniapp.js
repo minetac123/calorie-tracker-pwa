@@ -134,7 +134,9 @@ module.exports = async function handler(req, res) {
     if (!blobs.blobs || blobs.blobs.length === 0) {
       return res.status(404).json({ error: 'User data not found' });
     }
-    const userResp = await fetch(blobs.blobs[0].url);
+    const base = blobs.blobs[0].url;
+    const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
+    const userResp = await fetch(fresh, { cache: 'no-store' });
     const userData = await userResp.json();
 
     const result = executeAction(userData, action);
@@ -144,7 +146,7 @@ module.exports = async function handler(req, res) {
     chat.updatedAt = Date.now();
 
     await Promise.all([
-      put(`data/${entry.username}.json`, JSON.stringify(userData), { access: 'public', addRandomSuffix: false }),
+      put(`data/${entry.username}.json`, JSON.stringify(userData), { access: 'public', addRandomSuffix: false, cacheControlMaxAge: 0 }),
       clearPendingAction(chatId)
     ]);
 

@@ -38,7 +38,8 @@ module.exports = async function handler(req, res) {
 
       await put(blobPath, JSON.stringify(appData), {
         access: 'public',
-        addRandomSuffix: false
+        addRandomSuffix: false,
+        cacheControlMaxAge: 0
       });
 
       return res.status(200).json({ success: true, message: 'Data uložena' });
@@ -52,7 +53,10 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ success: true, appData: null });
       }
 
-      const dataResp = await fetch(blobs.blobs[0].url);
+      // Bust the CDN cache so a load right after a save returns fresh data.
+      const base = blobs.blobs[0].url;
+      const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
+      const dataResp = await fetch(fresh, { cache: 'no-store' });
       const appData = await dataResp.json();
 
       return res.status(200).json({ success: true, appData: appData });

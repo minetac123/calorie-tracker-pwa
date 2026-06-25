@@ -21,7 +21,15 @@ module.exports = async function handler(req, res) {
   const index = await getTelegramIndex();
   if (!index || index.length === 0) return res.status(200).json({ sent: 0 });
 
-  const today = new Date().toISOString().split('T')[0];
+  // Czech local date so it matches the keys the app stores logs under.
+  let today;
+  try {
+    today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+  } catch (e) {
+    today = new Date().toISOString().split('T')[0];
+  }
   let sent = 0;
 
   for (const { username, chatId } of index) {
@@ -29,7 +37,9 @@ module.exports = async function handler(req, res) {
       // Load user data
       const blobs = await list({ prefix: `data/${username}.json` });
       if (!blobs.blobs || blobs.blobs.length === 0) continue;
-      const userResp = await fetch(blobs.blobs[0].url);
+      const base = blobs.blobs[0].url;
+      const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
+      const userResp = await fetch(fresh, { cache: 'no-store' });
       const userData = await userResp.json();
 
       const goals = userData.goals || { calories: 2000 };
