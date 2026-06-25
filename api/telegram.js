@@ -51,7 +51,15 @@ function getFoodCategory(item) {
 }
 
 function getTodayStr() {
-  return new Date().toISOString().split('T')[0];
+  // Use Czech local date so the key matches what the app stores food under
+  // (the app keys logs by the user's local date, not UTC).
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().split('T')[0];
+  }
 }
 
 // Current wall-clock time in Czech timezone (server runs in UTC).
@@ -103,7 +111,12 @@ async function loadUserData(username) {
   try {
     const blobs = await list({ prefix: `data/${username}.json` });
     if (!blobs.blobs || blobs.blobs.length === 0) return null;
-    const resp = await fetch(blobs.blobs[0].url);
+    // The blob public URL is CDN-cached, so a plain fetch can return a stale
+    // copy (e.g. yesterday's logs) right after the app synced new data. Bust
+    // the cache so the coach always sees what the user just logged.
+    const base = blobs.blobs[0].url;
+    const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
+    const resp = await fetch(fresh, { cache: 'no-store' });
     return await resp.json();
   } catch (e) {
     return null;
@@ -113,7 +126,8 @@ async function loadUserData(username) {
 async function saveUserData(username, data) {
   await put(`data/${username}.json`, JSON.stringify(data), {
     access: 'public',
-    addRandomSuffix: false
+    addRandomSuffix: false,
+    cacheControlMaxAge: 0
   });
 }
 
