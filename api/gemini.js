@@ -41,6 +41,17 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: { message: 'Chybí data požadavku' } });
   }
 
+  // Disable "thinking" for the food-analysis call. It's a structured extraction
+  // task, so thinking just adds latency (and with an image often pushes the
+  // call past the timeout under load → every model 503s → "AI vytížená").
+  // Keeps this path fast and reliable, same as the coach in api/chat.js.
+  if (!payload.generationConfig || typeof payload.generationConfig !== 'object') {
+    payload.generationConfig = {};
+  }
+  if (payload.generationConfig.thinkingConfig == null) {
+    payload.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
+
   try {
     // Fall back to less-loaded models when the primary 503s ("high demand").
     // Only valid model names — try each once, bounded by a deadline + per-call
