@@ -3157,6 +3157,41 @@ function isLiquidProduct(p) {
   return false;
 }
 
+// Native prompt() is blocked on iOS PWA standalone mode. Use this instead.
+function showAmountDialog(label, defaultValue, onConfirm) {
+  const dialog = document.getElementById('amount-edit-dialog');
+  const labelEl = document.getElementById('amount-edit-label');
+  const input = document.getElementById('amount-edit-input');
+  const cancelBtn = document.getElementById('amount-edit-cancel');
+  const confirmBtn = document.getElementById('amount-edit-confirm');
+  if (!dialog) { onConfirm(defaultValue); return; }
+
+  labelEl.textContent = label;
+  input.value = defaultValue || '';
+  dialog.style.display = 'flex';
+  setTimeout(() => { input.focus(); input.select(); }, 80);
+
+  const close = () => { dialog.style.display = 'none'; cleanup(); };
+  const submit = () => {
+    const v = input.value.trim();
+    close();
+    if (v) onConfirm(v);
+  };
+
+  const onKey = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+  input.addEventListener('keydown', onKey);
+  cancelBtn.onclick = close;
+  confirmBtn.onclick = submit;
+  dialog.onclick = (e) => { if (e.target === dialog) close(); };
+
+  function cleanup() {
+    input.removeEventListener('keydown', onKey);
+    cancelBtn.onclick = null;
+    confirmBtn.onclick = null;
+    dialog.onclick = null;
+  }
+}
+
 function parseQuantity(quantityStr, defaultUnit = 'g') {
   if (!quantityStr) return { value: 100, unit: defaultUnit };
   
@@ -3469,30 +3504,23 @@ function prefillManualFoodForm(product, askAmount = false) {
 function promptForScannedAmount(baseUnit) {
   if (!currentFormBaseValues) return;
   const unit = baseUnit || currentFormBaseValues.baseUnit || 'g';
-  const answer = prompt(
-    `Kolik ${unit === 'ml' ? 'mililitrů (ml)' : 'gramů (g)'} jsi snědl/a?`,
-    `100${unit}`
-  );
-  // Uživatel zrušil → necháme předvyplněných 100 g/ml, nic se neloguje.
-  if (answer === null) return;
-
-  const trimmed = String(answer).trim();
-  if (trimmed === '') return;
-
-  const multiplier = getQuantityMultiplier(trimmed, unit);
-  if (isNaN(multiplier) || multiplier <= 0) {
-    alert('Neplatné množství – ponechávám 100' + unit + '.');
-    return;
-  }
-
-  // Zapiš zadané množství a přepočítej hodnoty
-  const parsed = parseQuantity(trimmed, unit);
-  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-  setVal('input-food-amount', `${parsed.value}${parsed.unit}`);
-  setVal('input-food-cal', Math.round(currentFormBaseValues.calories * multiplier));
-  setVal('input-food-p', Math.round(currentFormBaseValues.protein * multiplier * 10) / 10);
-  setVal('input-food-c', Math.round(currentFormBaseValues.carbs * multiplier * 10) / 10);
-  setVal('input-food-f', Math.round(currentFormBaseValues.fat * multiplier * 10) / 10);
+  const label = `Kolik ${unit === 'ml' ? 'mililitrů (ml)' : 'gramů (g)'} jsi snědl/a?`;
+  showAmountDialog(label, `100${unit}`, (answer) => {
+    const trimmed = String(answer).trim();
+    if (!trimmed) return;
+    const multiplier = getQuantityMultiplier(trimmed, unit);
+    if (isNaN(multiplier) || multiplier <= 0) {
+      showToast('Neplatné množství – ponechávám 100' + unit);
+      return;
+    }
+    const parsed = parseQuantity(trimmed, unit);
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    setVal('input-food-amount', `${parsed.value}${parsed.unit}`);
+    setVal('input-food-cal', Math.round(currentFormBaseValues.calories * multiplier));
+    setVal('input-food-p', Math.round(currentFormBaseValues.protein * multiplier * 10) / 10);
+    setVal('input-food-c', Math.round(currentFormBaseValues.carbs * multiplier * 10) / 10);
+    setVal('input-food-f', Math.round(currentFormBaseValues.fat * multiplier * 10) / 10);
+  });
 }
 
 function initBarcodeAndSearch() {
@@ -4153,17 +4181,13 @@ function initItemActionsHandlers() {
         const item = logs.find(i => i.id === foodId);
         if (!item) return;
         
-        const newAmountStr = prompt(`Upravit množství pro: ${item.name}`, item.amount || '100g');
-        if (newAmountStr !== null && newAmountStr.trim() !== '') {
+        showAmountDialog(`Upravit množství: ${item.name}`, item.amount || '100g', (newAmountStr) => {
           const oldParsed = parseQuantity(item.amount || '100g');
           const newParsed = parseQuantity(newAmountStr, oldParsed.unit);
-          
           if (oldParsed.value > 0 && newParsed.value >= 0) {
             const ratio = newParsed.value / oldParsed.value;
             item.amount = newAmountStr.trim();
             if (item.original && item.leftovers && item.leftovers.length) {
-              // Scale the original portion and every logged leftover, then
-              // recompute the net so the breakdown stays consistent.
               const scale = (m) => {
                 m.calories = Math.round(m.calories * ratio);
                 m.protein = Math.round(m.protein * ratio * 10) / 10;
@@ -4179,14 +4203,13 @@ function initItemActionsHandlers() {
               item.carbs = Math.round(item.carbs * ratio * 10) / 10;
               item.fat = Math.round(item.fat * ratio * 10) / 10;
             }
-
             saveState();
             renderDashboard();
-            showToast("Množství upraveno! ✏️");
+            showToast('Množství upraveno ✏️');
           } else {
-            alert("Neplatné množství.");
+            showToast('Neplatné množství');
           }
-        }
+        });
         return;
       }
     });
