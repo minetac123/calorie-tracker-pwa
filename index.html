@@ -13,13 +13,13 @@
   <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
   <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#0A0B0E">
+  <meta name="theme-color" content="#000000">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   
-  <link rel="stylesheet" href="/styles.css?v=aurora1">
+  <link rel="stylesheet" href="/styles.css?v=noir1">
 </head>
 <body>
   <div class="safe-area-top"></div>
@@ -79,12 +79,12 @@
           <svg class="activity-rings-svg" viewBox="0 0 200 200" aria-hidden="true">
             <defs>
               <linearGradient id="grad-kcal" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#E4FF7A"/>
-                <stop offset="100%" stop-color="#7BE94F"/>
+                <stop offset="0%" stop-color="#FFFFFF"/>
+                <stop offset="100%" stop-color="#CFCFCF"/>
               </linearGradient>
               <linearGradient id="grad-prot" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#7FF0F8"/>
-                <stop offset="100%" stop-color="#22C8E0"/>
+                <stop offset="0%" stop-color="#B8B8BD"/>
+                <stop offset="100%" stop-color="#808085"/>
               </linearGradient>
             </defs>
 
@@ -113,14 +113,14 @@
         <!-- Ring Legend -->
         <div class="rings-legend">
           <div class="rings-legend-item">
-            <div class="legend-dot" style="background: #C8F94E; color: #C8F94E;"></div>
+            <div class="legend-dot" style="background: #FFFFFF; color: #FFFFFF;"></div>
             <div class="legend-info">
               <span class="legend-label">Snězeno</span>
               <span class="legend-val" id="dash-eaten">0</span>
             </div>
           </div>
           <div class="rings-legend-item">
-            <div class="legend-dot" style="background: #38DBEE; color: #38DBEE;"></div>
+            <div class="legend-dot" style="background: #9E9E9E; color: #9E9E9E;"></div>
             <div class="legend-info">
               <span class="legend-label">Bílkoviny</span>
               <span class="legend-val" id="dash-protein-legend">0g</span>
@@ -538,7 +538,7 @@
         <p style="color:var(--text-2); font-size:14px; margin-top:10px; margin-bottom:14px;">
           Chatuj s koučem přímo přes Telegram — vidí tvá data a jídlo v reálném čase. Každé ráno ti pošle check-in.
         </p>
-        <div id="tg-connected-status" style="display:none; background:var(--bg-2); border-radius:10px; padding:12px; margin-bottom:14px; font-size:14px; color:#30d158;">
+        <div id="tg-connected-status" style="display:none; background:var(--bg-2); border-radius:10px; padding:12px; margin-bottom:14px; font-size:14px; color:#ffffff; font-weight:600;">
           Propojeno s Telegramem
         </div>
         <div id="tg-code-box" style="display:none; background:var(--bg-2); border-radius:10px; padding:14px; margin-bottom:14px;">
@@ -596,7 +596,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.14.0 (Cache v40)
+        Verze: 2.15.0 (Cache v41)
       </div>
     </section>
 
@@ -727,7 +727,7 @@
         style="width:100%; background:var(--bg-input, #2c2c2e); border:none; border-radius:12px; padding:12px 14px; font-size:17px; color:var(--text); outline:none; text-align:center; margin-bottom:18px;">
       <div style="display:flex; gap:10px;">
         <button id="amount-edit-cancel" style="flex:1; padding:12px; border-radius:12px; border:none; background:var(--bg-elevated-2, #2c2c2e); color:var(--text-2); font-size:15px; font-weight:600; cursor:pointer;">Zrušit</button>
-        <button id="amount-edit-confirm" style="flex:1; padding:12px; border-radius:12px; border:none; background:var(--blue,#0a84ff); color:#fff; font-size:15px; font-weight:700; cursor:pointer;">Uložit</button>
+        <button id="amount-edit-confirm" style="flex:1; padding:12px; border-radius:12px; border:none; background:var(--brand-grad,#0a84ff); color:var(--on-brand,#fff); font-size:15px; font-weight:700; cursor:pointer;">Uložit</button>
       </div>
     </div>
   </div>
@@ -986,6 +986,56 @@
   <div class="safe-area-bottom"></div>
 
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <script>
+  /* NOIR 3D — interactive tilt for the activity-rings hero.
+     Pointer/touch parallax with a gentle idle sway; pauses off-screen
+     and disables itself entirely under prefers-reduced-motion. */
+  (function () {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var area = document.querySelector('.activity-rings-area');
+    var ring = document.querySelector('.rings-wrapper');
+    if (!area || !ring) return;
+    ring.style.transition = 'none';
+    var tx = 0, ty = 0, cx = 0, cy = 0, raf = null, idle = true, t0 = Date.now();
+    function frame() {
+      if (idle) {
+        var t = (Date.now() - t0) / 1000;
+        tx = Math.sin(t * 0.7) * 4;
+        ty = Math.cos(t * 0.5) * 5;
+      }
+      cx += (tx - cx) * 0.08;
+      cy += (ty - cy) * 0.08;
+      ring.style.transform = 'rotateX(' + cx.toFixed(2) + 'deg) rotateY(' + cy.toFixed(2) + 'deg)';
+      raf = requestAnimationFrame(frame);
+    }
+    function onMove(e) {
+      var p = e.touches ? e.touches[0] : e;
+      if (!p || p.clientX === undefined) return;
+      var r = ring.getBoundingClientRect();
+      if (!r.width) return;
+      var dx = Math.max(-1, Math.min(1, (p.clientX - (r.left + r.width / 2)) / (r.width / 2)));
+      var dy = Math.max(-1, Math.min(1, (p.clientY - (r.top + r.height / 2)) / (r.height / 2)));
+      idle = false;
+      tx = -dy * 12;
+      ty = dx * 12;
+    }
+    function onEnd() { idle = true; t0 = Date.now(); }
+    area.addEventListener('pointermove', onMove, { passive: true });
+    area.addEventListener('pointerleave', onEnd, { passive: true });
+    area.addEventListener('pointerup', onEnd, { passive: true });
+    area.addEventListener('touchmove', onMove, { passive: true });
+    area.addEventListener('touchend', onEnd, { passive: true });
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) {
+        var visible = entries[0] && entries[0].isIntersecting;
+        if (visible && raf === null) { raf = requestAnimationFrame(frame); }
+        else if (!visible && raf !== null) { cancelAnimationFrame(raf); raf = null; }
+      }).observe(ring);
+    } else {
+      raf = requestAnimationFrame(frame);
+    }
+  })();
+  </script>
   <script src="/app.js?v=49"></script>
 </body>
 </html>
