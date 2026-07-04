@@ -1359,8 +1359,9 @@ function initFoodLogSheet() {
   const vfPlaceholder  = document.getElementById('fls-vf-placeholder');
   const analyzeImg     = document.getElementById('fls-analyze-img');
 
-  const choicesList  = document.getElementById('fls-choices-list');
-  const choicesThumb = document.getElementById('fls-choices-thumb');
+  const choicesList    = document.getElementById('fls-choices-list');
+  const choicesThumb   = document.getElementById('fls-choices-thumb');
+  const choicesRetake  = document.getElementById('fls-choices-retake');
   const refineInput  = document.getElementById('fls-refine-input');
   const refineBtn    = document.getElementById('fls-refine-btn');
   const mealPicker     = document.getElementById('fls-meal-picker');
@@ -1567,7 +1568,7 @@ function initFoodLogSheet() {
       ? `${presetMeal.icon} ${presetMeal.name} · uprav porce dole ↓`
       : 'Uprav porce textem dole ↓';
     header.innerHTML = `
-      <div class="fls-detected-header-thumb"></div>
+      <div class="fls-detected-header-thumb" id="fls-detected-thumb"></div>
       <div style="flex:1;">
         <div style="font-size:13px; font-weight:700; color:#34D399; display:flex; align-items:center; gap:5px;">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1575,6 +1576,14 @@ function initFoodLogSheet() {
         </div>
         <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">${headerSub}</div>
       </div>`;
+    if (flsPhotoBase64) {
+      const thumb = document.getElementById('fls-detected-thumb');
+      if (thumb) {
+        thumb.style.backgroundImage = `url(${flsPhotoBase64})`;
+        thumb.style.backgroundSize = 'cover';
+        thumb.style.backgroundPosition = 'center';
+      }
+    }
 
     list.innerHTML = '';
     flsItems.forEach((item, i) => {
@@ -1667,6 +1676,14 @@ function initFoodLogSheet() {
   camInput.addEventListener('change', e => handleFile(e.target.files[0]));
   galInput.addEventListener('change', e => handleFile(e.target.files[0]));
   document.getElementById('fls-btn-save').addEventListener('click', saveItems);
+
+  choicesRetake.addEventListener('click', () => {
+    flsPhotoBase64 = null;
+    flsChoices = [];
+    capturePreview.style.display = 'none';
+    vfPlaceholder.style.display = '';
+    showStage('capture');
+  });
 
   refineBtn.addEventListener('click', refineWithAI);
   refineInput.addEventListener('keydown', e => {
