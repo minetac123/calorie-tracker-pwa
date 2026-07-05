@@ -40,8 +40,8 @@ function getFoodCategory(item) {
     const hour = parseInt(item.time.split(':')[0]);
     if (!isNaN(hour)) {
       if (hour >= 5 && hour < 10) return 'Breakfast';
-      if (hour >= 10 && hour < 12) return 'Morning snack';
-      if (hour >= 12 && hour < 15) return 'Lunch';
+      if (hour >= 10 && hour < 11) return 'Morning snack';
+      if (hour >= 11 && hour < 15) return 'Lunch';
       if (hour >= 15 && hour < 18) return 'Afternoon snack';
       if (hour >= 18 && hour < 22) return 'Dinner';
       return 'Second dinner';
