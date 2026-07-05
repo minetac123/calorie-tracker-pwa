@@ -2387,6 +2387,31 @@ input, textarea, select, button {
   color: rgba(255,255,255,0.3);
   flex-shrink: 0;
 }
+.fls-choices-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 calc(env(safe-area-inset-bottom, 12px) + 6px);
+}
+.fls-retake-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: 0.5px solid rgba(255,255,255,0.18);
+  border-radius: 100px;
+  padding: 10px 20px;
+  color: rgba(255,255,255,0.55);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.fls-retake-btn:active {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.35);
+  color: #fff;
+}
 
 /* --- AI refine field --- */
 .fls-refine-row {

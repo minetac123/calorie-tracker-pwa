@@ -1359,8 +1359,9 @@ function initFoodLogSheet() {
   const vfPlaceholder  = document.getElementById('fls-vf-placeholder');
   const analyzeImg     = document.getElementById('fls-analyze-img');
 
-  const choicesList  = document.getElementById('fls-choices-list');
-  const choicesThumb = document.getElementById('fls-choices-thumb');
+  const choicesList    = document.getElementById('fls-choices-list');
+  const choicesThumb   = document.getElementById('fls-choices-thumb');
+  const choicesRetake  = document.getElementById('fls-choices-retake');
   const refineInput  = document.getElementById('fls-refine-input');
   const refineBtn    = document.getElementById('fls-refine-btn');
   const mealPicker     = document.getElementById('fls-meal-picker');
@@ -1390,6 +1391,7 @@ function initFoodLogSheet() {
   let flsChoices = [];
   let flsPresetCategory = null;  // přednastavená kategorie (z tlačítka u konkrétního jídla)
   let flsPickedCategory = null;  // kategorie vybraná uživatelem po skenu
+  let flsPhotoTimer = null;      // timer pro časný analyzing stav (iOS photo delay)
 
   function openSheet(presetCategory) {
     flsPresetCategory = (typeof presetCategory === 'string' && MEALS.some(m => m.id === presetCategory))
@@ -1432,6 +1434,7 @@ function initFoodLogSheet() {
   }
 
   function closeSheet() {
+    clearTimeout(flsPhotoTimer);
     scrim.classList.remove('open');
     sheet.classList.remove('open');
     camInput.value = '';
@@ -1567,7 +1570,7 @@ function initFoodLogSheet() {
       ? `${presetMeal.icon} ${presetMeal.name} · uprav porce dole ↓`
       : 'Uprav porce textem dole ↓';
     header.innerHTML = `
-      <div class="fls-detected-header-thumb"></div>
+      <div class="fls-detected-header-thumb" id="fls-detected-thumb"></div>
       <div style="flex:1;">
         <div style="font-size:13px; font-weight:700; color:#34D399; display:flex; align-items:center; gap:5px;">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1575,6 +1578,14 @@ function initFoodLogSheet() {
         </div>
         <div style="font-size:13px; font-weight:500; color:rgba(255,255,255,0.5); margin-top:2px;">${headerSub}</div>
       </div>`;
+    if (flsPhotoBase64) {
+      const thumb = document.getElementById('fls-detected-thumb');
+      if (thumb) {
+        thumb.style.backgroundImage = `url(${flsPhotoBase64})`;
+        thumb.style.backgroundSize = 'cover';
+        thumb.style.backgroundPosition = 'center';
+      }
+    }
 
     list.innerHTML = '';
     flsItems.forEach((item, i) => {
@@ -1649,8 +1660,22 @@ function initFoodLogSheet() {
     showToast(`✅ ${mealName}: ${count} ${word} · ${totKcal} kcal`);
   }
 
+  function scheduleEarlyAnalyzing(delayMs) {
+    clearTimeout(flsPhotoTimer);
+    // Show analyzing stage early — covers iOS photo-processing delay so user
+    // sees feedback immediately instead of staring at the frozen capture screen.
+    flsPhotoTimer = setTimeout(() => {
+      if (stageCapture.style.display !== 'none') showStage('analyzing');
+    }, delayMs);
+  }
+
   function handleFile(file) {
-    if (!file || !file.type.startsWith('image/')) return;
+    clearTimeout(flsPhotoTimer);
+    if (!file || !file.type.startsWith('image/')) {
+      // User cancelled or picked non-image — go back to capture stage.
+      showStage('capture');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = e => handlePhoto(e.target.result);
     reader.readAsDataURL(file);
@@ -1658,8 +1683,8 @@ function initFoodLogSheet() {
 
   scrim.addEventListener('click', closeSheet);
   btnClose.addEventListener('click', closeSheet);
-  shutter.addEventListener('click', () => camInput.click());
-  btnGallery.addEventListener('click', () => galInput.click());
+  shutter.addEventListener('click', () => { camInput.click(); scheduleEarlyAnalyzing(400); });
+  btnGallery.addEventListener('click', () => { galInput.click(); scheduleEarlyAnalyzing(1200); });
   btnBarcode.addEventListener('click', () => {
     closeSheet();
     document.getElementById('btn-wizard-scan-barcode')?.click();
@@ -1667,6 +1692,14 @@ function initFoodLogSheet() {
   camInput.addEventListener('change', e => handleFile(e.target.files[0]));
   galInput.addEventListener('change', e => handleFile(e.target.files[0]));
   document.getElementById('fls-btn-save').addEventListener('click', saveItems);
+
+  choicesRetake.addEventListener('click', () => {
+    flsPhotoBase64 = null;
+    flsChoices = [];
+    capturePreview.style.display = 'none';
+    vfPlaceholder.style.display = '';
+    showStage('capture');
+  });
 
   refineBtn.addEventListener('click', refineWithAI);
   refineInput.addEventListener('keydown', e => {
@@ -2188,7 +2221,11 @@ Pravidla pro výstup:
   }
 }
 
-3. Pokud uživatel nahrál OBRÁZEK (volitelně doplněný textem), pečlivě odhadni, co je na fotce a JAK VELKÁ je porce. Navrhni přesně 3 NEJPRAVDĚPODOBNĚJŠÍ varianty toho, co jídlo je (např. 1. odlehčená/zdravější verze, 2. standardní verze, 3. kaloričtější verze s omáčkou/olejem). U KAŽDÉ varianty odhadni hmotnost jednotlivých složek co nejpřesněji podle velikosti na fotce. Vrať JSON v tomto formátu (formát type "image_choices"):
+3. Pokud uživatel nahrál OBRÁZEK, postupuj v tomto pořadí:
+   a) Identifikuj VŠECHNY viditelné složky jídla — základ/podklad (talíř, miska, chléb, cereálie, rýže…), hlavní ingredience, přílohy, omáčky, nápoje. Nepřehlédni nic!
+   b) Navrhni přesně 3 NEJPRAVDĚPODOBNĚJŠÍ varianty celého jídla. KAŽDÁ varianta MUSÍ zahrnovat VŠECHNY viditelné složky — varianty se liší jen v těch prvcích, kde si nejsi jistý (např. druh cereálií, druh ovoce, způsob přípravy masa). Složky, které jsou jasně viditelné, zahrň do KAŽDÉ varianty bez výjimky.
+   c) U každé varianty odhadni hmotnost každé složky co nejpřesněji.
+   Vrať JSON v tomto formátu (formát type "image_choices"):
 {
   "type": "image_choices",
   "choices": [
@@ -2262,7 +2299,7 @@ Pokud rozpoznané jídlo odpovídá některému z těchto známých jídel uživ
     if (isLeftover) {
       parts.push({ text: "Tato fotka ukazuje ZBYTEK (nedojedenou část) jídla. Odhadni kalorie a makra POUZE toho, co je na fotce vidět, a vrať jeden výsledek typu text_result s polem total." });
     } else {
-      parts.push({ text: "Odhadni 3 nejčastější varianty jídla zobrazeného na fotce a rozepiš je podle pravidel." });
+      parts.push({ text: "Identifikuj VŠECHNY viditelné složky jídla (základ, hlavní ingredience, přílohy, omáčky). Pak navrhni 3 nejpravděpodobnější varianty — každá musí obsahovat VŠECHNY viditelné složky, liší se jen tam, kde si nejsi jistý. Rozepiš je podle pravidel." });
     }
   }
 
