@@ -2193,6 +2193,9 @@ KLÍČOVÁ PRAVIDLA PRO ODHAD HMOTNOSTI (nejdůležitější!):
   • vejce M ~55–60 g, lžíce (oleje/medu) ~10–15 g, lžička ~5 g
   • plátek rajčete ~15 g, kolečko okurky ~5 g, sušenka ~8–12 g, čtverečka čokolády ~5 g
 - Referenční velikost PORCE (na váhu): kuřecí prso 120–180 g, příloha rýže/těstovin 150–250 g (vařené), brambory 200–300 g, příloha zeleniny 80–150 g, jogurt 150 g, kopeček zmrzliny ~50 g.
+- Referenční velikost ČESKÝCH JÍDEL: smažený řízek domácí 80–150 g (1 kus, tenký), smažený řízek restaurační 150–250 g; bramborová kaše 150–200 g jako příloha; svíčková omáčka 100–150 ml; guláš 200–250 g; knedlík houskový 1 kus ~60–70 g (2 knedlíky = 120–140 g).
+- KALORICKÁ HUSTOTA smažených jídel: smažený vepřový/kuřecí řízek ~230–270 kcal/100 g (ne 400+!); bramborová kaše ~90–110 kcal/100 g; hranolky ~280–320 kcal/100 g.
+- POZOR: AI má tendenci NADHODNOCOVAT VELIKOST PORCÍ. Domácí porce jsou typicky MENŠÍ než restaurační. Polévková miska je malá (~400–500 ml), talíř ~26 cm. Pokud jídlo vypadá jako domácí nebo malá porce — odhadni hmotnost NIŽŠÍ ze svého rozsahu.
 - Vždy zohledni REALISTICKOU velikost na fotce (referenční objekty: talíř ~26 cm, příbor, ruka). Při pochybnostech raději odhadni MENŠÍ, realističtější hmotnost než nadhodnotit.
 - Nutriční hodnoty (calories, protein, carbs, fat) MUSÍ matematicky odpovídat uvedené hmotnosti "amount". Nejdřív urči hmotnost, pak z ní spočítej makra a kalorie.
 - Kalorie ověř vztahem: calories ≈ protein*4 + carbs*4 + fat*9 (s tolerancí ±10 %). Hodnoty musí být vnitřně konzistentní.
