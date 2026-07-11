@@ -1,4 +1,5 @@
-const { put, list } = require('@vercel/blob');
+const { put } = require('@vercel/blob');
+const { blobGet, BASE_URL } = require('./_lib/blob');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -47,19 +48,8 @@ module.exports = async function handler(req, res) {
 
     // LOAD data from cloud
     if (req.method === 'GET') {
-      const blobs = await list({ prefix: blobPath });
-
-      if (!blobs.blobs || blobs.blobs.length === 0) {
-        return res.status(200).json({ success: true, appData: null });
-      }
-
-      // Bust the CDN cache so a load right after a save returns fresh data.
-      const base = blobs.blobs[0].url;
-      const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
-      const dataResp = await fetch(fresh, { cache: 'no-store' });
-      const appData = await dataResp.json();
-
-      return res.status(200).json({ success: true, appData: appData });
+      const appData = await blobGet(blobPath);
+      return res.status(200).json({ success: true, appData: appData || null });
     }
 
     return res.status(405).json({ error: 'Metoda není povolena' });

@@ -1,5 +1,5 @@
 // Telegram Bot API helpers and Vercel Blob storage for the Telegram integration.
-const { put, list, del } = require('@vercel/blob');
+const { blobGet, blobPut, blobDel } = require('./blob');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || '';
@@ -24,32 +24,6 @@ async function answerCallbackQuery(callbackQueryId, text = '') {
 
 async function setWebhook(url) {
   return tgPost('setWebhook', { url, allowed_updates: ['message', 'callback_query'] });
-}
-
-// --- Blob helpers ---
-
-async function blobGet(path) {
-  try {
-    const blobs = await list({ prefix: path });
-    if (!blobs.blobs || blobs.blobs.length === 0) return null;
-    const resp = await fetch(blobs.blobs[0].url);
-    return await resp.json();
-  } catch (e) {
-    return null;
-  }
-}
-
-async function blobPut(path, data) {
-  await put(path, JSON.stringify(data), { access: 'public', addRandomSuffix: false });
-}
-
-async function blobDel(path) {
-  try {
-    const blobs = await list({ prefix: path });
-    if (blobs.blobs && blobs.blobs.length > 0) {
-      await del(blobs.blobs.map((b) => b.url));
-    }
-  } catch (e) { /* ignore */ }
 }
 
 // --- Telegram user index: [{username, chatId}] ---
