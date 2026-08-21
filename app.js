@@ -5131,7 +5131,7 @@ async function sendCoachMessage() {
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
 
-  // /api/coach gives the model real tools (profile, targets, workout plan,
+  // /api/chat gives the model real tools (profile, targets, workout plan,
   // meal plan) on top of the food-log actions the older /api/chat handled.
   const payload = buildCoachPayload(message, {
     image: image || undefined,
@@ -5497,7 +5497,7 @@ window.addEventListener('DOMContentLoaded', init);
 // COACH PLAN LAYER — profil, tréninkový plán, jídelníček
 // ==========================================================================
 // The plan itself is generated and edited by the AI coach through Gemini
-// function calling (see api/coach.js). Everything below is the client side:
+// function calling (see api/chat.js). Everything below is the client side:
 // rendering the plan, tracking what was ticked off, and handing the coach the
 // context it needs.
 
@@ -5927,7 +5927,7 @@ function buildCoachPayload(message, opts = {}) {
   };
 }
 
-// Single place that talks to /api/coach, with the same retry behaviour the
+// Single place that talks to /api/chat, with the same retry behaviour the
 // food coach already uses.
 async function callCoachAPI(payload) {
   const session = getSession();
@@ -5939,7 +5939,7 @@ async function callCoachAPI(payload) {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const resp = await fetch('/api/coach', {
+      const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
