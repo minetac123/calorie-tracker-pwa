@@ -14,7 +14,7 @@
 const { extractUsername, getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
 const { fmtWhoop, fmtFood } = require('./_lib/coach');
 const {
-  TOOL_DECLARATIONS, applyTool, emptyPlanState,
+  TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
   fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan,
   dayKeyForDate, DAY_CZ
 } = require('./_lib/plans');
@@ -22,7 +22,7 @@ const {
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
 
-const MAX_TOOL_ROUNDS = 5;
+const MAX_TOOL_ROUNDS = 6;
 
 // Food-log tools. The food log lives in the client's appState, so these are
 // NOT applied here — they come back as a proposal and the app shows the same
@@ -143,9 +143,10 @@ PRAVIDLA:
 - Když už máš všechno (save_profile ti vrátí readyForTargets:true), postupuj v TOMHLE pořadí:
   a) zavolej compute_targets — dostaneš spočítané kalorie a makra
   b) zavolej set_workout_plan — vygeneruj celý týdenní split podle jeho vybavení, zkušenosti a počtu tréninků. Netréninkové dny dej rest:true
-  c) zavolej set_meal_plan — vygeneruj jídelníček na všech 7 dní. KAŽDÝ den musí makry vyjít zhruba na cíle z compute_targets (±5 %). Respektuj alergie a co nemá rád
+  c) zavolej set_meal_plan s PŘESNĚ 3 dny (mon, tue, wed) — tři různé dny jídla. Appka je sama rozkopíruje na zbytek týdne, takže víc dnů neposílej. KAŽDÝ den musí makry vyjít zhruba na cíle z compute_targets (±5 %). Respektuj alergie a co nemá rád
   d) až potom napiš krátkou zprávu, co jsi mu připravil
-- Tyhle tři nástroje můžeš zavolat i naráz v jedné odpovědi, klidně to udělej.
+- Tyhle tři nástroje zavolej NARÁZ v jedné odpovědi, ať to netrvá věčnost.
+- Drž se limitu 3 dnů u set_meal_plan. Když pošleš víc, odpověď se nevejde do limitu a celé to spadne.
 - U jídelníčku piš reálné české jídlo, ne fitness katalog. Gramáž musí sedět na makra.
 - NIKDY si čísla kalorií nevymýšlej — vždycky použij compute_targets.
 
@@ -224,7 +225,11 @@ ${ctx.memBlock}
 Dnes je ${ctx.todayDate} (${DAY_CZ[ctx.todayKey]}), čas ${ctx.nowTime || 'neznámý'}.`;
 }
 
-// One Gemini call. Returns the parsed candidate or null.
+// Models tried in order. If the primary is overloaded, unavailable or just
+// returns nothing usable, the next one takes over instead of failing the turn.
+const MODEL_CHAIN = [...new Set([COACH_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite'])];
+
+// One Gemini call. Returns the parsed response or null.
 async function callGemini(model, payload, timeoutMs) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${COACH_API_KEY}`;
   const ctrl = new AbortController();
@@ -248,6 +253,41 @@ async function callGemini(model, payload, timeoutMs) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function partsOf(gData) {
+  const cand = gData && gData.candidates && gData.candidates[0];
+  return {
+    cand,
+    parts: (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : []
+  };
+}
+
+// Walk the model chain until one returns something we can actually use (text
+// or a function call). A response that came back 200 but empty counts as a
+// failure too — that is what a MAX_TOKENS truncation looks like, and silently
+// treating it as "the model had nothing to say" is how the coach used to die
+// mid-onboarding.
+async function callGeminiChain(payload, deadline, label) {
+  let truncated = false;
+
+  for (const model of MODEL_CHAIN) {
+    const remaining = deadline - Date.now();
+    if (remaining < 5000) break;
+
+    const gData = await callGemini(model, payload, Math.min(28000, remaining));
+    if (!gData) continue; // network/HTTP failure — already logged, try next
+
+    const { cand, parts } = partsOf(gData);
+    const usable = parts.some((p) => p && (p.functionCall || (p.text && p.text.trim())));
+    if (usable) return { gData, model, truncated: false };
+
+    const reason = cand && cand.finishReason;
+    console.error(`Gemini ${model} [${label}]: empty response, finishReason=${reason}`);
+    if (reason === 'MAX_TOKENS') truncated = true;
+  }
+
+  return { gData: null, model: null, truncated };
 }
 
 module.exports = async function handler(req, res) {
@@ -342,7 +382,7 @@ module.exports = async function handler(req, res) {
       tools: [{ functionDeclarations: activeTools }],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 24576,
         thinkingConfig: { thinkingBudget: 0 }
       }
     };
@@ -354,20 +394,36 @@ module.exports = async function handler(req, res) {
     let planChanged = false;
     let foodAction = null;
 
+    let hitTokenLimit = false;
+    let shrinkRetries = 0;
+
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const remaining = deadline - Date.now();
-      if (remaining < 4000) break;
+      if (remaining < 5000) break;
 
-      const gData = await callGemini(
-        COACH_MODEL,
+      const attempt = await callGeminiChain(
         Object.assign({}, basePayload, { contents }),
-        Math.min(24000, remaining)
+        deadline,
+        `round ${round}`
       );
-      if (!gData) break;
 
-      const cand = gData.candidates && gData.candidates[0];
-      const parts = (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
+      if (!attempt.gData) {
+        // Every model came back unusable. If the reason was truncation, the
+        // request itself was too big — tell the model to work in smaller
+        // batches and give it another go rather than dropping the turn.
+        if (attempt.truncated && shrinkRetries < 2) {
+          shrinkRetries++;
+          hitTokenLimit = true;
+          contents.push({
+            role: 'user',
+            parts: [{ text: 'SYSTÉM: předchozí odpověď byla moc dlouhá a nevešla se do limitu. Rozděl práci na menší dávky — set_meal_plan volej vždy nanejvýš na 2 dny naráz (zbytek dogeneruješ dalším voláním) a piš stručněji.' }]
+          });
+          continue;
+        }
+        break;
+      }
 
+      const { parts } = partsOf(attempt.gData);
       const text = parts.map((p) => (p && p.text) ? p.text : '').join('').trim();
       const calls = parts.filter((p) => p && p.functionCall).map((p) => p.functionCall);
 
@@ -413,10 +469,25 @@ module.exports = async function handler(req, res) {
       if (text && !reply) reply = text;
     }
 
+    // Onboarding promises a full week. The model only writes a few distinct
+    // days (anything more truncates), so rotate them across the empty ones.
+    if (isOnboarding && state.mealPlan) {
+      const filled = fillMealWeek(state.mealPlan);
+      if (filled.length) {
+        planChanged = true;
+        console.log(`Meal week rotated into: ${filled.join(', ')}`);
+      }
+    }
+
     if (!reply) {
-      reply = appliedTools.length
-        ? 'hotovo, mrkni na plán'
-        : 'sorry, jsem teď dost cooked, zkus to za chvíli';
+      if (appliedTools.length) {
+        reply = 'hotovo, mrkni na plán';
+      } else if (hitTokenLimit) {
+        // Be honest: this is not overload, it is us asking for too much at once.
+        reply = 'ten plán mi vyšel moc velkej najednou ||| napiš „zkus to znovu" a udělám ho po částech';
+      } else {
+        reply = 'sorry, jsem teď dost cooked, zkus to za chvíli';
+      }
     }
 
     return res.status(200).json({

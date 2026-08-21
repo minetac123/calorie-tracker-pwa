@@ -308,11 +308,11 @@ const TOOL_DECLARATIONS = [
   },
   {
     name: 'set_meal_plan',
-    description: 'Nastav kompletní týdenní jídelníček (všech 7 dní). Každý den musí makry zhruba sedět na denní cíle. Použij při prvním vygenerování nebo při velké přestavbě.',
+    description: 'Ulož jídelníček pro zadané dny. SLUČUJE — dny, které nepošleš, zůstanou beze změny, takže můžeš volat víckrát po částech. DŮLEŽITÉ: pošli NANEJVÝŠ 3 dny na jedno volání, jinak se odpověď nevejde do limitu a propadne. Každý den musí makry zhruba sedět na denní cíle.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        days: { type: 'ARRAY', items: MEAL_DAY_SCHEMA, description: 'Všech 7 dní' }
+        days: { type: 'ARRAY', items: MEAL_DAY_SCHEMA, description: 'Max 3 dny na jedno volání' }
       },
       required: ['days']
     }
@@ -470,10 +470,14 @@ function applyTool(name, args, state) {
     }
 
     case 'set_meal_plan': {
-      const days = emptyWeek(() => ({ meals: [] }));
+      // MERGES rather than replaces: a full week of meals with per-ingredient
+      // macros easily overruns the model's output-token limit, so the model is
+      // told to deliver it in small batches. Only the days it sends are touched.
+      const days = (state.mealPlan && state.mealPlan.days) || emptyWeek(() => ({ meals: [] }));
+      const touched = [];
       (a.days || []).forEach((d) => {
         const key = normDayKey(d && d.day);
-        if (key) days[key] = normMealDay(d);
+        if (key) { days[key] = normMealDay(d); touched.push(key); }
       });
       state.mealPlan = {
         days,
@@ -481,11 +485,17 @@ function applyTool(name, args, state) {
         updatedAt: Date.now()
       };
       const summary = {};
-      DAY_KEYS.forEach((k) => {
+      touched.forEach((k) => {
         const kcal = days[k].meals.reduce((s, m) => s + m.calories, 0);
         summary[DAY_CZ[k]] = `${days[k].meals.length} jídel, ${kcal} kcal`;
       });
-      return { ok: true, daySummary: summary, targets: state.targets };
+      const missing = DAY_KEYS.filter((k) => !days[k].meals.length);
+      return {
+        ok: true,
+        savedDays: summary,
+        emptyDays: missing.map((k) => DAY_CZ[k]),
+        targets: state.targets
+      };
     }
 
     case 'update_meal_plan_day': {
@@ -593,6 +603,36 @@ function fmtMealPlan(plan, todayKey) {
   return l.length ? l.join('\n') : 'Jídelníček zatím neexistuje.';
 }
 
+// Fill any day with no meals by rotating the days that do have them.
+//
+// Generating seven genuinely distinct days of food in one shot is what used to
+// blow the output-token limit. The model now writes a few solid days and the
+// rotation gives the user a complete week straight away; they can still ask the
+// coach to regenerate any single day afterwards. Returns the days it filled.
+function fillMealWeek(mealPlan) {
+  if (!mealPlan || !mealPlan.days) return [];
+  const source = DAY_KEYS.filter((k) => mealPlan.days[k] && mealPlan.days[k].meals.length);
+  if (!source.length || source.length === DAY_KEYS.length) return [];
+
+  const filled = [];
+  let i = 0;
+  DAY_KEYS.forEach((k) => {
+    if (mealPlan.days[k] && mealPlan.days[k].meals.length) return;
+    const template = mealPlan.days[source[i % source.length]];
+    i++;
+    // Fresh ids so ticking a meal off on Tuesday doesn't tick Monday too.
+    mealPlan.days[k] = {
+      meals: template.meals.map((m) => Object.assign({}, m, {
+        id: genId('meal'),
+        items: m.items.map((it) => Object.assign({}, it))
+      }))
+    };
+    filled.push(k);
+  });
+  if (filled.length) mealPlan.updatedAt = Date.now();
+  return filled;
+}
+
 // Weekday key for a YYYY-MM-DD date string (or today in Prague).
 function dayKeyForDate(dateStr) {
   let d;
@@ -609,7 +649,7 @@ function dayKeyForDate(dateStr) {
 module.exports = {
   DAY_KEYS, DAY_CZ, MEAL_CATEGORIES, ACTIVITY_FACTORS,
   mifflinStJeor, computeTargets,
-  TOOL_DECLARATIONS, applyTool, emptyPlanState,
+  TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
   fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan,
   dayKeyForDate, normDayKey
 };
