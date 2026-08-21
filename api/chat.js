@@ -15,7 +15,7 @@ const { extractUsername, getValidToken, fetchWhoopSnapshot } = require('./_lib/w
 const { fmtWhoop, fmtFood } = require('./_lib/coach');
 const {
   TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
-  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan,
+  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory,
   dayKeyForDate, DAY_CZ
 } = require('./_lib/plans');
 
@@ -230,6 +230,14 @@ ${fmtFood(ctx.foodContext)}
 === DNEŠNÍ TRÉNINK ===
 ${ctx.workoutStatus}
 
+=== HISTORIE VAH (progressive overload) ===
+${fmtExerciseHistory(ctx.exerciseHistory)}
+
+Když se uživatel ptá na progres, opírej se o čísla výš — konkrétně, ne obecně.
+Když je cvik označený [STAGNUJE], sám navrhni deload (−10 % váhy na týden) nebo výměnu cviku.
+Když má na posledním tréninku splněný horní rozsah opakování, navrhni přidat 2,5 kg (u velkých cviků 5 kg).
+Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej log_set.
+
 === WHOOP ===
 ${fmtWhoop(ctx.whoopSnapshot)}
 
@@ -320,7 +328,7 @@ module.exports = async function handler(req, res) {
   try {
     const {
       message, history, mode, image,
-      profile, targets, workoutPlan, mealPlan, lockedMeals,
+      profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
       foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
@@ -337,7 +345,8 @@ module.exports = async function handler(req, res) {
       profile: profile || {},
       targets: targets || null,
       workoutPlan: workoutPlan || null,
-      mealPlan: mealPlan || null
+      mealPlan: mealPlan || null,
+      exerciseLogs: (exerciseLogs && typeof exerciseLogs === 'object') ? exerciseLogs : {}
     });
 
     // WHOOP is only worth fetching for the ongoing coach, not mid-onboarding.
@@ -359,7 +368,8 @@ module.exports = async function handler(req, res) {
       foodContext, whoopSnapshot, memBlock, todayDate: todayDate || 'dnes', todayKey,
       nowTime: (typeof nowTime === 'string' && /^\d{1,2}:\d{2}$/.test(nowTime)) ? nowTime : null,
       workoutStatus: workoutStatus || 'Dnešní trénink zatím nezačal.',
-      lockedMeals: Array.isArray(lockedMeals) ? lockedMeals : []
+      lockedMeals: Array.isArray(lockedMeals) ? lockedMeals : [],
+      exerciseHistory: Array.isArray(exerciseHistory) ? exerciseHistory : []
     };
 
     const systemInstruction = isOnboarding ? onboardingPrompt(ctx) : coachPrompt(ctx);
@@ -513,6 +523,7 @@ module.exports = async function handler(req, res) {
       appliedTools: appliedTools.map((t) => t.name),
       profile: state.profile,
       targets: state.targets,
+      exerciseLogs: state.exerciseLogs,
       workoutPlan: state.workoutPlan,
       mealPlan: state.mealPlan,
       whoopConnected: !!whoopSnapshot

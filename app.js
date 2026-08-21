@@ -133,7 +133,8 @@ function resetState() {
     onboardingDone: false,
     onboardingChat: [],
     mealLocks: [],
-    shoppingBought: []
+    shoppingBought: [],
+    exerciseLogs: {}
   };
   saveState();
 }
@@ -149,6 +150,7 @@ function ensurePlanState() {
   if (appState.onboardingDone === undefined) appState.onboardingDone = false;
   if (!Array.isArray(appState.onboardingChat)) appState.onboardingChat = [];
   if (!Array.isArray(appState.mealLocks)) appState.mealLocks = [];
+  if (!appState.exerciseLogs || typeof appState.exerciseLogs !== 'object') appState.exerciseLogs = {};
   if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
 }
 
@@ -3177,6 +3179,7 @@ function init() {
   initPlanHandlers();
   initMealCheckHandlers();
   initShoppingHandlers();
+  initExerciseDetailHandlers();
 
   // Check if already logged in
   const session = getSession();
@@ -5697,22 +5700,99 @@ function renderWorkoutView() {
     const done = log.done.includes(ex.id);
     const row = document.createElement('div');
     row.className = 'plan-ex-row' + (done ? ' done' : '');
+
+    const last = getLastExerciseSession(ex.name, date || getTodayDateString());
+    const lastTop = sessionTopSet(last);
+    const suggestion = suggestNextLoad(ex.name, ex.reps);
+    const stalled = isExerciseStalled(ex.name);
+    const hasHistory = getExerciseHistory(ex.name).length > 0;
+
+    let lastLine = '';
+    if (lastTop) {
+      lastLine = `<div class="plan-ex-last">minule ${formatSet(lastTop)}` +
+        (suggestion ? ` · <b>zkus ${String(suggestion).replace('.', ',')} kg</b>` : '') +
+        (stalled ? ' · <span class="ex-stall">stojí to</span>' : '') + '</div>';
+    }
+
     row.innerHTML = `
-      <button class="plan-ex-check${done ? ' checked' : ''}" type="button" aria-label="Hotovo">${done ? '✓' : ''}</button>
-      <div class="plan-ex-body">
-        <div class="plan-ex-name">${ex.name}</div>
-        <div class="plan-ex-meta">${ex.sets} × ${ex.reps} · pauza ${ex.restSec}s${ex.note ? ' · ' + ex.note : ''}</div>
+      <div class="plan-ex-main">
+        <button class="plan-ex-check${done ? ' checked' : ''}" type="button" aria-label="Hotovo">${done ? '✓' : ''}</button>
+        <div class="plan-ex-body">
+          <div class="plan-ex-name">${ex.name}</div>
+          <div class="plan-ex-meta">${ex.sets} × ${ex.reps} · pauza ${ex.restSec}s${ex.note ? ' · ' + ex.note : ''}</div>
+          ${lastLine}
+        </div>
+        ${hasHistory ? '<button class="plan-ex-chart" type="button" aria-label="Historie cviku">📈</button>' : ''}
       </div>`;
+
     if (isToday) {
+      row.appendChild(buildSetInputs(ex, date));
       row.querySelector('.plan-ex-check').addEventListener('click', () => {
+        // Ticking the exercise commits whatever is in the inputs — including
+        // values still showing as prefilled — so "just confirm" really is one tap.
+        commitSetInputs(ex, date, row);
         toggleExerciseDone(ex.id, date);
         renderPlanScreen();
       });
     } else {
       row.querySelector('.plan-ex-check').disabled = true;
     }
+
+    const chartBtn = row.querySelector('.plan-ex-chart');
+    if (chartBtn) chartBtn.addEventListener('click', () => openExerciseDetail(ex.name));
+
     list.appendChild(row);
   });
+}
+
+// One kg/reps input pair per planned set, prefilled from the last session so
+// an unchanged workout is a single tap.
+function buildSetInputs(ex, date) {
+  const wrap = document.createElement('div');
+  wrap.className = 'plan-ex-sets';
+
+  const today = getSessionForDate(ex.name, date);
+  const last = getLastExerciseSession(ex.name, date);
+  const count = Math.max(1, Math.min(12, Number(ex.sets) || 3));
+
+  for (let i = 0; i < count; i++) {
+    const saved = today && today.sets[i];
+    const prev = last && last.sets[i];
+    const w = saved ? saved.w : (prev ? prev.w : '');
+    const r = saved ? saved.r : (prev ? prev.r : '');
+
+    const line = document.createElement('div');
+    line.className = 'ex-set-row' + (saved ? ' filled' : '');
+    line.innerHTML = `
+      <span class="ex-set-idx">${i + 1}.</span>
+      <input class="ex-set-w" type="number" inputmode="decimal" step="0.5" min="0" max="600"
+             placeholder="kg" value="${w === '' ? '' : w}" aria-label="Váha série ${i + 1}">
+      <span class="ex-set-x">×</span>
+      <input class="ex-set-r" type="number" inputmode="numeric" step="1" min="0" max="100"
+             placeholder="op." value="${r === '' ? '' : r}" aria-label="Opakování série ${i + 1}">`;
+    wrap.appendChild(line);
+  }
+
+  // Persist as soon as a value changes, so nothing is lost if the app is closed.
+  wrap.addEventListener('change', () => {
+    commitSetInputs(ex, date, wrap.parentElement || wrap);
+    wrap.querySelectorAll('.ex-set-row').forEach((r) => {
+      const w = r.querySelector('.ex-set-w').value;
+      const rep = r.querySelector('.ex-set-r').value;
+      r.classList.toggle('filled', !!(w && rep));
+    });
+  });
+
+  return wrap;
+}
+
+function commitSetInputs(ex, date, root) {
+  if (!root) return;
+  const sets = [...root.querySelectorAll('.ex-set-row')].map((r) => ({
+    w: parseFloat(String(r.querySelector('.ex-set-w').value).replace(',', '.')),
+    r: parseInt(r.querySelector('.ex-set-r').value, 10)
+  }));
+  logExerciseSession(ex.name, date, sets);
 }
 
 function renderMealsView() {
@@ -5945,6 +6025,10 @@ function applyCoachPlanUpdate(data) {
     changed = true;
   }
   if (data.workoutPlan) { appState.workoutPlan = data.workoutPlan; changed = true; }
+  if (data.exerciseLogs && typeof data.exerciseLogs === 'object') {
+    appState.exerciseLogs = data.exerciseLogs;
+    changed = true;
+  }
   if (data.mealPlan) { appState.mealPlan = data.mealPlan; changed = true; }
   if (changed) {
     saveState();
@@ -5966,6 +6050,8 @@ function buildCoachPayload(message, opts = {}) {
     workoutPlan: appState.workoutPlan || null,
     mealPlan: appState.mealPlan || null,
     lockedMeals: getMealLocks(),
+    exerciseLogs: getExerciseLogs(),
+    exerciseHistory: buildExerciseContext(),
     foodContext: buildFoodContext(),
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
@@ -6543,6 +6629,7 @@ function initMealCheckHandlers() {
 // ---- Zámek jídla: uzamčené jídlo kouč při přegenerování nemá měnit ----
 function getMealLocks() {
   if (!Array.isArray(appState.mealLocks)) appState.mealLocks = [];
+  if (!appState.exerciseLogs || typeof appState.exerciseLogs !== 'object') appState.exerciseLogs = {};
   return appState.mealLocks;
 }
 
@@ -6748,4 +6835,241 @@ function initShoppingHandlers() {
     saveState();
     openShoppingList();
   });
+}
+
+// ==========================================================================
+// LOGOVÁNÍ VAH U CVIKŮ — progressive overload
+// ==========================================================================
+// History is keyed by the NORMALISED EXERCISE NAME, not by the exercise id.
+// The coach regenerates the workout plan (and with it every exercise id)
+// whenever it rebuilds a day, so an id-keyed history would be wiped on the
+// first "přegeneruj mi trénink". Names survive that.
+
+function normalizeExerciseName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')  // strip diacritics
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function getExerciseLogs() {
+  if (!appState.exerciseLogs || typeof appState.exerciseLogs !== 'object') {
+    appState.exerciseLogs = {};
+  }
+  return appState.exerciseLogs;
+}
+
+// All sessions for an exercise, newest first.
+function getExerciseHistory(name) {
+  const entry = getExerciseLogs()[normalizeExerciseName(name)];
+  if (!entry || !Array.isArray(entry.sessions)) return [];
+  return entry.sessions.slice().sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// The most recent session BEFORE the given date (so today's own entry doesn't
+// become its own "last time").
+function getLastExerciseSession(name, beforeDate) {
+  const hist = getExerciseHistory(name);
+  if (!beforeDate) return hist[0] || null;
+  return hist.find((s) => s.date < beforeDate) || null;
+}
+
+function getSessionForDate(name, date) {
+  return getExerciseHistory(name).find((s) => s.date === date) || null;
+}
+
+// Total volume of a session: Σ weight × reps.
+function sessionVolume(session) {
+  if (!session || !Array.isArray(session.sets)) return 0;
+  return session.sets.reduce((s, x) => s + (Number(x.w) || 0) * (Number(x.r) || 0), 0);
+}
+
+// Heaviest set of a session (the number people actually track).
+function sessionTopSet(session) {
+  if (!session || !Array.isArray(session.sets) || !session.sets.length) return null;
+  return session.sets.reduce((best, x) =>
+    (Number(x.w) || 0) > (Number(best.w) || 0) ? x : best, session.sets[0]);
+}
+
+function formatSet(set) {
+  if (!set) return '';
+  const w = Number(set.w) || 0;
+  const r = Number(set.r) || 0;
+  const wTxt = Number.isInteger(w) ? String(w) : String(w).replace('.', ',');
+  return `${wTxt} kg × ${r}`;
+}
+
+// Write (or overwrite) one day's sets for an exercise. Empty sets clear the day.
+function logExerciseSession(name, date, sets) {
+  const logs = getExerciseLogs();
+  const key = normalizeExerciseName(name);
+  if (!key) return;
+  if (!logs[key]) logs[key] = { name, sessions: [] };
+  logs[key].name = name; // keep the prettiest spelling we have seen
+
+  const clean = (sets || [])
+    .map((s) => ({ w: Math.round((Number(s.w) || 0) * 10) / 10, r: Math.round(Number(s.r) || 0) }))
+    .filter((s) => s.w > 0 && s.r > 0);
+
+  logs[key].sessions = logs[key].sessions.filter((s) => s.date !== date);
+  if (clean.length) logs[key].sessions.push({ date, sets: clean });
+  logs[key].sessions.sort((a, b) => a.date.localeCompare(b.date));
+  // A year of history per exercise is plenty and keeps the blob small.
+  if (logs[key].sessions.length > 200) {
+    logs[key].sessions = logs[key].sessions.slice(-200);
+  }
+  saveState();
+}
+
+// Is the exercise stalled? True when the top-set weight hasn't improved across
+// the last `n` sessions (and there are at least that many).
+function isExerciseStalled(name, n = 3) {
+  const hist = getExerciseHistory(name).slice(0, n);
+  if (hist.length < n) return false;
+  const weights = hist.map((s) => { const t = sessionTopSet(s); return t ? Number(t.w) || 0 : 0; });
+  return Math.max(...weights) <= weights[weights.length - 1];
+}
+
+// Suggest the next top set: nudge up when the last session hit its rep target.
+function suggestNextLoad(name, targetReps) {
+  const last = getLastExerciseSession(name);
+  const top = sessionTopSet(last);
+  if (!top) return null;
+  const w = Number(top.w) || 0;
+  const r = Number(top.r) || 0;
+  // "8-12" → 12 ; "5" → 5
+  const goal = parseInt(String(targetReps || '').split(/[-–]/).pop(), 10);
+  if (!goal || r < goal) return null;
+  const step = w >= 60 ? 5 : 2.5;
+  return Math.round((w + step) * 10) / 10;
+}
+
+// Compact history for the coach's context: last 5 sessions per exercise.
+function buildExerciseContext() {
+  const logs = getExerciseLogs();
+  const out = [];
+  Object.keys(logs).forEach((key) => {
+    const entry = logs[key];
+    if (!entry || !Array.isArray(entry.sessions) || !entry.sessions.length) return;
+    const recent = entry.sessions.slice(-5).reverse().map((s) => ({
+      date: s.date,
+      sets: s.sets.map((x) => `${x.w}kg×${x.r}`).join(', '),
+      volume: Math.round(sessionVolume(s)),
+      top: formatSet(sessionTopSet(s))
+    }));
+    out.push({ name: entry.name, stalled: isExerciseStalled(entry.name), recent });
+  });
+  return out.slice(0, 25);
+}
+
+// ---- Detail cviku: graf vývoje váhy + objem ----
+
+// Inline SVG line chart of top-set weight over time, with volume bars behind.
+// Inline so it works under the app's CSP with no charting library.
+function exerciseChartSvg(sessions) {
+  const W = 320, H = 130, padL = 30, padR = 8, padT = 12, padB = 22;
+  const pts = sessions.map((s) => ({
+    date: s.date,
+    w: Number((sessionTopSet(s) || {}).w) || 0,
+    vol: sessionVolume(s)
+  }));
+  if (pts.length < 2) return '';
+
+  const ws = pts.map((p) => p.w);
+  const minW = Math.min(...ws);
+  const maxW = Math.max(...ws);
+  const span = (maxW - minW) || 1;
+  const lo = minW - span * 0.15;
+  const hi = maxW + span * 0.15;
+  const maxVol = Math.max(...pts.map((p) => p.vol)) || 1;
+
+  const x = (i) => padL + (i * (W - padL - padR)) / (pts.length - 1);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+
+  const bars = pts.map((p, i) => {
+    const bw = Math.max(4, (W - padL - padR) / pts.length * 0.42);
+    const bh = (p.vol / maxVol) * (H - padT - padB) * 0.55;
+    return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${(H - padB - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="rgba(255,255,255,0.10)"/>`;
+  }).join('');
+
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.w).toFixed(1)}`).join(' ');
+  const dots = pts.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.w).toFixed(1)}" r="3.2" fill="#fff"/>`).join('');
+
+  const fmtDate = (d) => { const [, m, dd] = d.split('-'); return `${Number(dd)}.${Number(m)}.`; };
+  const labels = [0, pts.length - 1].map((i) =>
+    `<text x="${x(i).toFixed(1)}" y="${H - 6}" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="${i === 0 ? 'start' : 'end'}">${fmtDate(pts[i].date)}</text>`
+  ).join('');
+  const yLabels = [maxW, minW].map((v) =>
+    `<text x="2" y="${(y(v) + 3).toFixed(1)}" fill="rgba(255,255,255,0.4)" font-size="9">${String(v).replace('.', ',')}</text>`
+  ).join('');
+
+  return `<svg class="ex-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Vývoj váhy v čase">
+    ${bars}
+    <path d="${line}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dots}${labels}${yLabels}
+  </svg>`;
+}
+
+function openExerciseDetail(name) {
+  const modal = document.getElementById('exercise-modal');
+  const body = document.getElementById('exercise-body');
+  const title = document.getElementById('exercise-title');
+  if (!modal || !body) return;
+
+  const hist = getExerciseHistory(name);          // newest first
+  const chrono = hist.slice().reverse();          // oldest first, for the chart
+  if (title) title.textContent = name;
+
+  if (!hist.length) {
+    body.innerHTML = '<div class="plan-empty-sub" style="padding:24px 0;text-align:center;">Zatím žádná data</div>';
+    modal.classList.add('active');
+    return;
+  }
+
+  const best = hist.reduce((b, s) => {
+    const t = sessionTopSet(s);
+    return (t && (!b || t.w > b.w)) ? t : b;
+  }, null);
+  const totalVol = hist.reduce((s, x) => s + sessionVolume(x), 0);
+  const first = sessionTopSet(chrono[0]);
+  const latest = sessionTopSet(hist[0]);
+  const gain = (first && latest) ? Math.round((latest.w - first.w) * 10) / 10 : 0;
+
+  body.innerHTML = `
+    <div class="ex-stats">
+      <div class="ex-stat"><span class="ex-stat-label">Osobák</span><span class="ex-stat-val">${best ? formatSet(best) : '—'}</span></div>
+      <div class="ex-stat"><span class="ex-stat-label">Naposledy</span><span class="ex-stat-val">${latest ? formatSet(latest) : '—'}</span></div>
+      <div class="ex-stat"><span class="ex-stat-label">Tréninků</span><span class="ex-stat-val">${hist.length}</span></div>
+      <div class="ex-stat"><span class="ex-stat-label">Celkový objem</span><span class="ex-stat-val">${Math.round(totalVol).toLocaleString('cs-CZ')} kg</span></div>
+    </div>
+    ${gain !== 0 ? `<div class="ex-gain ${gain > 0 ? 'up' : 'down'}">${gain > 0 ? '+' : ''}${String(gain).replace('.', ',')} kg od začátku</div>` : ''}
+    ${isExerciseStalled(name) ? '<div class="plan-drift over">Váha se 3 tréninky nehnula — řekni si kouči o deload</div>' : ''}
+    ${exerciseChartSvg(chrono)}
+    <div class="ex-history">
+      ${hist.slice(0, 12).map((s) => {
+        const [y, m, d] = s.date.split('-');
+        return `<div class="ex-hist-row">
+          <span class="ex-hist-date">${Number(d)}.${Number(m)}.</span>
+          <span class="ex-hist-sets">${s.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</span>
+          <span class="ex-hist-vol">${Math.round(sessionVolume(s))} kg</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <button class="mc-btn secondary" id="ex-ask-coach" type="button">Zeptat se kouče na progres</button>`;
+
+  const ask = document.getElementById('ex-ask-coach');
+  if (ask) ask.addEventListener('click', () => {
+    modal.classList.remove('active');
+    askCoach(`jak mi roste ${name} za poslední měsíc a co mám dělat dál?`);
+  });
+
+  modal.classList.add('active');
+}
+
+function initExerciseDetailHandlers() {
+  const modal = document.getElementById('exercise-modal');
+  const closeBtn = document.getElementById('exercise-close');
+  if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.remove('active'));
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
 }
