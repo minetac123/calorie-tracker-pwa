@@ -94,6 +94,7 @@ function loadState() {
       if (appState.coachMemoryEnabled === undefined) {
         appState.coachMemoryEnabled = true;
       }
+      ensurePlanState();
       migrateCoachChats();
     } catch (e) {
       console.error("Chyba při načítání stavu z localStorage, resetuji...", e);
@@ -123,9 +124,28 @@ function resetState() {
     coachHistory: [],
     coachChats: [],
     coachMemories: [],
-    coachMemoryEnabled: true
+    coachMemoryEnabled: true,
+    profile: {},
+    workoutPlan: null,
+    mealPlan: null,
+    workoutLogs: {},
+    mealChecks: {},
+    onboardingDone: false,
+    onboardingChat: []
   };
   saveState();
+}
+
+// Guarantee the coach-plan properties exist on a state loaded from an older
+// build (or pulled from the cloud before these features shipped).
+function ensurePlanState() {
+  if (!appState.profile || typeof appState.profile !== 'object') appState.profile = {};
+  if (appState.workoutPlan === undefined) appState.workoutPlan = null;
+  if (appState.mealPlan === undefined) appState.mealPlan = null;
+  if (!appState.workoutLogs || typeof appState.workoutLogs !== 'object') appState.workoutLogs = {};
+  if (!appState.mealChecks || typeof appState.mealChecks !== 'object') appState.mealChecks = {};
+  if (appState.onboardingDone === undefined) appState.onboardingDone = false;
+  if (!Array.isArray(appState.onboardingChat)) appState.onboardingChat = [];
 }
 
 // ==========================================================================
@@ -747,6 +767,9 @@ function renderDashboard() {
   const weightTargetEl = document.querySelector('.weight-card .weight-target');
   if (weightCurrentEl) weightCurrentEl.innerText = `${appState.weight.toString().replace('.', ',')} kg`;
   if (weightTargetEl) weightTargetEl.innerText = `cíl ${appState.weightTarget.toString().replace('.', ',')} kg`;
+
+  // Today's workout + meal plan cards
+  renderDashboardPlanCards();
 }
 
 // Fire/burn animace — spálí DOM element a po dokončení zavolá callback
@@ -1779,6 +1802,8 @@ function initNavigation() {
         // Perform screen-specific refresh
         if (targetScreenId === 'screen-dashboard') {
           renderDashboard();
+        } else if (targetScreenId === 'screen-plan') {
+          renderPlanScreen();
         } else if (targetScreenId === 'screen-history') {
           showHistoryTab(tabType || 'meals');
           renderHistory();
@@ -1857,6 +1882,9 @@ function initNavigation() {
     startCustomCamera();
   });
   
+  const qaHistory = document.getElementById('qa-history');
+  if (qaHistory) qaHistory.addEventListener('click', () => switchScreen('screen-history', 'meals'));
+
   if (qaMic) qaMic.addEventListener('click', () => {
     const now = new Date();
     const hour = now.getHours();
@@ -2993,6 +3021,11 @@ function showAppAfterLogin() {
   if (dashNav) dashNav.classList.add('active');
 
   renderDashboard();
+
+  // First run: let the coach do the setup conversation instead of a form.
+  if (onboardingNeeded()) {
+    setTimeout(() => startOnboarding(false), 600);
+  }
 }
 
 // ==========================================================================
@@ -3136,6 +3169,8 @@ function init() {
 
   // AI Coach chat
   initCoachHandlers();
+  initOnboardingHandlers();
+  initPlanHandlers();
 
   // Check if already logged in
   const session = getSession();
@@ -5096,54 +5131,32 @@ async function sendCoachMessage() {
   const typing = appendCoachBubble('Píše…', 'assistant');
   if (typing) typing.classList.add('typing');
 
-  const requestBody = JSON.stringify({
-    message,
+  // /api/coach gives the model real tools (profile, targets, workout plan,
+  // meal plan) on top of the food-log actions the older /api/chat handled.
+  const payload = buildCoachPayload(message, {
     image: image || undefined,
-    history: chat.messages.slice(0, -1).slice(-20),
-    memories: memOn ? getCoachMemories().map((m) => m.text) : [],
-    foodContext: buildFoodContext(),
-    today: getTodayDateString(),
-    nowTime: (() => { const n = new Date(); return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`; })()
+    history: chat.messages.slice(0, -1).slice(-20)
   });
 
   let data = null;
   let netError = false;
-  // Auto-retry on the client: retry on overload (503) AND on a dropped
-  // connection, so a single blip never makes the user retype.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.token}`
-        },
-        body: requestBody
-      });
-      data = await response.json().catch(() => ({}));
-      netError = false;
-      if (data && data.success && data.reply) break;
-      if (response.status === 503 && attempt < 1) {
-        if (typing) typing.textContent = 'jsem dost cooked, zkouším znovu…';
-        await new Promise((r) => setTimeout(r, 1500));
-        continue;
-      }
-      break;
-    } catch (error) {
-      console.error('Coach fetch error:', error);
-      netError = true;
-      if (attempt < 1) {
-        if (typing) typing.textContent = 'Zkouším znovu…';
-        await new Promise((r) => setTimeout(r, 1500));
-        continue;
-      }
-    }
+  try {
+    data = await callCoachAPI(payload);
+  } catch (error) {
+    console.error('Coach fetch error:', error);
+    netError = true;
   }
 
   try {
     if (typing) typing.remove();
 
     if (data && data.success && data.reply) {
+      // Plan edits are applied immediately; food-log edits still go through
+      // the confirmation card below.
+      if (data.planChanged) {
+        applyCoachPlanUpdate(data);
+        showToast('Plán upraven ✓');
+      }
       // Safeguard: never show a raw action block even if the backend missed it.
       const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'mám to';
       // The coach may split a reply into several short texts with ||| — show each
@@ -5479,3 +5492,700 @@ function initCoachHandlers() {
 // Run app init
 
 window.addEventListener('DOMContentLoaded', init);
+
+// ==========================================================================
+// COACH PLAN LAYER — profil, tréninkový plán, jídelníček
+// ==========================================================================
+// The plan itself is generated and edited by the AI coach through Gemini
+// function calling (see api/coach.js). Everything below is the client side:
+// rendering the plan, tracking what was ticked off, and handing the coach the
+// context it needs.
+
+const PLAN_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const PLAN_DAY_CZ = {
+  mon: 'Pondělí', tue: 'Úterý', wed: 'Středa', thu: 'Čtvrtek',
+  fri: 'Pátek', sat: 'Sobota', sun: 'Neděle'
+};
+const PLAN_DAY_SHORT = { mon: 'Po', tue: 'Út', wed: 'St', thu: 'Čt', fri: 'Pá', sat: 'So', sun: 'Ne' };
+
+let planViewTab = 'workout';   // 'workout' | 'meals'
+let planViewDay = null;        // null = today
+
+// Weekday key for a YYYY-MM-DD string (Monday-first, matching the backend).
+function dayKeyForDateStr(dateStr) {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(dateStr || '')
+    ? new Date(`${dateStr}T12:00:00Z`)
+    : new Date();
+  return PLAN_DAY_KEYS[(d.getUTCDay() + 6) % 7];
+}
+
+function getTodayDayKey() {
+  return dayKeyForDateStr(getTodayDateString());
+}
+
+function getActiveDayKey() {
+  return planViewDay || dayKeyForDateStr(getActiveDateString());
+}
+
+function getWorkoutForDay(dayKey) {
+  const plan = appState.workoutPlan;
+  if (!plan || !plan.days) return null;
+  return plan.days[dayKey] || null;
+}
+
+function getMealsForDay(dayKey) {
+  const plan = appState.mealPlan;
+  if (!plan || !plan.days || !plan.days[dayKey]) return [];
+  return plan.days[dayKey].meals || [];
+}
+
+function hasPlan() {
+  return !!(appState.workoutPlan || appState.mealPlan);
+}
+
+// ---- Completion tracking (per calendar date, not per weekday) ----
+
+function getWorkoutLog(date) {
+  const d = date || getActiveDateString();
+  if (!appState.workoutLogs[d]) appState.workoutLogs[d] = { done: [] };
+  if (!Array.isArray(appState.workoutLogs[d].done)) appState.workoutLogs[d].done = [];
+  return appState.workoutLogs[d];
+}
+
+function toggleExerciseDone(exId, date) {
+  const log = getWorkoutLog(date);
+  const i = log.done.indexOf(exId);
+  if (i === -1) log.done.push(exId); else log.done.splice(i, 1);
+  saveState();
+}
+
+function getMealChecks(date) {
+  const d = date || getActiveDateString();
+  if (!Array.isArray(appState.mealChecks[d])) appState.mealChecks[d] = [];
+  return appState.mealChecks[d];
+}
+
+// Ticking a planned meal also writes it into the real food log, so the rings
+// and the coach see it like any other logged food.
+function togglePlannedMeal(meal, date) {
+  const d = date || getActiveDateString();
+  const checks = getMealChecks(d);
+  const idx = checks.indexOf(meal.id);
+
+  if (idx === -1) {
+    checks.push(meal.id);
+    if (!appState.logs[d]) appState.logs[d] = [];
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const catId = czCategoryToId(meal.category);
+    (meal.items || []).forEach((it) => {
+      appState.logs[d].push({
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+        time: timeStr,
+        name: it.name,
+        amount: it.amount || '100g',
+        calories: Math.round(Number(it.calories) || 0),
+        protein: Math.round((Number(it.protein) || 0) * 10) / 10,
+        carbs: Math.round((Number(it.carbs) || 0) * 10) / 10,
+        fat: Math.round((Number(it.fat) || 0) * 10) / 10,
+        category: catId,
+        fromPlan: meal.id
+      });
+    });
+    showToast(`${meal.name} zapsáno ✓`);
+  } else {
+    checks.splice(idx, 1);
+    // Remove exactly the entries this meal created.
+    appState.logs[d] = (appState.logs[d] || []).filter((i) => i.fromPlan !== meal.id);
+    showToast('Odškrtnuto');
+  }
+  saveState();
+  renderPlanScreen();
+  renderDashboard();
+}
+
+// Short text summary of today's training, handed to the coach as context.
+function buildWorkoutStatus() {
+  const dayKey = getTodayDayKey();
+  const w = getWorkoutForDay(dayKey);
+  if (!w) return 'Tréninkový plán zatím neexistuje.';
+  if (w.rest) return `Dnes (${PLAN_DAY_CZ[dayKey]}) je volno.`;
+  const log = getWorkoutLog(getTodayDateString());
+  const total = w.exercises.length;
+  const done = w.exercises.filter((e) => log.done.includes(e.id)).length;
+  const rest = w.exercises.filter((e) => !log.done.includes(e.id)).map((e) => e.name);
+  return `Dnes (${PLAN_DAY_CZ[dayKey]}): ${w.title} — hotovo ${done}/${total} cviků.` +
+    (rest.length ? ` Zbývá: ${rest.join(', ')}` : ' Trénink dokončen.');
+}
+
+// ==========================================================================
+// PLAN SCREEN — Trénink / Jídelníček
+// ==========================================================================
+
+function renderPlanDayStrip() {
+  const strip = document.getElementById('plan-day-strip');
+  if (!strip) return;
+  const todayKey = getTodayDayKey();
+  const activeKey = getActiveDayKey();
+  strip.innerHTML = '';
+  PLAN_DAY_KEYS.forEach((k) => {
+    const btn = document.createElement('button');
+    btn.className = 'plan-day-chip' + (k === activeKey ? ' active' : '') + (k === todayKey ? ' today' : '');
+    btn.type = 'button';
+    btn.textContent = PLAN_DAY_SHORT[k];
+    btn.addEventListener('click', () => {
+      planViewDay = k;
+      renderPlanScreen();
+    });
+    strip.appendChild(btn);
+  });
+}
+
+function renderWorkoutView() {
+  const box = document.getElementById('plan-workout-view');
+  if (!box) return;
+  const dayKey = getActiveDayKey();
+  const isToday = dayKey === getTodayDayKey();
+  const date = isToday ? getTodayDateString() : null;
+  const w = getWorkoutForDay(dayKey);
+
+  if (!appState.workoutPlan) {
+    box.innerHTML = `
+      <div class="plan-empty">
+        <div class="plan-empty-title">Zatím žádný tréninkový plán</div>
+        <div class="plan-empty-sub">Řekni si o něj kouči — vygeneruje ti split na míru</div>
+        <button class="plan-empty-btn" type="button" id="plan-ask-workout">Chci plán</button>
+      </div>`;
+    const b = document.getElementById('plan-ask-workout');
+    if (b) b.addEventListener('click', () => askCoach('vygeneruj mi tréninkový plán'));
+    return;
+  }
+
+  if (!w || w.rest) {
+    box.innerHTML = `
+      <div class="plan-rest-card">
+        <div class="plan-rest-icon">😴</div>
+        <div class="plan-rest-title">${PLAN_DAY_CZ[dayKey]} — volno</div>
+        <div class="plan-rest-sub">Regenerace je součást plánu</div>
+      </div>`;
+    return;
+  }
+
+  const log = isToday ? getWorkoutLog(date) : { done: [] };
+  const doneCount = w.exercises.filter((e) => log.done.includes(e.id)).length;
+  const pct = w.exercises.length ? Math.round((doneCount / w.exercises.length) * 100) : 0;
+
+  box.innerHTML = `
+    <div class="plan-section-head">
+      <div>
+        <div class="plan-section-title">${w.title}</div>
+        <div class="plan-section-sub">${w.focus || appState.workoutPlan.split}</div>
+      </div>
+      ${isToday ? `<div class="plan-progress-pill">${doneCount}/${w.exercises.length}</div>` : ''}
+    </div>
+    ${isToday ? `<div class="plan-progress-bar"><div class="plan-progress-fill" style="width:${pct}%"></div></div>` : ''}
+    <div class="plan-ex-list" id="plan-ex-list"></div>`;
+
+  const list = document.getElementById('plan-ex-list');
+  w.exercises.forEach((ex) => {
+    const done = log.done.includes(ex.id);
+    const row = document.createElement('div');
+    row.className = 'plan-ex-row' + (done ? ' done' : '');
+    row.innerHTML = `
+      <button class="plan-ex-check${done ? ' checked' : ''}" type="button" aria-label="Hotovo">${done ? '✓' : ''}</button>
+      <div class="plan-ex-body">
+        <div class="plan-ex-name">${ex.name}</div>
+        <div class="plan-ex-meta">${ex.sets} × ${ex.reps} · pauza ${ex.restSec}s${ex.note ? ' · ' + ex.note : ''}</div>
+      </div>`;
+    if (isToday) {
+      row.querySelector('.plan-ex-check').addEventListener('click', () => {
+        toggleExerciseDone(ex.id, date);
+        renderPlanScreen();
+      });
+    } else {
+      row.querySelector('.plan-ex-check').disabled = true;
+    }
+    list.appendChild(row);
+  });
+}
+
+function renderMealsView() {
+  const box = document.getElementById('plan-meals-view');
+  if (!box) return;
+  const dayKey = getActiveDayKey();
+  const isToday = dayKey === getTodayDayKey();
+  const date = isToday ? getTodayDateString() : null;
+  const meals = getMealsForDay(dayKey);
+
+  if (!appState.mealPlan) {
+    box.innerHTML = `
+      <div class="plan-empty">
+        <div class="plan-empty-title">Zatím žádný jídelníček</div>
+        <div class="plan-empty-sub">Kouč ti ho vygeneruje podle tvých cílů a chutí</div>
+        <button class="plan-empty-btn" type="button" id="plan-ask-meals">Chci jídelníček</button>
+      </div>`;
+    const b = document.getElementById('plan-ask-meals');
+    if (b) b.addEventListener('click', () => askCoach('vygeneruj mi jídelníček'));
+    return;
+  }
+
+  if (!meals.length) {
+    box.innerHTML = `<div class="plan-empty"><div class="plan-empty-sub">Pro ${PLAN_DAY_CZ[dayKey]} zatím není naplánované jídlo</div></div>`;
+    return;
+  }
+
+  const tot = meals.reduce((s, m) => ({
+    calories: s.calories + m.calories, protein: s.protein + m.protein,
+    carbs: s.carbs + m.carbs, fat: s.fat + m.fat
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const g = appState.goals || {};
+
+  box.innerHTML = `
+    <div class="plan-section-head">
+      <div>
+        <div class="plan-section-title">${PLAN_DAY_CZ[dayKey]}</div>
+        <div class="plan-section-sub">${Math.round(tot.calories)} kcal z ${g.calories || '—'} · B ${Math.round(tot.protein)} g</div>
+      </div>
+    </div>
+    <div class="plan-meal-list" id="plan-meal-list"></div>`;
+
+  const checks = isToday ? getMealChecks(date) : [];
+  const list = document.getElementById('plan-meal-list');
+  meals.forEach((m) => {
+    const eaten = checks.includes(m.id);
+    const card = document.createElement('div');
+    card.className = 'plan-meal-card' + (eaten ? ' eaten' : '');
+    card.innerHTML = `
+      <div class="plan-meal-head">
+        <button class="plan-meal-check${eaten ? ' checked' : ''}" type="button" aria-label="Snědeno">${eaten ? '✓' : ''}</button>
+        <div class="plan-meal-titles">
+          <div class="plan-meal-cat">${m.category}</div>
+          <div class="plan-meal-name">${m.name}</div>
+        </div>
+        <div class="plan-meal-kcal">${m.calories}<span>kcal</span></div>
+      </div>
+      <div class="plan-meal-items">${(m.items || []).map((i) => `<span>${i.name} ${i.amount}</span>`).join('')}</div>
+      <div class="plan-meal-macros">B ${m.protein} g · S ${m.carbs} g · T ${m.fat} g</div>
+      <button class="plan-meal-swap" type="button">Vyměnit jídlo</button>`;
+
+    const chk = card.querySelector('.plan-meal-check');
+    if (isToday) {
+      chk.addEventListener('click', () => togglePlannedMeal(m, date));
+    } else {
+      chk.disabled = true;
+    }
+    card.querySelector('.plan-meal-swap').addEventListener('click', () => {
+      askCoach(`vyměň mi ${m.category.toLowerCase()} v ${PLAN_DAY_CZ[dayKey].toLowerCase()} (${m.name}) za něco jiného`);
+    });
+    list.appendChild(card);
+  });
+}
+
+function renderPlanScreen() {
+  const screen = document.getElementById('screen-plan');
+  if (!screen) return;
+  renderPlanDayStrip();
+
+  const wTab = document.getElementById('plan-tab-workout');
+  const mTab = document.getElementById('plan-tab-meals');
+  const wView = document.getElementById('plan-workout-view');
+  const mView = document.getElementById('plan-meals-view');
+  const showWorkout = planViewTab === 'workout';
+
+  if (wTab) wTab.classList.toggle('active', showWorkout);
+  if (mTab) mTab.classList.toggle('active', !showWorkout);
+  if (wView) wView.style.display = showWorkout ? 'block' : 'none';
+  if (mView) mView.style.display = showWorkout ? 'none' : 'block';
+
+  if (showWorkout) renderWorkoutView(); else renderMealsView();
+}
+
+function openPlanScreen(tab) {
+  if (tab) planViewTab = tab;
+  planViewDay = null;
+  if (window.switchAppScreen) window.switchAppScreen('screen-plan');
+}
+
+// ==========================================================================
+// DASHBOARD PLAN CARDS
+// ==========================================================================
+
+function renderDashboardPlanCards() {
+  const wrap = document.getElementById('dash-plan-cards');
+  if (!wrap) return;
+
+  if (!hasPlan()) {
+    wrap.innerHTML = `
+      <button class="dash-plan-cta" type="button" id="dash-plan-cta">
+        <div class="dash-plan-cta-title">Nemáš ještě plán</div>
+        <div class="dash-plan-cta-sub">Nech si od kouče sestavit trénink a jídelníček</div>
+      </button>`;
+    const c = document.getElementById('dash-plan-cta');
+    if (c) c.addEventListener('click', () => startOnboarding(true));
+    return;
+  }
+
+  const dayKey = getTodayDayKey();
+  const date = getTodayDateString();
+  const w = getWorkoutForDay(dayKey);
+  const meals = getMealsForDay(dayKey);
+
+  let workoutHtml = '';
+  if (w && !w.rest) {
+    const log = getWorkoutLog(date);
+    const done = w.exercises.filter((e) => log.done.includes(e.id)).length;
+    const pct = w.exercises.length ? Math.round((done / w.exercises.length) * 100) : 0;
+    workoutHtml = `
+      <button class="dash-plan-card" type="button" data-tab="workout">
+        <div class="dash-plan-card-head">
+          <span class="dash-plan-card-label">Dnešní trénink</span>
+          <span class="dash-plan-card-badge">${done}/${w.exercises.length}</span>
+        </div>
+        <div class="dash-plan-card-title">${w.title}</div>
+        <div class="dash-plan-bar"><div class="dash-plan-bar-fill" style="width:${pct}%"></div></div>
+      </button>`;
+  } else if (w) {
+    workoutHtml = `
+      <button class="dash-plan-card" type="button" data-tab="workout">
+        <div class="dash-plan-card-head"><span class="dash-plan-card-label">Dnešní trénink</span></div>
+        <div class="dash-plan-card-title">Volno 😴</div>
+        <div class="dash-plan-card-sub">Regenerace</div>
+      </button>`;
+  }
+
+  let mealsHtml = '';
+  if (meals.length) {
+    const checks = getMealChecks(date);
+    const eaten = meals.filter((m) => checks.includes(m.id)).length;
+    const kcal = meals.reduce((s, m) => s + m.calories, 0);
+    mealsHtml = `
+      <button class="dash-plan-card" type="button" data-tab="meals">
+        <div class="dash-plan-card-head">
+          <span class="dash-plan-card-label">Dnešní jídelníček</span>
+          <span class="dash-plan-card-badge">${eaten}/${meals.length}</span>
+        </div>
+        <div class="dash-plan-card-title">${kcal} kcal</div>
+        <div class="dash-plan-card-sub">${meals.map((m) => m.category).join(' · ')}</div>
+      </button>`;
+  }
+
+  wrap.innerHTML = workoutHtml + mealsHtml;
+  wrap.querySelectorAll('.dash-plan-card').forEach((el) => {
+    el.addEventListener('click', () => openPlanScreen(el.getAttribute('data-tab')));
+  });
+}
+
+// ==========================================================================
+// COACH — unified endpoint with Gemini function calling
+// ==========================================================================
+
+// Merge whatever the coach changed back into local state.
+function applyCoachPlanUpdate(data) {
+  let changed = false;
+  if (data.profile && typeof data.profile === 'object') {
+    appState.profile = data.profile;
+    changed = true;
+  }
+  if (data.targets && data.targets.calories) {
+    appState.goals = {
+      calories: Math.round(data.targets.calories),
+      protein: Math.round(data.targets.protein),
+      carbs: Math.round(data.targets.carbs),
+      fat: Math.round(data.targets.fat)
+    };
+    changed = true;
+  }
+  if (data.workoutPlan) { appState.workoutPlan = data.workoutPlan; changed = true; }
+  if (data.mealPlan) { appState.mealPlan = data.mealPlan; changed = true; }
+  if (changed) {
+    saveState();
+    renderDashboard();
+    renderPlanScreen();
+  }
+  return changed;
+}
+
+// Everything the coach needs to answer with full awareness of the app.
+function buildCoachPayload(message, opts = {}) {
+  return {
+    message,
+    mode: opts.mode || 'coach',
+    image: opts.image || undefined,
+    history: opts.history || [],
+    profile: appState.profile || {},
+    targets: appState.goals || null,
+    workoutPlan: appState.workoutPlan || null,
+    mealPlan: appState.mealPlan || null,
+    foodContext: buildFoodContext(),
+    workoutStatus: buildWorkoutStatus(),
+    memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
+    today: getTodayDateString(),
+    nowTime: (() => {
+      const n = new Date();
+      return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
+    })()
+  };
+}
+
+// Single place that talks to /api/coach, with the same retry behaviour the
+// food coach already uses.
+async function callCoachAPI(payload) {
+  const session = getSession();
+  if (!session || !session.token) throw new Error('Nejste přihlášen');
+
+  const body = JSON.stringify(payload);
+  let data = null;
+  let netError = false;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const resp = await fetch('/api/coach', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.token}`
+        },
+        body
+      });
+      data = await resp.json().catch(() => ({}));
+      netError = false;
+      if (data && data.success) break;
+      if (resp.status === 503 && attempt < 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+      break;
+    } catch (e) {
+      console.error('Coach fetch error:', e);
+      netError = true;
+      if (attempt < 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+        continue;
+      }
+    }
+  }
+  if (netError) throw new Error('spojení vypadlo bro, zkus to ještě jednou');
+  return data;
+}
+
+// Open the coach and send a message on the user's behalf (used by the plan
+// screen's "Vyměnit jídlo" / "Chci plán" buttons).
+function askCoach(text) {
+  openCoach();
+  const input = document.getElementById('coach-input');
+  if (input) {
+    input.value = text;
+    sendCoachMessage();
+  }
+}
+
+// ==========================================================================
+// ONBOARDING — chat s koučem místo formuláře
+// ==========================================================================
+// The coach drives the whole thing: it asks one question at a time and calls
+// save_profile / compute_targets / set_workout_plan / set_meal_plan through
+// Gemini function calling. There is no form and no fixed question order.
+
+let onboardingBusy = false;
+
+const ONBOARDING_OPENER = 'ahoj, jsem tvůj kouč. pojďme si to nastavit ||| co chceš dokázat — zpevnit, zhubnout, nebo nabrat?';
+
+function onboardingNeeded() {
+  return !appState.onboardingDone && !hasPlan();
+}
+
+function appendOnboardingBubble(text, role, animate) {
+  const box = document.getElementById('onb-messages');
+  if (!box) return null;
+  const el = document.createElement('div');
+  el.className = `coach-bubble ${role}`;
+  box.appendChild(el);
+  if (animate && role === 'assistant') {
+    renderCoachLines(el, text, box);
+  } else {
+    el.innerHTML = formatCoachText(text);
+  }
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+function renderOnboardingHistory() {
+  const box = document.getElementById('onb-messages');
+  if (!box) return;
+  box.innerHTML = '';
+  (appState.onboardingChat || []).forEach((m) => {
+    m.text.split(/\s*\|\|\|\s*/).filter(Boolean).forEach((part) => {
+      appendOnboardingBubble(part, m.role, false);
+    });
+  });
+}
+
+function startOnboarding(force) {
+  const overlay = document.getElementById('onboarding-overlay');
+  if (!overlay) return;
+  if (force) appState.onboardingDone = false;
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  if (!appState.onboardingChat.length) {
+    ONBOARDING_OPENER.split(/\s*\|\|\|\s*/).forEach((part, i) => {
+      setTimeout(() => appendOnboardingBubble(part.trim(), 'assistant', true), i * 700);
+    });
+    appState.onboardingChat.push({ role: 'assistant', text: ONBOARDING_OPENER });
+    saveState();
+  } else {
+    renderOnboardingHistory();
+  }
+  setTimeout(() => {
+    const inp = document.getElementById('onb-input');
+    if (inp) inp.focus();
+  }, 400);
+}
+
+function finishOnboarding() {
+  const overlay = document.getElementById('onboarding-overlay');
+  appState.onboardingDone = true;
+  saveState();
+  if (overlay) overlay.classList.remove('active');
+  document.body.style.overflow = '';
+  renderDashboard();
+  renderPlanScreen();
+}
+
+// Progress hint under the header — purely informative, the coach decides flow.
+function updateOnboardingProgress() {
+  const el = document.getElementById('onb-progress');
+  if (!el) return;
+  const p = appState.profile || {};
+  const fields = ['goal', 'sex', 'age', 'heightCm', 'weightKg', 'trainingDaysPerWeek', 'equipment', 'experience'];
+  const filled = fields.filter((f) => p[f] != null && p[f] !== '').length;
+  const pct = Math.round((filled / fields.length) * 100);
+  el.querySelector('.onb-progress-fill').style.width = `${pct}%`;
+  const label = el.querySelector('.onb-progress-label');
+  if (hasPlan()) {
+    label.textContent = 'plán hotový';
+  } else if (filled >= fields.length) {
+    label.textContent = 'skládám ti plán…';
+  } else {
+    label.textContent = `${filled}/${fields.length} zjištěno`;
+  }
+}
+
+async function sendOnboardingMessage() {
+  const input = document.getElementById('onb-input');
+  const sendBtn = document.getElementById('onb-send');
+  if (!input || onboardingBusy) return;
+  const message = input.value.trim();
+  if (!message) return;
+
+  input.value = '';
+  onboardingBusy = true;
+  if (sendBtn) sendBtn.disabled = true;
+
+  appendOnboardingBubble(message, 'user', false);
+  appState.onboardingChat.push({ role: 'user', text: message });
+  saveState();
+
+  const typing = appendOnboardingBubble('Píše…', 'assistant');
+  if (typing) typing.classList.add('typing');
+
+  try {
+    const payload = buildCoachPayload(message, {
+      mode: 'onboarding',
+      history: appState.onboardingChat.slice(0, -1).slice(-20)
+    });
+    const data = await callCoachAPI(payload);
+    if (typing) typing.remove();
+
+    if (data && data.success && data.reply) {
+      applyCoachPlanUpdate(data);
+      updateOnboardingProgress();
+
+      const parts = String(data.reply).split(/\s*\|\|\|\s*/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+      parts.forEach((b, i) => setTimeout(() => appendOnboardingBubble(b, 'assistant', true), i * 600));
+      appState.onboardingChat.push({ role: 'assistant', text: parts.join(' ||| ') });
+      saveState();
+
+      // Once the coach has produced both plans, offer the way out.
+      if (appState.workoutPlan && appState.mealPlan) {
+        setTimeout(() => showOnboardingDone(), parts.length * 600 + 400);
+      }
+    } else {
+      appendOnboardingBubble((data && data.error) || 'sorry, jsem teď dost cooked, zkus to za chvíli', 'assistant');
+    }
+  } catch (e) {
+    if (typing) typing.remove();
+    appendOnboardingBubble(e.message || 'něco se pokazilo, zkus to znovu', 'assistant');
+  } finally {
+    onboardingBusy = false;
+    if (sendBtn) sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+function showOnboardingDone() {
+  const box = document.getElementById('onb-messages');
+  if (!box || document.getElementById('onb-done-card')) return;
+  const g = appState.goals || {};
+  const card = document.createElement('div');
+  card.className = 'coach-action-card';
+  card.id = 'onb-done-card';
+  card.innerHTML = `
+    <div class="coach-action-summary">✅ Plán je hotový\n${g.calories} kcal denně · B ${g.protein} g · S ${g.carbs} g · T ${g.fat} g\nSplit: ${appState.workoutPlan.split}</div>
+    <div class="coach-action-ask">Můžeš se na něj mrknout a kdykoliv mi napsat o změnu.</div>
+    <div class="coach-action-buttons">
+      <button class="coach-action-btn confirm" id="onb-go">Ukázat plán</button>
+    </div>`;
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+  document.getElementById('onb-go').addEventListener('click', () => {
+    finishOnboarding();
+    openPlanScreen('workout');
+  });
+}
+
+function initOnboardingHandlers() {
+  const input = document.getElementById('onb-input');
+  const sendBtn = document.getElementById('onb-send');
+  const skipBtn = document.getElementById('onb-skip');
+  const restartBtn = document.getElementById('btn-restart-onboarding');
+
+  if (sendBtn) sendBtn.addEventListener('click', sendOnboardingMessage);
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendOnboardingMessage(); }
+    });
+  }
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      appState.onboardingDone = true;
+      saveState();
+      const overlay = document.getElementById('onboarding-overlay');
+      if (overlay) overlay.classList.remove('active');
+      document.body.style.overflow = '';
+    });
+  }
+  if (restartBtn) {
+    restartBtn.addEventListener('click', () => {
+      if (!confirm('Začít nastavení s koučem znovu? Tvůj profil a plán se přepíšou.')) return;
+      appState.onboardingChat = [];
+      appState.onboardingDone = false;
+      saveState();
+      startOnboarding(true);
+    });
+  }
+}
+
+// ==========================================================================
+// PLAN SCREEN HANDLERS
+// ==========================================================================
+
+function initPlanHandlers() {
+  const wTab = document.getElementById('plan-tab-workout');
+  const mTab = document.getElementById('plan-tab-meals');
+  const coachBtn = document.getElementById('plan-coach-btn');
+
+  if (wTab) wTab.addEventListener('click', () => { planViewTab = 'workout'; renderPlanScreen(); });
+  if (mTab) mTab.addEventListener('click', () => { planViewTab = 'meals'; renderPlanScreen(); });
+  if (coachBtn) coachBtn.addEventListener('click', () => openCoach());
+}

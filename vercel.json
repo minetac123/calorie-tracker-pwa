@@ -1,7 +1,8 @@
 {
   "cleanUrls": true,
   "functions": {
-    "api/*.js": { "maxDuration": 30 }
+    "api/*.js": { "maxDuration": 30 },
+    "api/coach.js": { "maxDuration": 60 }
   },
   "crons": [
     {
