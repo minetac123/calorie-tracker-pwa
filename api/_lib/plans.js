@@ -154,6 +154,16 @@ function normMealDay(d) {
   return { meals };
 }
 
+// Exercise history is keyed by the normalised name so it survives the coach
+// regenerating the workout plan (which mints new exercise ids).
+function normalizeExerciseName(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 function emptyWeek(factory) {
   const out = {};
   DAY_KEYS.forEach((k) => { out[k] = factory(); });
@@ -321,6 +331,30 @@ const TOOL_DECLARATIONS = [
     name: 'update_meal_plan_day',
     description: 'Přepiš jídelníček jednoho konkrétního dne.',
     parameters: MEAL_DAY_SCHEMA
+  },
+  {
+    name: 'log_set',
+    description: 'Zapiš odcvičenou sérii do historie cviku. Volej, když uživatel v chatu nahlásí, co zvedl (např. „dal jsem dneska bench 3x8 na 42,5"). Pro každou sérii jedna položka v poli sets. Když uživatel uvede jen jednu sérii, pošli jednu.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        exercise: { type: 'STRING', description: 'Název cviku česky, pokud možno přesně jak je v tréninkovém plánu' },
+        date: { type: 'STRING', description: 'YYYY-MM-DD. Vynech pro dnešek.' },
+        sets: {
+          type: 'ARRAY',
+          description: 'Odcvičené série',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              weight: { type: 'NUMBER', description: 'Váha v kg' },
+              reps: { type: 'INTEGER', description: 'Počet opakování' }
+            },
+            required: ['weight', 'reps']
+          }
+        }
+      },
+      required: ['exercise', 'sets']
+    }
   },
   {
     name: 'replace_meal',
@@ -514,6 +548,48 @@ function applyTool(name, args, state) {
       };
     }
 
+    case 'log_set': {
+      const exName = String(a.exercise || '').trim();
+      if (!exName) return { ok: false, error: 'Chybí název cviku.' };
+      const key = normalizeExerciseName(exName);
+      if (!key) return { ok: false, error: 'Neplatný název cviku.' };
+
+      const sets = (a.sets || [])
+        .map((x) => ({
+          w: Math.round(num(x && x.weight) * 10) / 10,
+          r: Math.round(num(x && x.reps))
+        }))
+        .filter((x) => x.w > 0 && x.r > 0)
+        .slice(0, 12);
+      if (!sets.length) return { ok: false, error: 'Žádná platná série (váha i opakování musí být větší než nula).' };
+
+      const date = (a.date && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) ? a.date : todayPrague();
+
+      if (!state.exerciseLogs || typeof state.exerciseLogs !== 'object') state.exerciseLogs = {};
+      const logs = state.exerciseLogs;
+      if (!logs[key]) logs[key] = { name: exName, sessions: [] };
+      logs[key].name = exName;
+      if (!Array.isArray(logs[key].sessions)) logs[key].sessions = [];
+
+      const existed = logs[key].sessions.some((x) => x.date === date);
+      logs[key].sessions = logs[key].sessions.filter((x) => x.date !== date);
+      logs[key].sessions.push({ date, sets });
+      logs[key].sessions.sort((x, y) => x.date.localeCompare(y.date));
+      if (logs[key].sessions.length > 200) logs[key].sessions = logs[key].sessions.slice(-200);
+
+      const volume = sets.reduce((t, x) => t + x.w * x.r, 0);
+      const top = sets.reduce((b, x) => (x.w > b.w ? x : b), sets[0]);
+      return {
+        ok: true,
+        exercise: exName,
+        date,
+        replacedExisting: existed,
+        sets: sets.map((x) => `${x.w}kg×${x.r}`),
+        topSet: `${top.w}kg×${top.r}`,
+        volume: Math.round(volume)
+      };
+    }
+
     case 'replace_meal': {
       const key = normDayKey(a.day);
       if (!key) return { ok: false, error: 'Neplatný den.' };
@@ -633,6 +709,28 @@ function fillMealWeek(mealPlan) {
   return filled;
 }
 
+// Today's date in Prague, matching the key the app stores logs under.
+function todayPrague() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Prague', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().split('T')[0];
+  }
+}
+
+// Recent lifting history, so the coach can push progression and spot stalls.
+function fmtExerciseHistory(list) {
+  if (!Array.isArray(list) || !list.length) return 'Zatím žádná historie vah.';
+  return list.map((e) => {
+    const rows = (e.recent || [])
+      .map((r) => `    ${r.date}: ${r.sets} (objem ${r.volume} kg)`)
+      .join('\n');
+    return `- ${e.name}${e.stalled ? ' [STAGNUJE — 3 tréninky bez posunu]' : ''}\n${rows}`;
+  }).join('\n');
+}
+
 // Weekday key for a YYYY-MM-DD date string (or today in Prague).
 function dayKeyForDate(dateStr) {
   let d;
@@ -650,6 +748,7 @@ module.exports = {
   DAY_KEYS, DAY_CZ, MEAL_CATEGORIES, ACTIVITY_FACTORS,
   mifflinStJeor, computeTargets,
   TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
-  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan,
+  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory,
+  normalizeExerciseName, todayPrague,
   dayKeyForDate, normDayKey
 };
