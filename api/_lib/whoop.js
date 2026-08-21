@@ -1,7 +1,8 @@
 // Shared WHOOP API helpers (v2).
 // Files/folders prefixed with "_" are ignored by Vercel's filesystem router,
 // so this module is importable by the real /api endpoints without becoming one.
-const { put, list, del } = require('@vercel/blob');
+const { put } = require('@vercel/blob');
+const { blobGet, blobDel } = require('./blob');
 
 const WHOOP_CLIENT_ID = process.env.WHOOP_CLIENT_ID || '';
 const WHOOP_CLIENT_SECRET = process.env.WHOOP_CLIENT_SECRET || '';
@@ -50,10 +51,7 @@ const tokenBlobPath = (username) => `whoop/${username}.json`;
 
 async function getStoredToken(username) {
   try {
-    const blobs = await list({ prefix: tokenBlobPath(username) });
-    if (!blobs.blobs || blobs.blobs.length === 0) return null;
-    const resp = await fetch(blobs.blobs[0].url);
-    return await resp.json();
+    return await blobGet(tokenBlobPath(username));
   } catch (e) {
     console.error('getStoredToken error:', e);
     return null;
@@ -69,10 +67,7 @@ async function saveStoredToken(username, tokenData) {
 
 async function deleteStoredToken(username) {
   try {
-    const blobs = await list({ prefix: tokenBlobPath(username) });
-    if (blobs.blobs && blobs.blobs.length > 0) {
-      await del(blobs.blobs.map((b) => b.url));
-    }
+    await blobDel(tokenBlobPath(username));
   } catch (e) {
     console.error('deleteStoredToken error:', e);
   }

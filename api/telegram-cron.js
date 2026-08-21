@@ -1,7 +1,7 @@
 // Daily proactive check-in sent to all Telegram-linked users.
 // Triggered by Vercel Cron (see vercel.json). Vercel passes
 // Authorization: Bearer <CRON_SECRET> automatically when CRON_SECRET is set.
-const { list } = require('@vercel/blob');
+const { blobGet } = require('./_lib/blob');
 const { getTelegramIndex, sendMessage } = require('./_lib/telegram');
 const { getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
 
@@ -35,12 +35,8 @@ module.exports = async function handler(req, res) {
   for (const { username, chatId } of index) {
     try {
       // Load user data
-      const blobs = await list({ prefix: `data/${username}.json` });
-      if (!blobs.blobs || blobs.blobs.length === 0) continue;
-      const base = blobs.blobs[0].url;
-      const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
-      const userResp = await fetch(fresh, { cache: 'no-store' });
-      const userData = await userResp.json();
+      const userData = await blobGet(`data/${username}.json`);
+      if (!userData) continue;
 
       const goals = userData.goals || { calories: 2000 };
       const logs = (userData.logs && userData.logs[today]) || [];

@@ -1,4 +1,5 @@
-const { put, list } = require('@vercel/blob');
+const { put } = require('@vercel/blob');
+const { blobGet } = require('./_lib/blob');
 const crypto = require('crypto');
 
 // Simple SHA-256 hash
@@ -42,8 +43,8 @@ module.exports = async function handler(req, res) {
     const blobPath = `users/${safeUsername}.json`;
 
     // Check if user already exists
-    const existing = await list({ prefix: blobPath });
-    if (existing.blobs && existing.blobs.length > 0) {
+    const existing = await blobGet(blobPath);
+    if (existing) {
       return res.status(409).json({ error: 'Uživatel už existuje' });
     }
 

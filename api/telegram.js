@@ -1,7 +1,8 @@
 // Telegram webhook: receives updates and runs them through the same AI coach
 // as the in-app chat. Telegram messages appear as a dedicated "Telegram" chat
 // in the in-app coach chat list after the next cloud sync.
-const { put, list } = require('@vercel/blob');
+const { put } = require('@vercel/blob');
+const { blobGet } = require('./_lib/blob');
 const { getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
 const { buildSystemInstruction } = require('./_lib/coach');
 const {
@@ -108,19 +109,7 @@ function buildFoodContext(userData) {
 // ---- User data Blob helpers ----
 
 async function loadUserData(username) {
-  try {
-    const blobs = await list({ prefix: `data/${username}.json` });
-    if (!blobs.blobs || blobs.blobs.length === 0) return null;
-    // The blob public URL is CDN-cached, so a plain fetch can return a stale
-    // copy (e.g. yesterday's logs) right after the app synced new data. Bust
-    // the cache so the coach always sees what the user just logged.
-    const base = blobs.blobs[0].url;
-    const fresh = base + (base.includes('?') ? '&' : '?') + '_=' + Date.now();
-    const resp = await fetch(fresh, { cache: 'no-store' });
-    return await resp.json();
-  } catch (e) {
-    return null;
-  }
+  return blobGet(`data/${username}.json`);
 }
 
 async function saveUserData(username, data) {

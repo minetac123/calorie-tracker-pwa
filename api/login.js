@@ -1,4 +1,4 @@
-const { list } = require('@vercel/blob');
+const { blobGet } = require('./_lib/blob');
 const crypto = require('crypto');
 
 function hashPassword(password) {
@@ -31,15 +31,10 @@ module.exports = async function handler(req, res) {
     const blobPath = `users/${safeUsername}.json`;
 
     // Find user blob
-    const blobs = await list({ prefix: blobPath });
-    if (!blobs.blobs || blobs.blobs.length === 0) {
+    const userData = await blobGet(blobPath);
+    if (!userData) {
       return res.status(401).json({ error: 'Uživatel neexistuje' });
     }
-
-    // Fetch user data from blob URL
-    const userBlobUrl = blobs.blobs[0].url;
-    const userResp = await fetch(userBlobUrl);
-    const userData = await userResp.json();
 
     // Verify password
     const hashedPassword = hashPassword(password);
@@ -51,12 +46,7 @@ module.exports = async function handler(req, res) {
     const newToken = generateToken(safeUsername);
 
     // Try to load user's saved app data
-    let appData = null;
-    const dataBlobs = await list({ prefix: `data/${safeUsername}.json` });
-    if (dataBlobs.blobs && dataBlobs.blobs.length > 0) {
-      const dataResp = await fetch(dataBlobs.blobs[0].url);
-      appData = await dataResp.json();
-    }
+    const appData = await blobGet(`data/${safeUsername}.json`);
 
     return res.status(200).json({
       success: true,
