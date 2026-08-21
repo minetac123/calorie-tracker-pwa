@@ -629,11 +629,35 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 2.16.1 (Cache v46)
+        Verze: 2.17.0 (Cache v47)
       </div>
     </section>
 
   </main>
+
+  <!-- ================= KONTROLA JÍDLA FOTKOU ================= -->
+  <input type="file" id="meal-check-input" accept="image/*" capture="environment" style="display:none;">
+  <div class="modal-overlay" id="meal-check-modal">
+    <div class="modal-content mc-modal">
+      <div class="mc-header">
+        <span class="mc-title">Sedí to?</span>
+        <button class="mc-close" id="meal-check-close" type="button" aria-label="Zavřít">×</button>
+      </div>
+      <div class="mc-body" id="meal-check-body"></div>
+    </div>
+  </div>
+
+  <!-- ================= NÁKUPNÍ SEZNAM ================= -->
+  <div class="modal-overlay" id="shopping-modal">
+    <div class="modal-content mc-modal">
+      <div class="mc-header">
+        <span class="mc-title">Nákupní seznam</span>
+        <button class="mc-close" id="shopping-close" type="button" aria-label="Zavřít">×</button>
+      </div>
+      <div class="mc-body" id="shopping-body"></div>
+      <button class="mc-btn secondary" id="shopping-clear" type="button" style="margin:0 16px 16px;">Odškrtnout vše</button>
+    </div>
+  </div>
 
   <!-- ================= ONBOARDING — konverzace s koučem ================= -->
   <div class="onboarding-overlay" id="onboarding-overlay">
@@ -1104,6 +1128,6 @@
     }
   })();
   </script>
-  <script src="/app.js?v=53"></script>
+  <script src="/app.js?v=54"></script>
 </body>
 </html>

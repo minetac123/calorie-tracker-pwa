@@ -131,7 +131,9 @@ function resetState() {
     workoutLogs: {},
     mealChecks: {},
     onboardingDone: false,
-    onboardingChat: []
+    onboardingChat: [],
+    mealLocks: [],
+    shoppingBought: []
   };
   saveState();
 }
@@ -146,6 +148,8 @@ function ensurePlanState() {
   if (!appState.mealChecks || typeof appState.mealChecks !== 'object') appState.mealChecks = {};
   if (appState.onboardingDone === undefined) appState.onboardingDone = false;
   if (!Array.isArray(appState.onboardingChat)) appState.onboardingChat = [];
+  if (!Array.isArray(appState.mealLocks)) appState.mealLocks = [];
+  if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
 }
 
 // ==========================================================================
@@ -3171,6 +3175,8 @@ function init() {
   initCoachHandlers();
   initOnboardingHandlers();
   initPlanHandlers();
+  initMealCheckHandlers();
+  initShoppingHandlers();
 
   // Check if already logged in
   const session = getSession();
@@ -5740,6 +5746,14 @@ function renderMealsView() {
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
   const g = appState.goals || {};
 
+  const drift = dayTargetDrift(dayKey);
+  const driftWarn = (drift != null && Math.abs(drift) > 10)
+    ? `<div class="plan-drift ${drift > 0 ? 'over' : 'under'}">Den je ${drift > 0 ? 'o ' + drift + ' % nad' : 'o ' + Math.abs(drift) + ' % pod'} cílem</div>`
+    : '';
+
+  const week = weekSummary();
+  const rem = isToday ? remainingToday() : null;
+
   box.innerHTML = `
     <div class="plan-section-head">
       <div>
@@ -5747,7 +5761,29 @@ function renderMealsView() {
         <div class="plan-section-sub">${Math.round(tot.calories)} kcal z ${g.calories || '—'} · B ${Math.round(tot.protein)} g</div>
       </div>
     </div>
-    <div class="plan-meal-list" id="plan-meal-list"></div>`;
+    ${driftWarn}
+    ${rem ? `<div class="plan-remaining">Do cíle zbývá <b>${rem.calories} kcal</b> a <b>${rem.protein} g</b> bílkovin</div>` : ''}
+    <div class="plan-day-actions">
+      <button class="plan-day-action" data-act="regen" type="button">Přegenerovat den</button>
+      ${isToday ? '<button class="plan-day-action" data-act="eaten" type="button">Vše snědeno</button>' : ''}
+      <button class="plan-day-action" data-act="shop" type="button">Nákupní seznam</button>
+      <button class="plan-day-action" data-act="share" type="button">Sdílet</button>
+    </div>
+    <div class="plan-meal-list" id="plan-meal-list"></div>
+    ${week ? `<div class="plan-week-summary">
+      <span class="plan-week-title">Průměr týdne (${week.days} dní)</span>
+      <span class="plan-week-val">${week.avgCalories} kcal · B ${week.avgProtein} g · S ${week.avgCarbs} g · T ${week.avgFat} g</span>
+    </div>` : ''}`;
+
+  box.querySelectorAll('.plan-day-action').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const act = btn.getAttribute('data-act');
+      if (act === 'regen') askCoach(`přegeneruj mi celý jídelníček na ${PLAN_DAY_CZ[dayKey].toLowerCase()}`);
+      else if (act === 'eaten') markDayEaten(dayKey);
+      else if (act === 'shop') openShoppingList();
+      else if (act === 'share') shareMealPlan();
+    });
+  });
 
   const checks = isToday ? getMealChecks(date) : [];
   const list = document.getElementById('plan-meal-list');
@@ -5755,6 +5791,8 @@ function renderMealsView() {
     const eaten = checks.includes(m.id);
     const card = document.createElement('div');
     card.className = 'plan-meal-card' + (eaten ? ' eaten' : '');
+    const locked = isMealLocked(m.id);
+    if (locked) card.classList.add('locked');
     card.innerHTML = `
       <div class="plan-meal-head">
         <button class="plan-meal-check${eaten ? ' checked' : ''}" type="button" aria-label="Snědeno">${eaten ? '✓' : ''}</button>
@@ -5762,11 +5800,16 @@ function renderMealsView() {
           <div class="plan-meal-cat">${m.category}</div>
           <div class="plan-meal-name">${m.name}</div>
         </div>
+        <button class="plan-meal-lock${locked ? ' on' : ''}" type="button" aria-label="${locked ? 'Odemknout' : 'Zamknout'}">${locked ? '🔒' : '🔓'}</button>
         <div class="plan-meal-kcal">${m.calories}<span>kcal</span></div>
       </div>
       <div class="plan-meal-items">${(m.items || []).map((i) => `<span>${i.name} ${i.amount}</span>`).join('')}</div>
       <div class="plan-meal-macros">B ${m.protein} g · S ${m.carbs} g · T ${m.fat} g</div>
-      <button class="plan-meal-swap" type="button">Vyměnit jídlo</button>`;
+      <div class="plan-meal-btns">
+        ${isToday ? '<button class="plan-meal-btn" data-act="check" type="button">📷 Sedí to?</button>' : ''}
+        <button class="plan-meal-btn" data-act="swap" type="button">Vyměnit</button>
+        <button class="plan-meal-btn" data-act="copy" type="button">Kopírovat</button>
+      </div>`;
 
     const chk = card.querySelector('.plan-meal-check');
     if (isToday) {
@@ -5774,8 +5817,14 @@ function renderMealsView() {
     } else {
       chk.disabled = true;
     }
-    card.querySelector('.plan-meal-swap').addEventListener('click', () => {
-      askCoach(`vyměň mi ${m.category.toLowerCase()} v ${PLAN_DAY_CZ[dayKey].toLowerCase()} (${m.name}) za něco jiného`);
+    card.querySelector('.plan-meal-lock').addEventListener('click', () => toggleMealLock(m.id));
+    card.querySelectorAll('.plan-meal-btn').forEach((b) => {
+      b.addEventListener('click', () => {
+        const act = b.getAttribute('data-act');
+        if (act === 'check') openMealCheck(m, dayKey);
+        else if (act === 'swap') askCoach(`vyměň mi ${m.category.toLowerCase()} v ${PLAN_DAY_CZ[dayKey].toLowerCase()} (${m.name}) za něco jiného`);
+        else if (act === 'copy') askCoach(`zkopíruj mi ${m.name} z ${PLAN_DAY_CZ[dayKey].toLowerCase()} i na další dny`);
+      });
     });
     list.appendChild(card);
   });
@@ -5916,6 +5965,7 @@ function buildCoachPayload(message, opts = {}) {
     targets: appState.goals || null,
     workoutPlan: appState.workoutPlan || null,
     mealPlan: appState.mealPlan || null,
+    lockedMeals: getMealLocks(),
     foodContext: buildFoodContext(),
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
@@ -6188,4 +6238,514 @@ function initPlanHandlers() {
   if (wTab) wTab.addEventListener('click', () => { planViewTab = 'workout'; renderPlanScreen(); });
   if (mTab) mTab.addEventListener('click', () => { planViewTab = 'meals'; renderPlanScreen(); });
   if (coachBtn) coachBtn.addEventListener('click', () => openCoach());
+}
+
+// ==========================================================================
+// KONTROLA JÍDLA PODLE PLÁNU — vyfoť talíř, appka řekne jestli sedí
+// ==========================================================================
+// The user photographs what is actually on the plate; the AI compares it with
+// the planned meal and says whether to eat more, less, or that it is fine.
+// "Ukaž mi to" then renders the corrected plate with the image model.
+
+let mealCheckState = null; // { meal, dayKey, photo, verdict }
+
+const MEAL_CHECK_MODEL_IMAGE = 'gemini-2.5-flash-image';
+
+function plannedMealSummary(meal) {
+  const items = (meal.items || []).map((i) => `${i.name} ${i.amount}`).join(', ');
+  return `${meal.name} (${items}) — ${meal.calories} kcal, B ${meal.protein} g, S ${meal.carbs} g, T ${meal.fat} g`;
+}
+
+// Ask Gemini to compare the photo against the planned meal.
+async function analyzePlannedMeal(photoBase64, meal) {
+  const session = getSession();
+  if (!session) throw new Error('Nejste přihlášen');
+
+  const small = await downscaleImage(photoBase64, 768, 0.72);
+  const m = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(small);
+  if (!m) throw new Error('Neplatná fotka');
+
+  const systemInstruction = `Jsi nutriční specialista. Uživatel má naplánované jídlo a vyfotil, co má reálně na talíři. Porovnej fotku s plánem a řekni, jestli to sedí.
+
+PLÁNOVANÉ JÍDLO:
+${plannedMealSummary(meal)}
+
+POSTUP:
+1. Identifikuj VŠECHNY viditelné složky na fotce a odhadni jejich hmotnost. Domácí porce bývají MENŠÍ než restaurační — při pochybnostech odhadni méně.
+2. Spočítej skutečné kalorie a makra toho, co je na fotce.
+3. Porovnej s plánem a rozhodni:
+   - "ok" = kalorie jsou do ±12 % plánu
+   - "more" = na talíři je VÝRAZNĚ MÍŇ, než má být → user má sníst ještě něco
+   - "less" = na talíři je VÝRAZNĚ VÍC → user má ubrat
+4. V "advice" napiš JEDNU krátkou větu česky, neformálně, malým písmenem, bez tečky na konci. Konkrétně kolik gramů čeho ubrat/přidat.
+5. V "adjustments" uveď konkrétní úpravy (co a kolik gramů). Když je verdikt "ok", nech pole prázdné.
+
+Vrať POUZE validní JSON, žádný markdown:
+{
+  "detected": [{"name":"český název","amount":"150g","calories":200,"protein":20,"carbs":10,"fat":5}],
+  "total": {"calories":200,"protein":20,"carbs":10,"fat":5},
+  "verdict": "ok" | "more" | "less",
+  "diffCalories": -120,
+  "advice": "sněz ještě asi 60 g rýže",
+  "adjustments": [{"action":"add"|"remove","item":"rýže","grams":60}]
+}`;
+
+  const payload = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents: [{
+      role: 'user',
+      parts: [
+        { text: 'Porovnej tuhle fotku s plánovaným jídlem podle pravidel.' },
+        { inlineData: { mimeType: m[1], data: m[2] } }
+      ]
+    }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+  };
+
+  const resp = await fetch('/api/gemini', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.token}` },
+    body: JSON.stringify(payload)
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error((data.error && data.error.message) || 'AI je teď vytížená, zkus to za chvíli');
+
+  const cand = data.candidates && data.candidates[0];
+  const text = cand && cand.content && Array.isArray(cand.content.parts)
+    ? cand.content.parts.map((p) => p.text || '').join('').trim()
+    : '';
+  if (!text) throw new Error('AI nevrátila odpověď');
+
+  const cleaned = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    const s = cleaned.indexOf('{');
+    const en = cleaned.lastIndexOf('}');
+    if (s === -1 || en === -1) throw new Error('AI vrátila nečitelnou odpověď');
+    parsed = JSON.parse(cleaned.slice(s, en + 1));
+  }
+  if (!['ok', 'more', 'less'].includes(parsed.verdict)) parsed.verdict = 'ok';
+  return parsed;
+}
+
+// Render the corrected plate with the image model ("nano banana").
+async function renderCorrectedPlate(photoBase64, verdict, meal) {
+  const session = getSession();
+  if (!session) throw new Error('Nejste přihlášen');
+
+  const small = await downscaleImage(photoBase64, 768, 0.8);
+  const m = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(small);
+  if (!m) throw new Error('Neplatná fotka');
+
+  const adj = (verdict.adjustments || [])
+    .map((a) => `${a.action === 'add' ? 'přidej' : 'uber'} ${a.grams} g — ${a.item}`)
+    .join('; ');
+
+  const prompt = verdict.verdict === 'ok'
+    ? `Uprav tuhle fotku jídla tak, aby vypadala jako ideální porce podle plánu: ${plannedMealSummary(meal)}. Zachovej stejný talíř, úhel i osvětlení, jen dolaď množství. Fotorealisticky.`
+    : `Uprav tuhle fotku jídla podle instrukcí: ${adj}. Zachovej PŘESNĚ stejný talíř, stejný úhel pohledu, stejné osvětlení i pozadí — změň jen množství jídla na talíři, ať je vidět, jak má porce správně vypadat. Fotorealisticky, žádný text ani popisky v obrázku.`;
+
+  const payload = {
+    __model: MEAL_CHECK_MODEL_IMAGE,
+    contents: [{
+      role: 'user',
+      parts: [{ text: prompt }, { inlineData: { mimeType: m[1], data: m[2] } }]
+    }],
+    generationConfig: { responseModalities: ['IMAGE'] }
+  };
+
+  const resp = await fetch('/api/gemini', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.token}` },
+    body: JSON.stringify(payload)
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error((data.error && data.error.message) || 'Obrázek se nepovedlo vygenerovat');
+
+  const cand = data.candidates && data.candidates[0];
+  const parts = (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
+  const img = parts.find((p) => p.inlineData && p.inlineData.data);
+  if (!img) throw new Error('Model nevrátil obrázek');
+  return `data:${img.inlineData.mimeType || 'image/png'};base64,${img.inlineData.data}`;
+}
+
+// ---- Meal check UI ----
+
+function openMealCheck(meal, dayKey) {
+  mealCheckState = { meal, dayKey, photo: null, verdict: null };
+  const input = document.getElementById('meal-check-input');
+  if (input) { input.value = ''; input.click(); }
+}
+
+function closeMealCheck() {
+  const modal = document.getElementById('meal-check-modal');
+  if (modal) modal.classList.remove('active');
+  mealCheckState = null;
+}
+
+function showMealCheckModal() {
+  const modal = document.getElementById('meal-check-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function renderMealCheckBody(html) {
+  const body = document.getElementById('meal-check-body');
+  if (body) body.innerHTML = html;
+}
+
+async function handleMealCheckPhoto(file) {
+  if (!file || !mealCheckState) return;
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  }).catch(() => null);
+  if (!dataUrl) { showToast('Nepodařilo se načíst fotku'); return; }
+
+  mealCheckState.photo = dataUrl;
+  showMealCheckModal();
+  renderMealCheckBody(`
+    <div class="mc-photo-wrap"><img src="${dataUrl}" alt="tvoje jídlo"></div>
+    <div class="mc-loading"><div class="mc-spinner"></div><span>porovnávám s plánem…</span></div>`);
+
+  try {
+    const verdict = await analyzePlannedMeal(dataUrl, mealCheckState.meal);
+    if (!mealCheckState) return; // user closed it meanwhile
+    mealCheckState.verdict = verdict;
+    renderMealCheckVerdict();
+  } catch (e) {
+    renderMealCheckBody(`
+      <div class="mc-photo-wrap"><img src="${dataUrl}" alt="tvoje jídlo"></div>
+      <div class="mc-error">${e.message || 'Nepovedlo se to vyhodnotit'}</div>
+      <button class="mc-btn secondary" id="mc-retry" type="button">Zkusit znovu</button>`);
+    const r = document.getElementById('mc-retry');
+    if (r) r.addEventListener('click', () => handleMealCheckPhoto(file));
+  }
+}
+
+function renderMealCheckVerdict() {
+  const { meal, verdict, photo } = mealCheckState;
+  const badge = { ok: 'Sedí to', more: 'Sněz ještě', less: 'Uber trochu' }[verdict.verdict];
+  const tone = { ok: 'good', more: 'warn', less: 'warn' }[verdict.verdict];
+  const t = verdict.total || {};
+  const diff = Math.round(Number(verdict.diffCalories) || 0);
+  const diffTxt = diff === 0 ? '' : (diff > 0 ? `+${diff}` : `${diff}`) + ' kcal oproti plánu';
+
+  renderMealCheckBody(`
+    <div class="mc-photo-wrap"><img src="${photo}" alt="tvoje jídlo"></div>
+    <div class="mc-verdict ${tone}">
+      <div class="mc-verdict-badge">${badge}</div>
+      <div class="mc-verdict-advice">${verdict.advice || ''}</div>
+      ${diffTxt ? `<div class="mc-verdict-diff">${diffTxt}</div>` : ''}
+    </div>
+    <div class="mc-compare">
+      <div class="mc-compare-col">
+        <span class="mc-compare-label">Na talíři</span>
+        <span class="mc-compare-val">${Math.round(t.calories || 0)} kcal</span>
+        <span class="mc-compare-sub">B ${Math.round(t.protein || 0)} · S ${Math.round(t.carbs || 0)} · T ${Math.round(t.fat || 0)}</span>
+      </div>
+      <div class="mc-compare-col">
+        <span class="mc-compare-label">Plán</span>
+        <span class="mc-compare-val">${meal.calories} kcal</span>
+        <span class="mc-compare-sub">B ${Math.round(meal.protein)} · S ${Math.round(meal.carbs)} · T ${Math.round(meal.fat)}</span>
+      </div>
+    </div>
+    ${(verdict.detected || []).length ? `<div class="mc-detected">${verdict.detected.map((d) => `<span>${d.name} ${d.amount}</span>`).join('')}</div>` : ''}
+    <div id="mc-image-slot"></div>
+    <div class="mc-actions">
+      ${verdict.verdict !== 'ok' ? '<button class="mc-btn secondary" id="mc-visualize" type="button">Ukaž mi to</button>' : ''}
+      <button class="mc-btn primary" id="mc-log" type="button">Zapsat, co mám na talíři</button>
+    </div>`);
+
+  const viz = document.getElementById('mc-visualize');
+  if (viz) viz.addEventListener('click', visualizeCorrectedPlate);
+
+  const log = document.getElementById('mc-log');
+  if (log) log.addEventListener('click', logDetectedMeal);
+}
+
+async function visualizeCorrectedPlate() {
+  const btn = document.getElementById('mc-visualize');
+  const slot = document.getElementById('mc-image-slot');
+  if (!btn || !slot || !mealCheckState) return;
+  btn.disabled = true;
+  slot.innerHTML = '<div class="mc-loading"><div class="mc-spinner"></div><span>kreslím, jak to má vypadat…</span></div>';
+  try {
+    const url = await renderCorrectedPlate(mealCheckState.photo, mealCheckState.verdict, mealCheckState.meal);
+    slot.innerHTML = `
+      <div class="mc-generated">
+        <span class="mc-generated-label">Takhle by to mělo vypadat</span>
+        <img src="${url}" alt="upravená porce">
+      </div>`;
+  } catch (e) {
+    slot.innerHTML = `<div class="mc-error">${e.message || 'Obrázek se nepovedlo vygenerovat'}</div>`;
+    btn.disabled = false;
+  }
+}
+
+// Log what is actually on the plate (not the planned meal) into the diary.
+function logDetectedMeal() {
+  if (!mealCheckState || !mealCheckState.verdict) return;
+  const { meal, verdict } = mealCheckState;
+  const items = verdict.detected || [];
+  if (!items.length) { showToast('Nebylo co zapsat'); return; }
+
+  const date = getTodayDateString();
+  if (!appState.logs[date]) appState.logs[date] = [];
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const catId = czCategoryToId(meal.category);
+
+  // Replace anything this planned meal already wrote, so checking after
+  // ticking doesn't double-count.
+  appState.logs[date] = appState.logs[date].filter((i) => i.fromPlan !== meal.id);
+  items.forEach((it) => {
+    appState.logs[date].push({
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      time: timeStr,
+      name: it.name,
+      amount: it.amount || '100g',
+      calories: Math.round(Number(it.calories) || 0),
+      protein: Math.round((Number(it.protein) || 0) * 10) / 10,
+      carbs: Math.round((Number(it.carbs) || 0) * 10) / 10,
+      fat: Math.round((Number(it.fat) || 0) * 10) / 10,
+      category: catId,
+      fromPlan: meal.id
+    });
+  });
+  const checks = getMealChecks(date);
+  if (!checks.includes(meal.id)) checks.push(meal.id);
+
+  saveState();
+  renderDashboard();
+  renderPlanScreen();
+  closeMealCheck();
+  showToast('Zapsáno podle fotky ✓');
+}
+
+function initMealCheckHandlers() {
+  const input = document.getElementById('meal-check-input');
+  const closeBtn = document.getElementById('meal-check-close');
+  const modal = document.getElementById('meal-check-modal');
+
+  if (input) input.addEventListener('change', (e) => handleMealCheckPhoto(e.target.files[0]));
+  if (closeBtn) closeBtn.addEventListener('click', closeMealCheck);
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeMealCheck(); });
+}
+
+// ==========================================================================
+// MALÉ FUNKCE JÍDELNÍČKU
+// ==========================================================================
+
+// ---- Zámek jídla: uzamčené jídlo kouč při přegenerování nemá měnit ----
+function getMealLocks() {
+  if (!Array.isArray(appState.mealLocks)) appState.mealLocks = [];
+  return appState.mealLocks;
+}
+
+function isMealLocked(mealId) {
+  return getMealLocks().includes(mealId);
+}
+
+function toggleMealLock(mealId) {
+  const locks = getMealLocks();
+  const i = locks.indexOf(mealId);
+  if (i === -1) { locks.push(mealId); showToast('Jídlo zamčeno 🔒'); }
+  else { locks.splice(i, 1); showToast('Jídlo odemčeno'); }
+  saveState();
+  renderPlanScreen();
+}
+
+// ---- Denní souhrn a odchylka od cílů ----
+function dayTotals(dayKey) {
+  return getMealsForDay(dayKey).reduce((s, m) => ({
+    calories: s.calories + m.calories,
+    protein: s.protein + m.protein,
+    carbs: s.carbs + m.carbs,
+    fat: s.fat + m.fat
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+}
+
+// How far a day's plan is from the calorie target, as a signed percentage.
+function dayTargetDrift(dayKey) {
+  const goal = (appState.goals && appState.goals.calories) || 0;
+  if (!goal) return null;
+  const kcal = dayTotals(dayKey).calories;
+  if (!kcal) return null;
+  return Math.round(((kcal - goal) / goal) * 100);
+}
+
+function weekSummary() {
+  const days = PLAN_DAY_KEYS.filter((k) => getMealsForDay(k).length);
+  if (!days.length) return null;
+  const sum = days.reduce((s, k) => {
+    const t = dayTotals(k);
+    return {
+      calories: s.calories + t.calories,
+      protein: s.protein + t.protein,
+      carbs: s.carbs + t.carbs,
+      fat: s.fat + t.fat
+    };
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  return {
+    days: days.length,
+    avgCalories: Math.round(sum.calories / days.length),
+    avgProtein: Math.round(sum.protein / days.length),
+    avgCarbs: Math.round(sum.carbs / days.length),
+    avgFat: Math.round(sum.fat / days.length)
+  };
+}
+
+// ---- Kolik ještě zbývá do dnešního cíle ----
+function remainingToday() {
+  const date = getTodayDateString();
+  const eaten = (appState.logs[date] || []).reduce((s, i) => ({
+    calories: s.calories + (Number(i.calories) || 0),
+    protein: s.protein + (Number(i.protein) || 0)
+  }), { calories: 0, protein: 0 });
+  const g = appState.goals || {};
+  return {
+    calories: Math.max(0, Math.round((g.calories || 0) - eaten.calories)),
+    protein: Math.max(0, Math.round((g.protein || 0) - eaten.protein))
+  };
+}
+
+// ---- Nákupní seznam: sečte suroviny přes celý týden ----
+function buildShoppingList() {
+  const totals = {};
+  PLAN_DAY_KEYS.forEach((k) => {
+    getMealsForDay(k).forEach((m) => {
+      (m.items || []).forEach((it) => {
+        const key = normalizeFoodName(it.name);
+        const grams = parseFloat(String(it.amount).replace(',', '.')) || 0;
+        const unit = /ml/i.test(it.amount || '') ? 'ml' : 'g';
+        if (!totals[key]) totals[key] = { name: it.name, grams: 0, unit };
+        totals[key].grams += grams;
+      });
+    });
+  });
+  return Object.values(totals)
+    .sort((a, b) => b.grams - a.grams)
+    .map((x) => ({ name: x.name, amount: `${Math.round(x.grams)} ${x.unit}` }));
+}
+
+function openShoppingList() {
+  const list = buildShoppingList();
+  const modal = document.getElementById('shopping-modal');
+  const body = document.getElementById('shopping-body');
+  if (!modal || !body) return;
+
+  if (!list.length) {
+    body.innerHTML = '<div class="plan-empty-sub" style="padding:24px 0;text-align:center;">Jídelníček je prázdný</div>';
+  } else {
+    const bought = new Set(Array.isArray(appState.shoppingBought) ? appState.shoppingBought : []);
+    body.innerHTML = list.map((x, i) => `
+      <label class="shop-row${bought.has(x.name) ? ' bought' : ''}">
+        <input type="checkbox" data-name="${x.name.replace(/"/g, '&quot;')}"${bought.has(x.name) ? ' checked' : ''}>
+        <span class="shop-name">${x.name}</span>
+        <span class="shop-amount">${x.amount}</span>
+      </label>`).join('');
+    body.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+      cb.addEventListener('change', () => {
+        if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
+        const n = cb.getAttribute('data-name');
+        const idx = appState.shoppingBought.indexOf(n);
+        if (cb.checked && idx === -1) appState.shoppingBought.push(n);
+        if (!cb.checked && idx !== -1) appState.shoppingBought.splice(idx, 1);
+        cb.closest('.shop-row').classList.toggle('bought', cb.checked);
+        saveState();
+      });
+    });
+  }
+  modal.classList.add('active');
+}
+
+// ---- Označit celý den jako snědený ----
+function markDayEaten(dayKey) {
+  const meals = getMealsForDay(dayKey);
+  if (!meals.length) return;
+  const date = getTodayDateString();
+  const checks = getMealChecks(date);
+  const pending = meals.filter((m) => !checks.includes(m.id));
+  if (!pending.length) { showToast('Už je odškrtnuto všechno'); return; }
+  pending.forEach((m) => togglePlannedMealSilent(m, date));
+  saveState();
+  renderPlanScreen();
+  renderDashboard();
+  showToast(`Zapsáno ${pending.length} jídel ✓`);
+}
+
+// Same as togglePlannedMeal but without the per-meal toast / re-render, so
+// marking a whole day doesn't fire six toasts and six full re-renders.
+function togglePlannedMealSilent(meal, date) {
+  const checks = getMealChecks(date);
+  if (checks.includes(meal.id)) return;
+  checks.push(meal.id);
+  if (!appState.logs[date]) appState.logs[date] = [];
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const catId = czCategoryToId(meal.category);
+  (meal.items || []).forEach((it) => {
+    appState.logs[date].push({
+      id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+      time: timeStr,
+      name: it.name,
+      amount: it.amount || '100g',
+      calories: Math.round(Number(it.calories) || 0),
+      protein: Math.round((Number(it.protein) || 0) * 10) / 10,
+      carbs: Math.round((Number(it.carbs) || 0) * 10) / 10,
+      fat: Math.round((Number(it.fat) || 0) * 10) / 10,
+      category: catId,
+      fromPlan: meal.id
+    });
+  });
+}
+
+// ---- Export jídelníčku jako text ----
+function mealPlanAsText() {
+  const g = appState.goals || {};
+  const lines = [`Můj jídelníček — ${g.calories} kcal, B ${g.protein} g, S ${g.carbs} g, T ${g.fat} g`, ''];
+  PLAN_DAY_KEYS.forEach((k) => {
+    const meals = getMealsForDay(k);
+    if (!meals.length) return;
+    const t = dayTotals(k);
+    lines.push(`${PLAN_DAY_CZ[k]} (${Math.round(t.calories)} kcal):`);
+    meals.forEach((m) => {
+      lines.push(`  ${m.category}: ${m.name} — ${m.calories} kcal`);
+      (m.items || []).forEach((i) => lines.push(`    · ${i.name} ${i.amount}`));
+    });
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+async function shareMealPlan() {
+  const text = mealPlanAsText();
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Můj jídelníček', text });
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    showToast('Jídelníček zkopírován ✓');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // user dismissed the share sheet
+    showToast('Nepodařilo se sdílet');
+  }
+}
+
+function initShoppingHandlers() {
+  const modal = document.getElementById('shopping-modal');
+  const closeBtn = document.getElementById('shopping-close');
+  const clearBtn = document.getElementById('shopping-clear');
+  if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.remove('active'));
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    appState.shoppingBought = [];
+    saveState();
+    openShoppingList();
+  });
 }
