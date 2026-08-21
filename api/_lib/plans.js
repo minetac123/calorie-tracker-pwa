@@ -3,7 +3,7 @@
 // The nutrition math is deterministic JS (Mifflin-St Jeor + activity factor),
 // NOT left to the model — the AI only fills in plan *content* around numbers
 // this file computes. Tool calls from Gemini are applied here as pure
-// functions over a plan-state object, so api/coach.js stays stateless.
+// functions over a plan-state object, so api/chat.js stays stateless.
 
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_CZ = {
