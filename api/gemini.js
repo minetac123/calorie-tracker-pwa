@@ -5,6 +5,14 @@
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
+// Models the client may explicitly ask for via `__model`. Kept as an allowlist
+// so the proxy can never be pointed at an arbitrary (or costlier) model.
+// The image model is "nano banana" — used to render what to add/remove from a
+// plate. It has no fallbacks: no other model here can return an image.
+const MODEL_ALLOWLIST = {
+  'gemini-2.5-flash-image': { chain: ['gemini-2.5-flash-image'], image: true }
+};
+
 function extractUsername(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   try {
@@ -41,15 +49,27 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: { message: 'Chybí data požadavku' } });
   }
 
+  // Optional explicit model (allowlisted). Stripped before forwarding so it
+  // never reaches Google as an unknown field.
+  const requested = payload.__model;
+  delete payload.__model;
+  const override = requested ? MODEL_ALLOWLIST[requested] : null;
+  if (requested && !override) {
+    return res.status(400).json({ error: { message: 'Nepodporovaný model' } });
+  }
+
   // Disable "thinking" for the food-analysis call. It's a structured extraction
   // task, so thinking just adds latency (and with an image often pushes the
   // call past the timeout under load → every model 503s → "AI vytížená").
   // Keeps this path fast and reliable, same as the coach in api/chat.js.
-  if (!payload.generationConfig || typeof payload.generationConfig !== 'object') {
-    payload.generationConfig = {};
-  }
-  if (payload.generationConfig.thinkingConfig == null) {
-    payload.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  // The image model rejects thinkingConfig outright, so skip it there.
+  if (!override || !override.image) {
+    if (!payload.generationConfig || typeof payload.generationConfig !== 'object') {
+      payload.generationConfig = {};
+    }
+    if (payload.generationConfig.thinkingConfig == null) {
+      payload.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
   }
 
   try {
@@ -60,8 +80,11 @@ module.exports = async function handler(req, res) {
     // gemini-flash-latest actually processes (just needs time) when 2.5-flash
     // is overloaded, so try it right after the primary and give each call a
     // generous timeout (function maxDuration is 30s).
-    const modelChain = [...new Set([GEMINI_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-flash-lite-latest'])];
-    const deadline = Date.now() + 27000;
+    const modelChain = override
+      ? override.chain
+      : [...new Set([GEMINI_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite', 'gemini-flash-lite-latest'])];
+    // Image generation is slower than extraction, so give it the whole budget.
+    const deadline = Date.now() + (override && override.image ? 50000 : 27000);
 
     let okResp = null;
     let primaryResp = null;
@@ -72,7 +95,9 @@ module.exports = async function handler(req, res) {
       const ctrl = new AbortController();
       // Give the primary model a long window (it tends to queue under load);
       // fallbacks 503 instantly so they don't need much.
-      const callTimeout = i === 0 ? Math.min(18000, remaining) : Math.min(9000, remaining);
+      const callTimeout = (override && override.image)
+        ? Math.min(48000, remaining)
+        : (i === 0 ? Math.min(18000, remaining) : Math.min(9000, remaining));
       const timer = setTimeout(() => ctrl.abort(), callTimeout);
       let resp = null;
       try {

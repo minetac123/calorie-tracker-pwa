@@ -150,6 +150,14 @@ PRAVIDLA:
 - U jídelníčku piš reálné české jídlo, ne fitness katalog. Gramáž musí sedět na makra.
 - NIKDY si čísla kalorií nevymýšlej — vždycky použij compute_targets.
 
+ROZHODUJ ZA NĚJ — TOHLE JE DŮLEŽITÉ:
+Když uživatel řekne cokoliv ve smyslu „nevím", „je mi to jedno", „dej mi libovolný", „vymysli to", „je to jedno", „cokoliv", „ty víš líp" — okamžitě PŘESTAŇ se ptát a ROZHODNI ZA NĚJ. Vyber rozumnou variantu sám a rovnou zavolej nástroje.
+- NEnabízej mu další možnosti na výběr
+- NEptej se „líbí se ti tenhle směr?" ani „mám ti to tam naházet?"
+- Prostě to udělej a až POTOM krátce napiš, co jsi vybral, ať to může změnit
+Ptej se jen na to, co fakt nemůžeš uhodnout (alergie, cíl). Zbytek si domysli podle profilu — na tom, jestli má v úterý rýži nebo brambory, nic nestojí.
+Nikdy nedávej v jedné zprávě víc než JEDNU otázku.
+
 === CO UŽ VÍŠ O UŽIVATELI ===
 ${fmtProfile(ctx.profile)}
 
@@ -188,6 +196,11 @@ PRAVIDLA PRO NÁSTROJE:
 - Když měníš jídlo v plánu, drž makra blízko původním, ať sedí denní cíle
 - Respektuj alergie a co nemá rád — nikdy je nenavrhuj
 
+ROZHODUJ ZA NĚJ:
+Když řekne „nevím", „je mi to jedno", „dej mi libovolný", „vymysli", „cokoliv" — NEptej se dál a rovnou to udělej. Vyber sám a zavolej nástroj. Až potom krátce napiš, co jsi vybral.
+Žádné „líbí se ti tenhle směr?" ani nabídky variant na výběr. Max JEDNA otázka na zprávu, a jen když ji fakt potřebuješ.
+Když ti řekne kontext (jede do Egypta, je u babičky, nemá lednici), zohledni ho v jídle sám a neptej se na detaily.
+
 ZÁPIS SNĚDENÉHO JÍDLA (log_food / delete_food / edit_food) — PŘÍSNĚ:
 Tyhle tři volej JEN když uživatel použije přímý rozkaz: „přidej", „zapiš", „dej tam", „smaž", „odstraň", „uprav", „změň".
 NIKDY je nevolej když:
@@ -209,6 +222,7 @@ ${fmtWorkoutPlan(ctx.workoutPlan, ctx.todayKey)}
 
 === JÍDELNÍČEK ===
 ${fmtMealPlan(ctx.mealPlan, ctx.todayKey)}
+${ctx.lockedMeals.length ? `\nZAMČENÁ JÍDLA (uživatel si je uzamkl — NIKDY je neměň ani nepřegeneruj): ${ctx.lockedMeals.join(', ')}` : ''}
 
 === DNEŠNÍ PROGRESS (co fakt snědl) ===
 ${fmtFood(ctx.foodContext)}
@@ -306,7 +320,7 @@ module.exports = async function handler(req, res) {
   try {
     const {
       message, history, mode, image,
-      profile, targets, workoutPlan, mealPlan,
+      profile, targets, workoutPlan, mealPlan, lockedMeals,
       foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
@@ -344,7 +358,8 @@ module.exports = async function handler(req, res) {
       workoutPlan: state.workoutPlan, mealPlan: state.mealPlan,
       foodContext, whoopSnapshot, memBlock, todayDate: todayDate || 'dnes', todayKey,
       nowTime: (typeof nowTime === 'string' && /^\d{1,2}:\d{2}$/.test(nowTime)) ? nowTime : null,
-      workoutStatus: workoutStatus || 'Dnešní trénink zatím nezačal.'
+      workoutStatus: workoutStatus || 'Dnešní trénink zatím nezačal.',
+      lockedMeals: Array.isArray(lockedMeals) ? lockedMeals : []
     };
 
     const systemInstruction = isOnboarding ? onboardingPrompt(ctx) : coachPrompt(ctx);
