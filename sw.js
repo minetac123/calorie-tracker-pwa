@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fitai-cache-v51';
+const CACHE_NAME = 'fitai-cache-v52';
 const ASSETS = [
   '/index.html',
   '/styles.css',
@@ -73,11 +73,17 @@ self.addEventListener('fetch', (e) => {
   }
 
   // Normalize root "/" to "/index.html" for cache lookups
-  const isRoot = url.origin === location.origin && url.pathname === '/';
-  const cacheKey = isRoot ? new Request('/index.html') : e.request;
-
   const isShell = url.origin === location.origin &&
     (e.request.mode === 'navigate' || SHELL_PATHS.includes(url.pathname));
+
+  // Cache shell assets under their PATH ONLY. The page requests them with a
+  // cache-busting query (/app.js?v=58, /styles.css?v=51), so keying on the full
+  // URL would never match what install() pre-cached — and the offline fallback
+  // would come up empty, leaving the app with no CSS or JS.
+  const isRoot = url.origin === location.origin && url.pathname === '/';
+  const cacheKey = isRoot
+    ? new Request('/index.html')
+    : (isShell && url.search ? new Request(url.origin + url.pathname) : e.request);
 
   if (isShell) {
     // NETWORK-FIRST: fetch fresh, update cache, fall back to cache offline.
