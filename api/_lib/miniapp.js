@@ -103,6 +103,9 @@ function buildMiniApp(args, existing) {
   if (!blocks.length) return null;
 
   return {
+    // Set by api/chat.js after the fact, from whatever search_web turned up.
+    sources: (existing && existing.sources) || [],
+    estimated: true,
     id: (existing && existing.id) || a.id || genId('app'),
     title: str(a.title, 60) || 'Bez názvu',
     subtitle: a.subtitle ? str(a.subtitle, 120) : '',
@@ -125,7 +128,8 @@ function fmtMiniApps(apps) {
       if (b.type === 'stats') return `${b.items.length} čísel`;
       return 'text';
     });
-    return `- [id:${app.id}] ${app.icon} ${app.title}${app.subtitle ? ` — ${app.subtitle}` : ''}: ${parts.join(', ')}`;
+    const src = app.estimated === false ? ' [postavená z reálných dat z webu]' : ' [hodnoty jsou odhad, nebyla dohledaná]';
+    return `- [id:${app.id}] ${app.icon} ${app.title}${app.subtitle ? ` — ${app.subtitle}` : ''}: ${parts.join(', ')}${src}`;
   }).join('\n');
 }
 

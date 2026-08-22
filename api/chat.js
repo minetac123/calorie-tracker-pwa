@@ -111,6 +111,25 @@ const FOOD_TOOLS = [
   }
 ];
 
+// Web lookup. Runs through groundedSearch(), which is a separate Gemini call
+// with Google Search grounding — see that function for why it can't share a
+// request with the function-calling tools.
+const SEARCH_TOOL = {
+  name: 'search_web',
+  description: `Vyhledá na internetu aktuální informace. Máš k dispozici jen pár hledání na zprávu, tak ho použij, jen když ti data fakt chybí.
+
+POUŽIJ VŽDY, než postavíš nebo upravíš mini appku o konkrétním REÁLNÉM místě — restaurace, podnik, hotel, obchod. Bez hledání bys jejich nabídku vymyslel a uživatel by dostal smyšlená čísla jako fakt.
+Ptej se konkrétně, např. „Pizza Komín Zlín jídelní lístek ceny" nebo „McDonald's ČR nutriční hodnoty".
+Nehledej obecné výživové věci, které víš sám (kolik má kuřecí prso bílkovin).`,
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      query: { type: 'STRING', description: 'Vyhledávací dotaz, klidně česky' }
+    },
+    required: ['query']
+  }
+};
+
 // Translate a food tool call into the action shape the client already knows.
 // `state` is needed by log_planned_meal, which reads the planned meal and
 // scales it to whatever the user actually ate.
@@ -318,6 +337,8 @@ ${fmtMiniApps(ctx.miniApps)}
 
 Umíš uživateli postavit malou appku na míru situaci, kterou plán neřeší — večeře v konkrétní restauraci, výlet, oslava, vaření dopředu, nákup. Nástroj create_mini_app.
 - Když popíše takovou situaci, NABÍDNI mu to („mám ti na to udělat appku?") a udělej to, až kývne
+- Jde-li o KONKRÉTNÍ REÁLNÉ MÍSTO (restaurace, podnik, hotel), NEJDŘÍV zavolej search_web a nabídku si dohledej. Bez toho bys ji vymyslel a uživatel by dostal smyšlená čísla jako fakt. Totéž platí, když appku upravuješ
+- Když se hledání nepovede nebo nic nenajdeš, appku klidně postav, ale uživateli MUSÍŠ říct, že jsou hodnoty jen odhad
 - Nejdřív si zjisti, co potřebuješ vědět (jaká restaurace, kam jede) — na tohle se ptát MUSÍŠ, neuhádneš to
 - U jídel vždy vyplň makra, ať si je může jedním ťuknutím zapsat
 - Buď konkrétní: u restaurace vypiš skutečná jídla z její nabídky, ne obecné kategorie
@@ -361,6 +382,46 @@ async function callGemini(model, payload, timeoutMs) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Google Search grounding. Runs as its OWN request with no functionDeclarations:
+// mixing search with function calling is not reliably supported across Gemini
+// versions, and a separate call is guaranteed to work. Returns the answer text
+// plus the sources, so the coach can build a mini app from real data instead of
+// inventing a restaurant menu from training data.
+const SEARCH_MODELS = [...new Set([COACH_MODEL, 'gemini-flash-latest'])];
+
+async function groundedSearch(query, deadline) {
+  const payload = {
+    contents: [{ role: 'user', parts: [{ text: query }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
+  };
+
+  for (const model of SEARCH_MODELS) {
+    const remaining = deadline - Date.now();
+    if (remaining < 6000) break;
+
+    const gData = await callGemini(model, payload, Math.min(20000, remaining));
+    if (!gData) continue;
+
+    const cand = gData.candidates && gData.candidates[0];
+    const parts = (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
+    const text = parts.map((p) => (p && p.text) ? p.text : '').join('').trim();
+    if (!text) {
+      console.error(`Search ${model}: empty, finishReason=${cand && cand.finishReason}`);
+      continue;
+    }
+
+    const chunks = (cand.groundingMetadata && cand.groundingMetadata.groundingChunks) || [];
+    const sources = chunks
+      .map((c) => c && c.web ? { title: String(c.web.title || '').slice(0, 80), uri: String(c.web.uri || '').slice(0, 400) } : null)
+      .filter((x) => x && x.uri)
+      .slice(0, 6);
+
+    return { ok: true, text: text.slice(0, 4000), sources, model };
+  }
+  return null;
 }
 
 function partsOf(gData) {
@@ -483,7 +544,7 @@ module.exports = async function handler(req, res) {
     // Onboarding has no food log to touch yet — only offer the plan tools.
     const activeTools = isOnboarding
       ? TOOL_DECLARATIONS
-      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS);
+      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS).concat([SEARCH_TOOL]);
 
     const basePayload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -506,6 +567,12 @@ module.exports = async function handler(req, res) {
     let shrinkRetries = 0;
     let appsChanged = false;
     let lastAppId = null;
+    // Grounded search is billed per call and costs a round trip, so it is
+    // capped. Sources collected here get attached to any app built afterwards,
+    // which is what lets the UI say "ověřeno" instead of quietly guessing.
+    let searchCount = 0;
+    let searchSources = [];
+    const MAX_SEARCHES = 3;
 
     // The loop is a function so it can be re-entered once when the model
     // claims a change it never actually made (see below).
@@ -547,7 +614,36 @@ module.exports = async function handler(req, res) {
 
       // Apply every requested tool and collect responses for the next turn.
       const responseParts = [];
-      calls.forEach((fc) => {
+
+      // Web searches need awaiting, so they run before the synchronous tools.
+      for (const fc of calls) {
+        if (fc.name !== 'search_web') continue;
+        let result;
+        if (searchCount >= MAX_SEARCHES) {
+          result = { ok: false, error: 'Vyčerpal jsi limit hledání pro tuhle zprávu. Postav appku z toho, co už víš, a uveď, že jsou to odhady.' };
+        } else {
+          searchCount++;
+          const query = String((fc.args && fc.args.query) || '').slice(0, 300);
+          console.log(`search_web: ${query}`);
+          const found = await groundedSearch(query, deadline);
+          if (found) {
+            searchSources = searchSources.concat(found.sources);
+            result = {
+              ok: true,
+              query,
+              info: found.text,
+              sources: found.sources.map((x) => x.title || x.uri),
+              note: 'Tohle jsou reálná data z internetu. Postav appku z NICH, ne z paměti.'
+            };
+          } else {
+            result = { ok: false, error: 'Hledání se nepovedlo. Když appku přesto postavíš, MUSÍŠ uživateli říct, že jsou hodnoty jen odhad.' };
+          }
+        }
+        console.log(`tool search_web -> ${result.ok ? 'ok' : 'FAIL'}`);
+        responseParts.push({ functionResponse: { name: fc.name, response: { result } } });
+      }
+
+      calls.filter((fc) => fc.name !== 'search_web').forEach((fc) => {
         let result;
         if (FOOD_TOOL_NAMES.has(fc.name)) {
           // Food edits need the user's OK, so they are proposed, not applied.
@@ -566,7 +662,15 @@ module.exports = async function handler(req, res) {
             console.error(`Mini app tool ${fc.name} threw:`, e.message);
             result = { ok: false, error: 'Nástroj selhal: ' + e.message };
           }
-          if (result && result.ok) { appsChanged = true; lastAppId = result.id; }
+          if (result && result.ok) {
+            appsChanged = true;
+            lastAppId = result.id;
+            const built = apps.find((x) => x.id === result.id);
+            if (built) {
+              built.sources = searchSources.slice(0, 4);
+              built.estimated = searchSources.length === 0;
+            }
+          }
         } else {
           try {
             result = applyTool(fc.name, fc.args, state);
