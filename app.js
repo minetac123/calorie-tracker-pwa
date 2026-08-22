@@ -3163,6 +3163,7 @@ function init() {
   initMealCheckHandlers();
   initShoppingHandlers();
   initExerciseDetailHandlers();
+  initMealChatHandlers();
 
   // Check if already logged in
   const session = getSession();
@@ -5738,7 +5739,7 @@ function renderMealsView() {
       <div class="plan-meal-macros">B ${m.protein} g · S ${m.carbs} g · T ${m.fat} g</div>
       <div class="plan-meal-btns">
         ${isToday ? '<button class="plan-meal-btn" data-act="check" type="button">📷 Sedí to?</button>' : ''}
-        <button class="plan-meal-btn" data-act="swap" type="button">Vyměnit</button>
+        <button class="plan-meal-btn" data-act="chat" type="button">💬 Domluvit</button>
         <button class="plan-meal-btn" data-act="copy" type="button">Kopírovat</button>
       </div>`;
 
@@ -5753,7 +5754,7 @@ function renderMealsView() {
       b.addEventListener('click', () => {
         const act = b.getAttribute('data-act');
         if (act === 'check') openMealCheck(m, dayKey);
-        else if (act === 'swap') askCoach(`vyměň mi ${m.category.toLowerCase()} v ${PLAN_DAY_CZ[dayKey].toLowerCase()} (${m.name}) za něco jiného`);
+        else if (act === 'chat') openMealChatSheet(m, dayKey);
         else if (act === 'copy') askCoach(`zkopíruj mi ${m.name} z ${PLAN_DAY_CZ[dayKey].toLowerCase()} i na další dny`);
       });
     });
@@ -6321,6 +6322,7 @@ function closeMealCheck() {
   const modal = document.getElementById('meal-check-modal');
   if (modal) modal.classList.remove('active');
   mealCheckState = null;
+  mealChat = null;
 }
 
 function showMealCheckModal() {
@@ -6396,13 +6398,19 @@ function renderMealCheckVerdict() {
     <div class="mc-actions">
       ${verdict.verdict !== 'ok' ? '<button class="mc-btn secondary" id="mc-visualize" type="button">Ukaž mi to</button>' : ''}
       <button class="mc-btn primary" id="mc-log" type="button">Zapsat, co mám na talíři</button>
-    </div>`);
+    </div>
+    <div class="mc-chat-divider"><span>nebo se domluv s koučem</span></div>
+    <div id="mc-chat-slot"></div>`);
 
   const viz = document.getElementById('mc-visualize');
   if (viz) viz.addEventListener('click', visualizeCorrectedPlate);
 
   const log = document.getElementById('mc-log');
   if (log) log.addEventListener('click', logDetectedMeal);
+
+  // Same contextual chat as the meal card, but it also knows the photo verdict.
+  const slot = document.getElementById('mc-chat-slot');
+  if (slot) mountMealChat(slot, { meal, dayKey: mealCheckState.dayKey, verdict, photo });
 }
 
 async function visualizeCorrectedPlate() {
@@ -7049,4 +7057,247 @@ function buildAppSnapshot() {
     lockedMeals: getMealLocks().length,
     shoppingListSize: buildShoppingList().length
   };
+}
+
+// ==========================================================================
+// DOMLUVA S KOUČEM U KONKRÉTNÍHO JÍDLA
+// ==========================================================================
+// A small chat bound to one meal, so the user doesn't have to explain which
+// meal they mean. Reused in two places: as its own sheet from the meal card,
+// and embedded inside the "Sedí to?" verdict.
+
+let mealChat = null; // { meal, dayKey, messages: [], verdict, photo, container }
+
+const MEAL_CHAT_CHIPS = [
+  { label: 'nesnědl jsem to', local: 'untick' },
+  { label: 'změň gramáž' },
+  { label: 'vyměň za jiné' },
+  { label: 'míň kalorií' },
+  { label: 'víc bílkovin' }
+];
+
+function mealChatContextLine() {
+  if (!mealChat) return '';
+  const { meal, dayKey, verdict } = mealChat;
+  const parts = [
+    `Jídlo: ${meal.category} — ${meal.name} (${PLAN_DAY_CZ[dayKey]})`,
+    `Plán: ${meal.calories} kcal, B ${meal.protein} g, S ${meal.carbs} g, T ${meal.fat} g`,
+    `Suroviny: ${(meal.items || []).map((i) => `${i.name} ${i.amount}`).join(', ')}`,
+    `ID jídla pro nástroje: ${meal.id}`
+  ];
+  if (verdict) {
+    const t = verdict.total || {};
+    parts.push(`Z fotky talíře: ${Math.round(t.calories || 0)} kcal, B ${Math.round(t.protein || 0)} g — verdikt „${verdict.verdict}", rada „${verdict.advice || ''}"`);
+    if ((verdict.detected || []).length) {
+      parts.push(`Na talíři: ${verdict.detected.map((d) => `${d.name} ${d.amount}`).join(', ')}`);
+    }
+  }
+  return parts.join('\n');
+}
+
+function renderMealChatMessages() {
+  if (!mealChat) return;
+  const box = mealChat.container.querySelector('.mchat-messages');
+  if (!box) return;
+  box.innerHTML = '';
+  mealChat.messages.forEach((m) => {
+    m.text.split(/\s*\|\|\|\s*/).filter(Boolean).forEach((part) => {
+      const el = document.createElement('div');
+      el.className = `coach-bubble ${m.role}`;
+      el.innerHTML = formatCoachText(part.trim());
+      box.appendChild(el);
+    });
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+// Build the chat UI into any container. Works standalone or embedded.
+function mountMealChat(container, ctx) {
+  mealChat = {
+    meal: ctx.meal,
+    dayKey: ctx.dayKey,
+    verdict: ctx.verdict || null,
+    photo: ctx.photo || null,
+    messages: [],
+    container
+  };
+
+  container.innerHTML = `
+    <div class="mchat">
+      <div class="mchat-chips">
+        ${MEAL_CHAT_CHIPS.map((c, i) => `<button class="mchat-chip" data-i="${i}" type="button">${c.label}</button>`).join('')}
+      </div>
+      <div class="mchat-messages"></div>
+      <div class="mchat-input-row">
+        <input type="text" class="mchat-input" placeholder="napiš, co s tím…" autocomplete="off">
+        <button class="mchat-send" type="button" aria-label="Odeslat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+      </div>
+    </div>`;
+
+  container.querySelectorAll('.mchat-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const chip = MEAL_CHAT_CHIPS[Number(btn.getAttribute('data-i'))];
+      if (chip.local === 'untick') {
+        untickMealFromChat();
+        return;
+      }
+      sendMealChatMessage(chip.label);
+    });
+  });
+
+  const input = container.querySelector('.mchat-input');
+  const send = container.querySelector('.mchat-send');
+  if (send) send.addEventListener('click', () => sendMealChatMessage(input.value.trim()));
+  if (input) {
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendMealChatMessage(input.value.trim()); }
+    });
+  }
+}
+
+// "nesnědl jsem to" has an immediate local effect — undo the tick and pull the
+// items back out of the diary — and then asks the coach what to do instead.
+function untickMealFromChat() {
+  if (!mealChat) return;
+  const { meal } = mealChat;
+  const date = getTodayDateString();
+  const checks = getMealChecks(date);
+  const i = checks.indexOf(meal.id);
+  const wasTicked = i !== -1;
+  if (wasTicked) checks.splice(i, 1);
+  appState.logs[date] = (appState.logs[date] || []).filter((x) => x.fromPlan !== meal.id);
+  saveState();
+  renderDashboard();
+  renderPlanScreen();
+  appendMealChatBubble(wasTicked ? 'ok, odškrtnuto a smazáno z deníku' : 'ok, beru že jsi to nejedl', 'assistant');
+  sendMealChatMessage('tohle jídlo jsem nesnědl, co s tím mám udělat se zbytkem dne?', { silent: true });
+}
+
+function appendMealChatBubble(text, role) {
+  if (!mealChat) return;
+  mealChat.messages.push({ role, text });
+  renderMealChatMessages();
+}
+
+async function sendMealChatMessage(text, opts = {}) {
+  if (!mealChat || !text) return;
+  const container = mealChat.container;
+  const input = container.querySelector('.mchat-input');
+  const send = container.querySelector('.mchat-send');
+  if (input) input.value = '';
+  if (send) send.disabled = true;
+
+  if (!opts.silent) appendMealChatBubble(text, 'user');
+
+  const typing = document.createElement('div');
+  typing.className = 'coach-bubble assistant typing';
+  typing.textContent = 'Píše…';
+  const box = container.querySelector('.mchat-messages');
+  if (box) { box.appendChild(typing); box.scrollTop = box.scrollHeight; }
+
+  try {
+    const payload = buildCoachPayload(text, {
+      history: mealChat.messages.slice(0, -1).slice(-10)
+    });
+    payload.focus = {
+      kind: 'meal',
+      mealId: mealChat.meal.id,
+      day: mealChat.dayKey,
+      summary: mealChatContextLine()
+    };
+    const data = await callCoachAPI(payload);
+    typing.remove();
+
+    if (data && data.success && data.reply) {
+      if (data.planChanged) {
+        applyCoachPlanUpdate(data);
+        // The meal object we hold may have been replaced by the coach.
+        const fresh = getMealsForDay(mealChat.dayKey).find((m) => m.id === mealChat.meal.id);
+        if (fresh) mealChat.meal = fresh;
+        showToast('Plán upraven ✓');
+      }
+      appendMealChatBubble(String(data.reply), 'assistant');
+      if (data.action && typeof data.action === 'object') {
+        renderMealChatAction(data.action);
+      }
+    } else {
+      appendMealChatBubble((data && data.error) || 'sorry, zkus to ještě jednou', 'assistant');
+    }
+  } catch (e) {
+    typing.remove();
+    appendMealChatBubble(e.message || 'spojení vypadlo, zkus to znovu', 'assistant');
+  } finally {
+    if (send) send.disabled = false;
+    if (input) input.focus();
+  }
+}
+
+// Food-diary changes still need a yes/no, same as in the main coach chat.
+function renderMealChatAction(action) {
+  if (!mealChat) return;
+  const box = mealChat.container.querySelector('.mchat-messages');
+  if (!box) return;
+  const card = document.createElement('div');
+  card.className = 'coach-action-card';
+  card.innerHTML = `
+    <div class="coach-action-summary">${describeCoachAction(action)}</div>
+    <div class="coach-action-buttons">
+      <button class="coach-action-btn cancel" type="button">✕ Zrušit</button>
+      <button class="coach-action-btn confirm" type="button">✓ Potvrdit</button>
+    </div>`;
+  const [no, yes] = card.querySelectorAll('.coach-action-btn');
+  yes.addEventListener('click', () => {
+    const result = executeCoachAction(action);
+    saveState();
+    renderDashboard();
+    renderPlanScreen();
+    card.remove();
+    appendMealChatBubble(`done, ${result.toLowerCase()}`, 'assistant');
+    showToast('Hotovo ✓');
+  });
+  no.addEventListener('click', () => {
+    card.remove();
+    appendMealChatBubble('ok, nechávám to bejt', 'assistant');
+  });
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+}
+
+// ---- Standalone sheet from the meal card ----
+
+function openMealChatSheet(meal, dayKey) {
+  const modal = document.getElementById('meal-chat-modal');
+  const head = document.getElementById('meal-chat-head');
+  const body = document.getElementById('meal-chat-body');
+  if (!modal || !body) return;
+
+  if (head) {
+    head.innerHTML = `
+      <div class="mchat-meal">
+        <div class="mchat-meal-cat">${meal.category} · ${PLAN_DAY_CZ[dayKey]}</div>
+        <div class="mchat-meal-name">${meal.name}</div>
+        <div class="mchat-meal-macros">${meal.calories} kcal · B ${meal.protein} g · S ${meal.carbs} g · T ${meal.fat} g</div>
+      </div>`;
+  }
+  mountMealChat(body, { meal, dayKey });
+  modal.classList.add('active');
+  setTimeout(() => {
+    const i = body.querySelector('.mchat-input');
+    if (i) i.focus();
+  }, 250);
+}
+
+function closeMealChatSheet() {
+  const modal = document.getElementById('meal-chat-modal');
+  if (modal) modal.classList.remove('active');
+  mealChat = null;
+}
+
+function initMealChatHandlers() {
+  const modal = document.getElementById('meal-chat-modal');
+  const closeBtn = document.getElementById('meal-chat-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeMealChatSheet);
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeMealChatSheet(); });
 }
