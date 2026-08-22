@@ -11,11 +11,11 @@
 // superset of what the old chat handler did. Food-log edits still come back as
 // an `action` in the same shape, so a client running stale cached JS keeps
 // working. The Telegram bot has its own handler and is unaffected.
-const { extractUsername, getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
-const { fmtWhoop, fmtFood } = require('./_lib/coach');
+const { extractUsername } = require('./_lib/auth');
+const { fmtFood } = require('./_lib/coach');
 const {
   TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
-  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory,
+  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory, fmtAppSnapshot,
   dayKeyForDate, DAY_CZ
 } = require('./_lib/plans');
 
@@ -168,11 +168,18 @@ Dnes je ${ctx.todayDate} (${DAY_CZ[ctx.todayKey]}).`;
 }
 
 function coachPrompt(ctx) {
-  return `Jsi AI kouč v appce FitAI. Píšeš jako kámoš z gen z, ne jako oficiální asistent. Máš přístup k profilu uživatele, jeho tréninkovému plánu, jídelníčku, dnešním kaloriím a datům z WHOOP.
+  return `Jsi AI kouč v appce FitAI. Píšeš jako kámoš z gen z, ne jako oficiální asistent. Máš přístup ke VŠEM datům uživatele v aplikaci.
 
 ${STYLE}
 
 I tak buď fakt užitečný: propoj data a poraď na rovinu. Nediagnostikuj nemoci, u vážnejších věcí pošli k doktorovi.
+
+MÁŠ VŠECHNA DATA — NEPTEJ SE NA NĚ:
+Výš v tomhle promptu máš KOMPLETNÍ obsah aplikace: profil, cíle, tréninkový plán, jídelníček, co snědl dnes i posledních 14 dní, váhu a její vývoj, vodu, historii vah u cviků, oblíbená jídla, série a dodržování plánu.
+- NIKDY se neptej na něco, co si můžeš přečíst. Žádné „kolik kalorií ti chybí do cíle?" — spočítej si to a rovnou řekni číslo
+- Žádné „mrknu na to" nebo „pošli mi to" — TY TO UŽ MÁŠ
+- Když se ptá „jak na tom jsem", odpověz konkrétními čísly z dat, ne obecně
+- Když nějaký údaj v datech opravdu chybí, řekni rovnou že ho nemáš — nepředstírej
 
 POSLOUCHEJ USERA — NEJDŮLEŽITĚJŠÍ:
 - Vždycky reaguj na to, co user fakt napsal. Když se zeptá, odpověz na TO
@@ -238,8 +245,9 @@ Když je cvik označený [STAGNUJE], sám navrhni deload (−10 % váhy na týde
 Když má na posledním tréninku splněný horní rozsah opakování, navrhni přidat 2,5 kg (u velkých cviků 5 kg).
 Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej log_set.
 
-=== WHOOP ===
-${fmtWhoop(ctx.whoopSnapshot)}
+
+=== VŠECHNA OSTATNÍ DATA Z APPKY ===
+${fmtAppSnapshot(ctx.appSnapshot)}
 
 === PAMĚŤ ===
 ${ctx.memBlock}
@@ -329,7 +337,7 @@ module.exports = async function handler(req, res) {
     const {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
-      foodContext, workoutStatus, memories, today, nowTime
+      appSnapshot, foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
     if ((!message || !message.trim()) && !image) {
@@ -349,15 +357,6 @@ module.exports = async function handler(req, res) {
       exerciseLogs: (exerciseLogs && typeof exerciseLogs === 'object') ? exerciseLogs : {}
     });
 
-    // WHOOP is only worth fetching for the ongoing coach, not mid-onboarding.
-    let whoopSnapshot = null;
-    if (!isOnboarding) {
-      const token = await getValidToken(username);
-      if (token && !token._expired) {
-        whoopSnapshot = await fetchWhoopSnapshot(token.accessToken);
-      }
-    }
-
     const memBlock = (Array.isArray(memories) && memories.length)
       ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
       : 'Žádná uložená fakta.';
@@ -365,11 +364,12 @@ module.exports = async function handler(req, res) {
     const ctx = {
       profile: state.profile, targets: state.targets,
       workoutPlan: state.workoutPlan, mealPlan: state.mealPlan,
-      foodContext, whoopSnapshot, memBlock, todayDate: todayDate || 'dnes', todayKey,
+      foodContext, memBlock, todayDate: todayDate || 'dnes', todayKey,
       nowTime: (typeof nowTime === 'string' && /^\d{1,2}:\d{2}$/.test(nowTime)) ? nowTime : null,
       workoutStatus: workoutStatus || 'Dnešní trénink zatím nezačal.',
       lockedMeals: Array.isArray(lockedMeals) ? lockedMeals : [],
-      exerciseHistory: Array.isArray(exerciseHistory) ? exerciseHistory : []
+      exerciseHistory: Array.isArray(exerciseHistory) ? exerciseHistory : [],
+      appSnapshot: (appSnapshot && typeof appSnapshot === 'object') ? appSnapshot : null
     };
 
     const systemInstruction = isOnboarding ? onboardingPrompt(ctx) : coachPrompt(ctx);
@@ -526,7 +526,6 @@ module.exports = async function handler(req, res) {
       exerciseLogs: state.exerciseLogs,
       workoutPlan: state.workoutPlan,
       mealPlan: state.mealPlan,
-      whoopConnected: !!whoopSnapshot
     });
   } catch (error) {
     console.error('Coach error:', error);

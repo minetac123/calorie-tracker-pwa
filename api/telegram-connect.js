@@ -2,7 +2,7 @@
 // POST  — generate a 6-digit code the user sends to the bot (/start <code>)
 // GET   — check whether the current user is connected
 // DELETE — disconnect
-const { extractUsername } = require('./_lib/whoop');
+const { extractUsername } = require('./_lib/auth');
 const {
   TELEGRAM_BOT_USERNAME,
   setWebhook,

@@ -3,7 +3,6 @@
 // in the in-app coach chat list after the next cloud sync.
 const { put } = require('@vercel/blob');
 const { blobGet } = require('./_lib/blob');
-const { getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
 const { buildSystemInstruction } = require('./_lib/coach');
 const {
   tgPost,
@@ -139,14 +138,14 @@ function getTelegramChat(userData) {
 
 // ---- Gemini call (mirrors api/chat.js logic, text-only) ----
 
-async function callCoach(message, history, foodContext, memories, whoopSnapshot) {
+async function callCoach(message, history, foodContext, memories) {
   const today = getTodayStr();
   const memBlock = (Array.isArray(memories) && memories.length)
     ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
     : 'Žádná uložená fakta.';
 
   const systemInstruction = buildSystemInstruction({
-    memBlock, whoopSnapshot, foodContext, todayDate: today, viewDate: today, nowTime: getNowTimeStr()
+    memBlock, foodContext, todayDate: today, viewDate: today, nowTime: getNowTimeStr()
   });
 
   const contents = [];
@@ -453,13 +452,8 @@ module.exports = async function handler(req, res) {
     ? userData.coachMemories.map((m) => m.text || String(m)).filter(Boolean)
     : [];
 
-  let whoopSnapshot = null;
-  try {
-    const token = await getValidToken(username);
-    if (token && !token._expired) whoopSnapshot = await fetchWhoopSnapshot(token.accessToken);
-  } catch (e) { /* WHOOP optional */ }
 
-  const rawReply = await callCoach(text, tgChat.messages.slice(0, -1).slice(-20), foodContext, memories, whoopSnapshot);
+  const rawReply = await callCoach(text, tgChat.messages.slice(0, -1).slice(-20), foodContext, memories);
 
   if (!rawReply) {
     await sendMessage(chatId, 'AI je ted vytizena, zkus to za chvili');

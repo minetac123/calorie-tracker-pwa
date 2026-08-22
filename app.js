@@ -3155,23 +3155,6 @@ function init() {
     });
   }
 
-  // WHOOP Integration buttons
-  const btnWhoopConnect = document.getElementById('btn-whoop-connect');
-  const btnWhoopRefresh = document.getElementById('btn-whoop-refresh');
-  const btnWhoopDisconnect = document.getElementById('btn-whoop-disconnect');
-
-  if (btnWhoopConnect) {
-    btnWhoopConnect.addEventListener('click', initiateWhoopAuth);
-  }
-  if (btnWhoopRefresh) {
-    btnWhoopRefresh.addEventListener('click', refreshWhoopData);
-  }
-  if (btnWhoopDisconnect) {
-    btnWhoopDisconnect.addEventListener('click', disconnectWhoop);
-  }
-
-  // Check WHOOP connection status
-  checkWhoopStatus();
 
   // AI Coach chat
   initCoachHandlers();
@@ -3187,12 +3170,6 @@ function init() {
     showAppAfterLogin();
     // Background cloud sync
     syncFromCloud();
-    // If we just returned from the WHOOP OAuth flow, jump to Settings.
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('screen') === 'settings' && window.switchAppScreen) {
-      window.switchAppScreen('screen-settings');
-      history.replaceState(null, '', '/');
-    }
   } else {
     // Show login screen, hide nav
     document.querySelector('.bottom-nav').style.display = 'none';
@@ -4597,132 +4574,6 @@ function initItemActionsHandlers() {
 }
 
 // ==========================================================================
-// WHOOP API INTEGRATION
-// ==========================================================================
-
-// Paint the WHOOP metrics card from the snapshot the server returns.
-function renderWhoopMetrics(w) {
-  const set = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-  };
-  const rec = w && w.recovery;
-  const str = w && w.strain;
-  const slp = w && w.sleep;
-
-  set('whoop-recovery', rec && rec.recoveryScore != null ? `${rec.recoveryScore} %` : '—');
-  set('whoop-hrv', rec && rec.hrvMs != null ? `${rec.hrvMs} ms` : '—');
-  set('whoop-rhr', rec && rec.restingHeartRate != null ? `${rec.restingHeartRate} bpm` : '—');
-  set('whoop-strain', str && str.strain != null ? `${str.strain}` : '—');
-  set('whoop-burn', str && str.activeKcal != null ? `${str.activeKcal} kcal` : '—');
-  set('whoop-sleep', slp && slp.totalInBedMs != null ? `${(slp.totalInBedMs / 3600000).toFixed(1)} h` : '—');
-}
-
-async function checkWhoopStatus() {
-  try {
-    const session = getSession();
-    if (!session || !session.token) return;
-
-    const response = await fetch('/api/whoop', {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${session.token}` }
-    });
-    const data = await response.json();
-
-    const statusEl = document.getElementById('whoop-status');
-    const metricsEl = document.getElementById('whoop-metrics');
-    const connectBtn = document.getElementById('btn-whoop-connect');
-    const refreshBtn = document.getElementById('btn-whoop-refresh');
-    const disconnectBtn = document.getElementById('btn-whoop-disconnect');
-
-    if (data.connected) {
-      if (statusEl) statusEl.innerHTML = 'Stav: <strong style="color:var(--ios-green,#30D158);">Připojeno ✓</strong>';
-      if (metricsEl) metricsEl.style.display = 'block';
-      renderWhoopMetrics(data.data);
-      if (connectBtn) connectBtn.style.display = 'none';
-      if (refreshBtn) refreshBtn.style.display = 'block';
-      if (disconnectBtn) disconnectBtn.style.display = 'block';
-    } else {
-      if (statusEl) statusEl.innerHTML = 'Stav: <strong style="color:var(--text-3);">Nepřipojeno</strong>';
-      if (metricsEl) metricsEl.style.display = 'none';
-      if (connectBtn) connectBtn.style.display = 'block';
-      if (refreshBtn) refreshBtn.style.display = 'none';
-      if (disconnectBtn) disconnectBtn.style.display = 'none';
-      if (data.authUrl) window._whoopAuthUrl = data.authUrl;
-    }
-  } catch (error) {
-    console.error('Error checking WHOOP status:', error);
-  }
-}
-
-function initiateWhoopAuth() {
-  const session = getSession();
-  if (!session || !session.token) {
-    showToast('Chyba: Nejste přihlášen');
-    return;
-  }
-  // Persist the session token so the OAuth callback page can finish the exchange.
-  localStorage.setItem('_fitai_session_token', session.token);
-
-  if (window._whoopAuthUrl) {
-    window.location.href = window._whoopAuthUrl;
-  } else {
-    showToast('Chyba: Nelze inicializovat WHOOP přihlášení');
-  }
-}
-
-async function refreshWhoopData() {
-  try {
-    const session = getSession();
-    if (!session || !session.token) {
-      showToast('Chyba: Nejste přihlášen');
-      return;
-    }
-    const response = await fetch('/api/whoop', {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${session.token}` }
-    });
-    const data = await response.json();
-
-    if (data.connected) {
-      renderWhoopMetrics(data.data);
-      showToast('WHOOP data obnovena ✓');
-    } else {
-      showToast('WHOOP odpojen, připoj se prosím znovu');
-      checkWhoopStatus();
-    }
-  } catch (error) {
-    console.error('Error refreshing WHOOP data:', error);
-    showToast('Chyba: ' + error.message);
-  }
-}
-
-async function disconnectWhoop() {
-  if (!confirm('Opravdu chcete odpojit WHOOP?')) return;
-  try {
-    const session = getSession();
-    if (!session || !session.token) {
-      showToast('Chyba: Nejste přihlášen');
-      return;
-    }
-    const response = await fetch('/api/whoop', {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${session.token}` }
-    });
-    const data = await response.json();
-    if (data.success) {
-      showToast('WHOOP odpojena');
-      checkWhoopStatus();
-    } else {
-      showToast('Chyba: ' + (data.error || 'Nepodařilo se odpojit'));
-    }
-  } catch (error) {
-    console.error('Error disconnecting WHOOP:', error);
-    showToast('Chyba: ' + error.message);
-  }
-}
-
-// ==========================================================================
 // AI COACH CHAT
 // ==========================================================================
 // Master switch for the coach's memory (conversation + manual facts).
@@ -4856,7 +4707,7 @@ function closeCoach() {
 function renderCoachEmpty() {
   const box = document.getElementById('coach-messages');
   if (!box) return;
-  box.innerHTML = `<div class="coach-empty">čau bro, jsem tvůj kouč<br>vidím tvý whoop data, jídlo a kalorie<br><br>klidně se ptej:<br>„jak na tom dnes jsem"<br>„co si dát k večeři"<br>„mám dneska trénovat"</div>`;
+  box.innerHTML = `<div class="coach-empty">čau bro, jsem tvůj kouč<br>vidím celej tvůj plán, jídlo i váhy z tréninku<br><br>klidně se ptej:<br>„jak na tom dnes jsem"<br>„co si dát k večeři"<br>„jak mi roste bench"</div>`;
 }
 
 // Start a brand-new (empty, not-yet-saved) chat as the active one.
@@ -6052,6 +5903,7 @@ function buildCoachPayload(message, opts = {}) {
     lockedMeals: getMealLocks(),
     exerciseLogs: getExerciseLogs(),
     exerciseHistory: buildExerciseContext(),
+    appSnapshot: buildAppSnapshot(),
     foodContext: buildFoodContext(),
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
@@ -7072,4 +6924,129 @@ function initExerciseDetailHandlers() {
   const closeBtn = document.getElementById('exercise-close');
   if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.remove('active'));
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
+}
+
+// ==========================================================================
+// PLNÝ SNÍMEK APPKY PRO KOUČE
+// ==========================================================================
+// The coach used to only see today's food, so it asked things it could have
+// looked up ("kolik kalorií ti chybí do cíle?"). This hands it everything the
+// app knows, as compact summaries rather than raw state.
+
+// Per-day rollup for the last `days` days: what was eaten, whether the plan
+// was followed, and whether a workout happened.
+function buildDayHistory(days = 14) {
+  const out = [];
+  const goal = (appState.goals && appState.goals.calories) || 0;
+  for (let i = 0; i < days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const date = getDateString(d);
+    const items = appState.logs[date] || [];
+    if (!items.length && !(appState.workoutLogs && appState.workoutLogs[date])) continue;
+
+    const t = items.reduce((s, x) => ({
+      calories: s.calories + (Number(x.calories) || 0),
+      protein: s.protein + (Number(x.protein) || 0),
+      carbs: s.carbs + (Number(x.carbs) || 0),
+      fat: s.fat + (Number(x.fat) || 0)
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+    const wl = (appState.workoutLogs && appState.workoutLogs[date]) || null;
+    const dayKey = dayKeyForDateStr(date);
+    const planned = getWorkoutForDay(dayKey);
+    const plannedCount = planned && !planned.rest ? planned.exercises.length : 0;
+
+    out.push({
+      date,
+      calories: Math.round(t.calories),
+      protein: Math.round(t.protein),
+      carbs: Math.round(t.carbs),
+      fat: Math.round(t.fat),
+      goalCalories: goal,
+      items: items.length,
+      trainedExercises: wl ? wl.done.length : 0,
+      plannedExercises: plannedCount,
+      water: Math.round(((appState.water && appState.water[date]) || 0) * 100) / 100
+    });
+  }
+  return out;
+}
+
+// Consecutive days (ending today or yesterday) with at least one logged item.
+function loggingStreak() {
+  let streak = 0;
+  for (let i = 0; i < 400; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const items = appState.logs[getDateString(d)] || [];
+    if (items.length) { streak++; continue; }
+    if (i === 0) continue; // today may simply not have started yet
+    break;
+  }
+  return streak;
+}
+
+function trainingStreakDays() {
+  const logs = appState.workoutLogs || {};
+  return Object.keys(logs).filter((d) => (logs[d].done || []).length).length;
+}
+
+// How much of the planned menu the user actually ticked off, last 7 days.
+function planAdherence7d() {
+  let planned = 0, eaten = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const date = getDateString(d);
+    const meals = getMealsForDay(dayKeyForDateStr(date));
+    if (!meals.length) continue;
+    planned += meals.length;
+    const checks = (appState.mealChecks && appState.mealChecks[date]) || [];
+    eaten += meals.filter((m) => checks.includes(m.id)).length;
+  }
+  return planned ? Math.round((eaten / planned) * 100) : null;
+}
+
+function buildAppSnapshot() {
+  const history = buildDayHistory(14);
+  const logged = history.filter((h) => h.items > 0);
+  const avg = (key) => logged.length
+    ? Math.round(logged.reduce((s, h) => s + h[key], 0) / logged.length)
+    : 0;
+
+  const weights = (appState.weightLogs || [])
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 10)
+    .map((w) => ({ date: w.date, weight: w.weight }));
+
+  const todayStr = getTodayDateString();
+  const water7 = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    water7.push((appState.water && appState.water[getDateString(d)]) || 0);
+  }
+
+  return {
+    today: todayStr,
+    daysWithData: history.length,
+    history,
+    averages: { calories: avg('calories'), protein: avg('protein'), carbs: avg('carbs'), fat: avg('fat') },
+    weight: {
+      current: appState.weight,
+      target: appState.weightTarget,
+      recent: weights
+    },
+    water: {
+      today: Math.round(((appState.water && appState.water[todayStr]) || 0) * 100) / 100,
+      avg7: Math.round((water7.reduce((s, x) => s + x, 0) / 7) * 100) / 100
+    },
+    favorites: (appState.favorites || []).slice(0, 30).map((f) => f.name).filter(Boolean),
+    knownFoods: getKnownFoods(40).map((f) => f.name).filter(Boolean),
+    streaks: { loggingDays: loggingStreak(), workoutsLogged: trainingStreakDays() },
+    planAdherence7d: planAdherence7d(),
+    lockedMeals: getMealLocks().length,
+    shoppingListSize: buildShoppingList().length
+  };
 }

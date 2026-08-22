@@ -2,6 +2,8 @@
 // (set GEMINI_API_KEY in Vercel) so it never ships in the client bundle.
 // The client builds the full generateContent payload and posts it here; we
 // just attach the key and forward to Google, returning Google's response.
+const { extractUsername } = require('./_lib/auth');
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
@@ -12,17 +14,6 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 const MODEL_ALLOWLIST = {
   'gemini-2.5-flash-image': { chain: ['gemini-2.5-flash-image'], image: true }
 };
-
-function extractUsername(authHeader) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.split(' ')[1];
-    const decoded = Buffer.from(token, 'base64').toString('utf-8');
-    return decoded.split('_')[0] || null;
-  } catch (e) {
-    return null;
-  }
-}
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

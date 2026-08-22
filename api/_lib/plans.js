@@ -731,6 +731,47 @@ function fmtExerciseHistory(list) {
   }).join('\n');
 }
 
+// Everything else the app knows, rendered compactly. Without this the coach
+// asks questions it could answer from its own context.
+function fmtAppSnapshot(snap) {
+  if (!snap || typeof snap !== 'object') return 'Žádná další data z aplikace.';
+  const L = [];
+
+  const hist = Array.isArray(snap.history) ? snap.history : [];
+  if (hist.length) {
+    L.push('POSLEDNÍCH ' + hist.length + ' DNÍ (datum | snězeno/cíl kcal | bílkoviny | cviků odcvičeno/plán | voda):');
+    hist.forEach((h) => {
+      const tr = h.plannedExercises
+        ? ` | trénink ${h.trainedExercises}/${h.plannedExercises}`
+        : (h.trainedExercises ? ` | trénink ${h.trainedExercises} cviků` : ' | volno');
+      L.push(`  ${h.date} | ${h.calories}/${h.goalCalories} kcal | B ${h.protein} g${tr} | ${h.water} l`);
+    });
+  } else {
+    L.push('Zatím žádná historie jídla.');
+  }
+
+  if (snap.averages) {
+    L.push(`PRŮMĚR ZA ZAZNAMENANÉ DNY: ${snap.averages.calories} kcal, B ${snap.averages.protein} g, S ${snap.averages.carbs} g, T ${snap.averages.fat} g`);
+  }
+
+  if (snap.weight) {
+    const w = snap.weight;
+    L.push(`VÁHA: aktuálně ${w.current} kg, cíl ${w.target} kg`);
+    if (Array.isArray(w.recent) && w.recent.length > 1) {
+      L.push('  vývoj: ' + w.recent.map((x) => `${x.date}: ${x.weight} kg`).join(' | '));
+    }
+  }
+
+  if (snap.water) L.push(`VODA: dnes ${snap.water.today} l, průměr za týden ${snap.water.avg7} l`);
+  if (snap.streaks) L.push(`SÉRIE: ${snap.streaks.loggingDays} dní v kuse zapisuje, ${snap.streaks.workoutsLogged} zaznamenaných tréninků celkem`);
+  if (snap.planAdherence7d != null) L.push(`DODRŽOVÁNÍ JÍDELNÍČKU (7 dní): ${snap.planAdherence7d} % naplánovaných jídel odškrtnuto`);
+  if (Array.isArray(snap.favorites) && snap.favorites.length) L.push('OBLÍBENÁ JÍDLA: ' + snap.favorites.join(', '));
+  if (Array.isArray(snap.knownFoods) && snap.knownFoods.length) L.push('JÍDLA, KTERÁ UŽ ZADÁVAL: ' + snap.knownFoods.join(', '));
+  if (snap.shoppingListSize) L.push(`NÁKUPNÍ SEZNAM: ${snap.shoppingListSize} položek`);
+
+  return L.join('\n');
+}
+
 // Weekday key for a YYYY-MM-DD date string (or today in Prague).
 function dayKeyForDate(dateStr) {
   let d;
@@ -748,7 +789,7 @@ module.exports = {
   DAY_KEYS, DAY_CZ, MEAL_CATEGORIES, ACTIVITY_FACTORS,
   mifflinStJeor, computeTargets,
   TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
-  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory,
+  fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory, fmtAppSnapshot,
   normalizeExerciseName, todayPrague,
   dayKeyForDate, normDayKey
 };

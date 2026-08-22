@@ -1,28 +1,6 @@
 // Shared coach configuration: formatters and system prompt builder.
 // Used by api/chat.js (in-app) and api/telegram.js (Telegram bot).
 
-function fmtWhoop(w) {
-  if (!w) return 'WHOOP není připojen nebo nemá dnes žádná data.';
-  const lines = [];
-  if (w.recovery) {
-    lines.push(`- Recovery: ${w.recovery.recoveryScore != null ? w.recovery.recoveryScore + '%' : 'n/a'}`);
-    if (w.recovery.hrvMs != null) lines.push(`- HRV: ${w.recovery.hrvMs} ms`);
-    if (w.recovery.restingHeartRate != null) lines.push(`- Klidová tepová frekvence: ${w.recovery.restingHeartRate} bpm`);
-    if (w.recovery.spo2 != null) lines.push(`- SpO2: ${w.recovery.spo2} %`);
-  }
-  if (w.strain) {
-    if (w.strain.strain != null) lines.push(`- Denní strain: ${w.strain.strain}`);
-    if (w.strain.activeKcal != null) lines.push(`- Spáleno (WHOOP odhad): ${w.strain.activeKcal} kcal`);
-    if (w.strain.averageHeartRate != null) lines.push(`- Průměrná tepovka: ${w.strain.averageHeartRate} bpm`);
-  }
-  if (w.sleep) {
-    if (w.sleep.performancePercentage != null) lines.push(`- Výkon spánku: ${w.sleep.performancePercentage} %`);
-    if (w.sleep.totalInBedMs != null) lines.push(`- Spánek (v posteli): ${(w.sleep.totalInBedMs / 3600000).toFixed(1)} h`);
-    if (w.sleep.respiratoryRate != null) lines.push(`- Dechová frekvence: ${Math.round(w.sleep.respiratoryRate * 10) / 10} /min`);
-  }
-  return lines.length ? lines.join('\n') : 'WHOOP připojen, ale dnes zatím nejsou data.';
-}
-
 function fmtFood(food) {
   if (!food) return 'Žádný kontext o jídle nebyl poskytnut.';
   const lines = [];
@@ -59,8 +37,8 @@ function timeContext(nowTime) {
 Teď je ${nowTime} (${part}). Ber denní dobu v potaz: ráno řeš snídani, večer večeři, pozdě v noci usera neposílej na velké jídlo ani trénink. Neraď „dej si snídani", když je večer — to je trapný`;
 }
 
-function buildSystemInstruction({ memBlock, whoopSnapshot, foodContext, todayDate, viewDate, nowTime }) {
-  return `Jsi AI kouč v appce FitAI a píšeš jako kámoš z gen z, ne jako oficiální asistent. Čeština, neformálně, vtipně, trochu drze ale v jádru tě to zajímá a podporuješ. Máš přístup k datům z WHOOP (regenerace, spánek, zátěž, tep) a k dnešnímu jídlu a kaloriím usera.
+function buildSystemInstruction({ memBlock, foodContext, todayDate, viewDate, nowTime }) {
+  return `Jsi AI kouč v appce FitAI a píšeš jako kámoš z gen z, ne jako oficiální asistent. Čeština, neformálně, vtipně, trochu drze ale v jádru tě to zajímá a podporuješ. Máš přístup k dnešnímu jídlu a kaloriím usera.
 
 STYL — DODRŽUJ PŘESNĚ:
 - vždy začínej malým písmenem
@@ -73,7 +51,7 @@ STYL — DODRŽUJ PŘESNĚ:
 - slang v pohodě (bro, lol, btw, easy, v pohodě, cooked, mazec, brutál)
 - žádné vykřičníky pokud fakt nejsi hyped
 
-I tak buď fakt užitečný: propoj data a poraď na rovinu (nízká regenerace = odpočiň + dej si poriadne jídlo, přepálený kalorie = řekni mu to). Nediagnostikuj nemoci, u vážnejších věcí pošli k doktorovi.
+I tak buď fakt užitečný: propoj data a poraď na rovinu (přepálený kalorie = řekni mu to). Nediagnostikuj nemoci, u vážnejších věcí pošli k doktorovi.
 
 POSLOUCHEJ USERA — TOHLE JE NEJDŮLEŽITĚJŠÍ:
 - VŽDYCKY reaguj na to, co user fakt napsal. Když se na něco zeptá, odpověz mu na TO. Když změní téma, jdi s ním.
@@ -88,8 +66,6 @@ SEŠ PŘÍSNEJ KOUČ JEN KDYŽ JE POTŘEBA — tvrdá láska není default, je t
 === CO SI MÁŠ PAMATOVAT O UŽIVATELI ===
 ${memBlock}
 
-=== WHOOP DATA ===
-${fmtWhoop(whoopSnapshot)}
 
 === JÍDLO A KALORIE (z aplikace) ===
 ${fmtFood(foodContext)}
@@ -125,4 +101,4 @@ Pravidla:
 - Blok [[ACTION]] musí být validní JSON na jednom řádku a nic nesmí být za uzavírací značkou.`;
 }
 
-module.exports = { fmtWhoop, fmtFood, buildSystemInstruction };
+module.exports = { fmtFood, buildSystemInstruction };

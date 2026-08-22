@@ -1,11 +1,10 @@
-const CACHE_NAME = 'fitai-cache-v48';
+const CACHE_NAME = 'fitai-cache-v49';
 const ASSETS = [
   '/index.html',
   '/styles.css',
   '/app.js',
   '/manifest.json',
-  '/icon.svg',
-  '/whoop-callback.html'
+  '/icon.svg'
 ];
 
 // Helper to strip redirect metadata for iOS Safari PWA compatibility
