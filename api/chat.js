@@ -262,6 +262,7 @@ Výš v tomhle promptu máš KOMPLETNÍ obsah aplikace: profil, cíle, tréninko
 - Žádné „mrknu na to" nebo „pošli mi to" — TY TO UŽ MÁŠ
 - Když se ptá „jak na tom jsem", odpověz konkrétními čísly z dat, ne obecně
 - Když nějaký údaj v datech opravdu chybí, řekni rovnou že ho nemáš — nepředstírej
+- NIKDY se neptej uživatele na čísla, která máš: „kolik ti zbývá kcal, to už víš, že jo?" je přesně to, co dělat nesmíš
 
 POSLOUCHEJ USERA — NEJDŮLEŽITĚJŠÍ:
 - Vždycky reaguj na to, co user fakt napsal. Když se zeptá, odpověz na TO
@@ -336,7 +337,10 @@ Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej 
 ${fmtMiniApps(ctx.miniApps)}
 
 Umíš uživateli postavit malou appku na míru situaci, kterou plán neřeší — večeře v konkrétní restauraci, výlet, oslava, vaření dopředu, nákup. Nástroj create_mini_app.
-- Když popíše takovou situaci, NABÍDNI mu to („mám ti na to udělat appku?") a udělej to, až kývne
+- Když popíše takovou situaci, NABÍDNI mu to („mám ti na to udělat appku?") — a to je JEDINÁ otázka, kterou k appce položíš
+- Jakmile jakkoliv souhlasí („jo", „udělej", „vytvoř to"), OKAMŽITĚ zavolej create_mini_app. Žádné další doptávání, žádné „je to takhle lepší?", žádné potvrzování obsahu
+- NIKDY nevypisuj obsah appky do chatu. Od toho je ta appka. Když v chatu vyjmenuješ jídla a appku nezaložíš, uživatel čeká na něco, co neexistuje
+- Makra a kalorie si doplň SÁM z dat, co máš. Neptej se „chceš k tomu kalorie?" ani „kolik ti zbývá kcal?" — to všechno víš
 - Jde-li o KONKRÉTNÍ REÁLNÉ MÍSTO (restaurace, podnik, hotel), NEJDŘÍV zavolej search_web a nabídku si dohledej. Bez toho bys ji vymyslel a uživatel by dostal smyšlená čísla jako fakt. Totéž platí, když appku upravuješ
 - Když se hledání nepovede nebo nic nenajdeš, appku klidně postav, ale uživateli MUSÍŠ říct, že jsou hodnoty jen odhad
 - Nejdřív si zjisti, co potřebuješ vědět (jaká restaurace, kam jede) — na tohle se ptát MUSÍŠ, neuhádneš to
@@ -704,24 +708,46 @@ module.exports = async function handler(req, res) {
     // and give the model exactly one chance to actually do it.
     const CLAIMS_A_CHANGE = /\b(upravil|upravila|změnil|změnila|nastavil|nastavila|snížil|snížila|zvýšil|zvýšila|vyměnil|vyměnila|přehodil|zmenšil|zvětšil|dal jsem|přidal jsem|ubral jsem|je teď|máš teď|hotovo|udělal jsem|udělala jsem)\b/i;
 
-    if (ctx.focus && reply && !planChanged && !foodAction && !appsChanged && CLAIMS_A_CHANGE.test(reply)) {
-      console.log('Model claimed a change without calling a tool — forcing a correction round');
+    // Saying "dělám ti appku" and then listing its contents as chat text is the
+    // same failure as claiming an edit that never happened — the user waits for
+    // something that does not exist. Unlike the edit check this one applies
+    // everywhere, not just inside a meal chat.
+    const CLAIMS_AN_APP = /(vytvářím|vytvořím|tvořím|dělám ti (tu )?appku|udělám ti (tu )?appku|udělal jsem ti appku|připravuju appku|chystám appku|appka bude|appku máš|appka je hotová)/i;
+
+    let correction = null;
+    if (reply && !appsChanged && CLAIMS_AN_APP.test(reply)) {
+      correction = {
+        kind: 'app',
+        note: 'SYSTÉM: Právě jsi napsal, že appku děláš nebo že bude něco obsahovat, ale NEZAVOLAL jsi create_mini_app, takže žádná appka neexistuje a uživatel čeká na něco, co nemá. Zavolej create_mini_app TEĎ. Obsah nevypisuj do chatu — od toho je ta appka. Makra si doplň sám z dat, která máš, a na nic se už neptej.',
+        fallback: 'appku se mi nepovedlo postavit ||| zkus mi napsat znovu, co v ní chceš'
+      };
+    } else if (ctx.focus && reply && !planChanged && !foodAction && !appsChanged && CLAIMS_A_CHANGE.test(reply)) {
+      correction = {
+        kind: 'change',
+        note: 'SYSTÉM: Právě jsi napsal, že jsi něco upravil, ale NEZAVOLAL jsi žádný nástroj, takže se v aplikaci NIC nezměnilo a uživatel vidí pořád původní hodnoty. Buď teď ZAVOLEJ správný nástroj (scale_meal na změnu kalorií, adjust_meal_items na změnu gramáže, replace_meal na výměnu jídla), nebo uživateli na rovinu napiš, že to udělat neumíš. Nikdy netvrď, že je něco hotové, když to hotové není.',
+        fallback: 'tohle se mi nepovedlo změnit ||| zkus to říct jinak, třeba „dej to na 450 kcal"'
+      };
+    }
+
+    if (correction) {
+      console.log(`Model claimed a ${correction.kind} without calling a tool — forcing a correction round`);
       contents.push({ role: 'model', parts: [{ text: reply }] });
-      contents.push({
-        role: 'user',
-        parts: [{ text: 'SYSTÉM: Právě jsi napsal, že jsi něco upravil, ale NEZAVOLAL jsi žádný nástroj, takže se v aplikaci NIC nezměnilo a uživatel vidí pořád původní hodnoty. Buď teď ZAVOLEJ správný nástroj (scale_meal na změnu kalorií, adjust_meal_items na změnu gramáže, replace_meal na výměnu jídla), nebo uživateli na rovinu napiš, že to udělat neumíš. Nikdy netvrď, že je něco hotové, když to hotové není.' }]
-      });
+      contents.push({ role: 'user', parts: [{ text: correction.note }] });
       reply = null;
       await runToolLoop();
 
-      // Still nothing applied? Then whatever it wants to say, the plan is
-      // unchanged — so never let a "done!" through. An honest failure beats a
-      // confident lie the user only discovers by looking at the card.
-      if (!planChanged && !foodAction && !appsChanged) {
+      // Still nothing applied? Then whatever it wants to say, nothing happened
+      // — so never let a "done!" through. An honest failure beats a confident
+      // lie the user only discovers by looking for the result.
+      const didSomething = correction.kind === 'app'
+        ? appsChanged
+        : (planChanged || foodAction || appsChanged);
+
+      if (!didSomething) {
         if (reply) console.log(`Suppressed false claim: ${reply.slice(0, 120)}`);
-        reply = 'tohle se mi nepovedlo změnit ||| zkus to říct jinak, třeba „dej to na 450 kcal"';
+        reply = correction.fallback;
       } else if (!reply) {
-        reply = 'jo, teď už je to fakt upravený';
+        reply = correction.kind === 'app' ? 'hotovo, appka je dole' : 'jo, teď už je to fakt upravený';
       }
     }
 
