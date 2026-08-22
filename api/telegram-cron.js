@@ -3,7 +3,6 @@
 // Authorization: Bearer <CRON_SECRET> automatically when CRON_SECRET is set.
 const { blobGet } = require('./_lib/blob');
 const { getTelegramIndex, sendMessage } = require('./_lib/telegram');
-const { getValidToken, fetchWhoopSnapshot } = require('./_lib/whoop');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
@@ -42,19 +41,8 @@ module.exports = async function handler(req, res) {
       const logs = (userData.logs && userData.logs[today]) || [];
       const consumed = Math.round(logs.reduce((s, i) => s + (Number(i.calories) || 0), 0));
 
-      // Optional WHOOP data
-      let whoopLine = '';
-      try {
-        const token = await getValidToken(username);
-        if (token && !token._expired) {
-          const snap = await fetchWhoopSnapshot(token.accessToken);
-          if (snap && snap.recovery && snap.recovery.recoveryScore != null) {
-            whoopLine = ` Recovery ${snap.recovery.recoveryScore}%,`;
-          }
-        }
-      } catch (e) { /* WHOOP optional */ }
 
-      const prompt = `Napiš jednu krátkou ranní zprávu (max 100 znaků, gen-z čeština, začínej malým písmenem, bez tečky, žádné emoji, konkrétní a motivující ne generické). Kontext:${whoopLine} dnesni cil ${goals.calories} kcal, zatim snezeno ${consumed} kcal.`;
+      const prompt = `Napiš jednu krátkou ranní zprávu (max 100 znaků, gen-z čeština, začínej malým písmenem, bez tečky, žádné emoji, konkrétní a motivující ne generické). Kontext: dnesni cil ${goals.calories} kcal, zatim snezeno ${consumed} kcal.`;
 
       const payload = {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
