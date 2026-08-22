@@ -154,6 +154,54 @@ function normMealDay(d) {
   return { meals };
 }
 
+// Pull the number + unit out of an amount string: "150g" -> {value:150,unit:'g'},
+// "250 ml" -> {value:250,unit:'ml'}, "2 plátky (40g)" -> {value:40,unit:'g'}.
+function parseAmount(str) {
+  const s = String(str || '');
+  // Prefer a value inside parentheses — that is the real gramáž.
+  const paren = s.match(/\((\d+(?:[.,]\d+)?)\s*(g|ml|kg|l)\)/i);
+  const m = paren || s.match(/(\d+(?:[.,]\d+)?)\s*(g|ml|kg|l)\b/i);
+  if (!m) return null;
+  return { value: parseFloat(m[1].replace(',', '.')), unit: m[2].toLowerCase() };
+}
+
+function scaleFoodItem(item, factor) {
+  const a = parseAmount(item.amount);
+  const out = Object.assign({}, item, {
+    calories: Math.round(num(item.calories) * factor),
+    protein: Math.round(num(item.protein) * factor * 10) / 10,
+    carbs: Math.round(num(item.carbs) * factor * 10) / 10,
+    fat: Math.round(num(item.fat) * factor * 10) / 10
+  });
+  if (a) {
+    const v = Math.round(a.value * factor);
+    out.amount = `${v}${a.unit}`;
+  }
+  return out;
+}
+
+// Recompute a meal's totals from its items.
+function recomputeMeal(meal) {
+  const t = (meal.items || []).reduce((s, i) => ({
+    calories: s.calories + num(i.calories),
+    protein: s.protein + num(i.protein),
+    carbs: s.carbs + num(i.carbs),
+    fat: s.fat + num(i.fat)
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  meal.calories = Math.round(t.calories);
+  meal.protein = Math.round(t.protein * 10) / 10;
+  meal.carbs = Math.round(t.carbs * 10) / 10;
+  meal.fat = Math.round(t.fat * 10) / 10;
+  return meal;
+}
+
+function findPlannedMeal(state, dayKey, mealId) {
+  if (!state.mealPlan || !state.mealPlan.days[dayKey]) return null;
+  const meals = state.mealPlan.days[dayKey].meals;
+  const idx = meals.findIndex((m) => m.id === mealId);
+  return idx === -1 ? null : { meals, idx, meal: meals[idx] };
+}
+
 // Exercise history is keyed by the normalised name so it survives the coach
 // regenerating the workout plan (which mints new exercise ids).
 function normalizeExerciseName(str) {
@@ -354,6 +402,43 @@ const TOOL_DECLARATIONS = [
         }
       },
       required: ['exercise', 'sets']
+    }
+  },
+  {
+    name: 'scale_meal',
+    description: 'Přepočítá CELÉ jídlo na jiný počet kalorií — gramáž i makra u všech surovin se poměrově upraví. TOHLE POUŽIJ, když uživatel chce „míň kalorií", „víc kalorií", „menší porci" nebo „ať to má 450 kcal". Nepočítej nic sám, jen řekni cílové kalorie.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        day: { type: 'STRING', enum: DAY_KEYS },
+        mealId: { type: 'STRING', description: 'ID jídla z kontextu' },
+        targetCalories: { type: 'INTEGER', description: 'Na kolik kcal se má jídlo přepočítat' }
+      },
+      required: ['day', 'mealId', 'targetCalories']
+    }
+  },
+  {
+    name: 'adjust_meal_items',
+    description: 'Změní gramáž konkrétních surovin v jídle — makra se u nich přepočítají samy. TOHLE POUŽIJ na „změň gramáž", „dej sekanou na 120 g", „míň brambor". Posílej jen suroviny, které se mění.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        day: { type: 'STRING', enum: DAY_KEYS },
+        mealId: { type: 'STRING', description: 'ID jídla z kontextu' },
+        items: {
+          type: 'ARRAY',
+          description: 'Suroviny, kterým se mění množství',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              name: { type: 'STRING', description: 'Název suroviny tak, jak je v jídle' },
+              amount: { type: 'STRING', description: 'Nové množství, např. "120g"' }
+            },
+            required: ['name', 'amount']
+          }
+        }
+      },
+      required: ['day', 'mealId', 'items']
     }
   },
   {
@@ -587,6 +672,78 @@ function applyTool(name, args, state) {
         sets: sets.map((x) => `${x.w}kg×${x.r}`),
         topSet: `${top.w}kg×${top.r}`,
         volume: Math.round(volume)
+      };
+    }
+
+    case 'scale_meal': {
+      const key = normDayKey(a.day);
+      if (!key) return { ok: false, error: 'Neplatný den.' };
+      const found = findPlannedMeal(state, key, a.mealId);
+      if (!found) return { ok: false, error: `Jídlo s id ${a.mealId} nenalezeno v ${DAY_CZ[key] || a.day}.` };
+
+      const target = Math.round(num(a.targetCalories));
+      if (target < 50 || target > 3000) return { ok: false, error: 'Cílové kalorie musí být mezi 50 a 3000.' };
+      const before = found.meal.calories;
+      if (!before) return { ok: false, error: 'Jídlo nemá kalorie, nelze přepočítat.' };
+
+      const factor = target / before;
+      found.meal.items = (found.meal.items || []).map((i) => scaleFoodItem(i, factor));
+      recomputeMeal(found.meal);
+      state.mealPlan.updatedAt = Date.now();
+
+      return {
+        ok: true,
+        day: DAY_CZ[key],
+        meal: found.meal.name,
+        caloriesBefore: before,
+        caloriesAfter: found.meal.calories,
+        items: found.meal.items.map((i) => `${i.name} ${i.amount}`),
+        protein: found.meal.protein
+      };
+    }
+
+    case 'adjust_meal_items': {
+      const key = normDayKey(a.day);
+      if (!key) return { ok: false, error: 'Neplatný den.' };
+      const found = findPlannedMeal(state, key, a.mealId);
+      if (!found) return { ok: false, error: `Jídlo s id ${a.mealId} nenalezeno v ${DAY_CZ[key] || a.day}.` };
+
+      const before = found.meal.calories;
+      const changed = [];
+      const notFound = [];
+
+      (a.items || []).forEach((wanted) => {
+        const wantName = normalizeExerciseName(wanted && wanted.name);
+        const item = (found.meal.items || []).find((i) => normalizeExerciseName(i.name) === wantName)
+          || (found.meal.items || []).find((i) => normalizeExerciseName(i.name).includes(wantName) && wantName);
+        if (!item) { notFound.push(wanted && wanted.name); return; }
+
+        const oldA = parseAmount(item.amount);
+        const newA = parseAmount(wanted.amount);
+        if (!oldA || !newA || !oldA.value) { notFound.push(item.name); return; }
+
+        const factor = newA.value / oldA.value;
+        const scaled = scaleFoodItem(item, factor);
+        scaled.amount = `${Math.round(newA.value)}${newA.unit}`;
+        Object.assign(item, scaled);
+        changed.push(`${item.name} → ${item.amount}`);
+      });
+
+      if (!changed.length) {
+        return { ok: false, error: `Žádnou z těch surovin jsem v jídle nenašel: ${notFound.join(', ')}. Suroviny v jídle jsou: ${(found.meal.items || []).map((i) => i.name).join(', ')}.` };
+      }
+
+      recomputeMeal(found.meal);
+      state.mealPlan.updatedAt = Date.now();
+      return {
+        ok: true,
+        day: DAY_CZ[key],
+        meal: found.meal.name,
+        changed,
+        notFound: notFound.length ? notFound : undefined,
+        caloriesBefore: before,
+        caloriesAfter: found.meal.calories,
+        protein: found.meal.protein
       };
     }
 
