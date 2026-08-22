@@ -16,7 +16,7 @@ const { fmtFood } = require('./_lib/coach');
 const {
   TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
   fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory, fmtAppSnapshot,
-  dayKeyForDate, DAY_CZ
+  dayKeyForDate, normDayKey, scaleFoodItem, DAY_CZ
 } = require('./_lib/plans');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
@@ -30,7 +30,7 @@ const MAX_TOOL_ROUNDS = 6;
 // loop matters: the coach must never silently rewrite what someone ate.
 const FOOD_CATEGORIES = ['Snídaně', 'Dopolední svačina', 'Oběd', 'Odpolední svačina', 'Večeře', 'Druhá večeře'];
 
-const FOOD_TOOL_NAMES = new Set(['log_food', 'delete_food', 'edit_food']);
+const FOOD_TOOL_NAMES = new Set(['log_food', 'delete_food', 'edit_food', 'log_planned_meal']);
 
 const FOOD_TOOLS = [
   {
@@ -58,6 +58,20 @@ const FOOD_TOOLS = [
         }
       },
       required: ['category', 'items']
+    }
+  },
+  {
+    name: 'log_planned_meal',
+    description: 'Zapíše do deníku naplánované jídlo v tom množství, které uživatel SKUTEČNĚ snědl. Použij, když řekne kolik toho snědl — „snědl jsem o 100 kcal míň", „dal jsem si jen půlku", „snědl jsem to celé", „nechal jsem třetinu". NEMĚNÍ jídelníček, jen zapisuje realitu. Zadej BUĎ actualCalories, NEBO portionPercent.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        day: { type: 'STRING', description: 'Den jídla v plánu (mon–sun)' },
+        mealId: { type: 'STRING', description: 'ID jídla z kontextu' },
+        actualCalories: { type: 'INTEGER', description: 'Kolik kcal reálně snědl' },
+        portionPercent: { type: 'INTEGER', description: 'Kolik procent porce snědl (100 = všechno, 50 = půlka)' }
+      },
+      required: ['day', 'mealId']
     }
   },
   {
@@ -97,7 +111,9 @@ const FOOD_TOOLS = [
 ];
 
 // Translate a food tool call into the action shape the client already knows.
-function foodActionFromCall(name, args) {
+// `state` is needed by log_planned_meal, which reads the planned meal and
+// scales it to whatever the user actually ate.
+function foodActionFromCall(name, args, state) {
   const a = args || {};
   if (name === 'log_food') {
     return { type: 'add', category: a.category, date: a.date, items: a.items || [] };
@@ -107,6 +123,33 @@ function foodActionFromCall(name, args) {
   }
   if (name === 'edit_food') {
     return { type: 'edit', id: a.id, changes: a.changes || {} };
+  }
+  if (name === 'log_planned_meal') {
+    const day = normDayKey(a.day);
+    if (!day || !state.mealPlan || !state.mealPlan.days[day]) return null;
+    const meal = state.mealPlan.days[day].meals.find((m) => m.id === a.mealId);
+    if (!meal || !meal.calories) return null;
+
+    // Work out the portion actually eaten. Explicit calories win over percent.
+    let factor;
+    if (a.actualCalories != null && Number(a.actualCalories) > 0) {
+      factor = Number(a.actualCalories) / meal.calories;
+    } else if (a.portionPercent != null && Number(a.portionPercent) > 0) {
+      factor = Number(a.portionPercent) / 100;
+    } else {
+      factor = 1;
+    }
+    factor = Math.max(0.05, Math.min(3, factor));
+
+    const items = (meal.items || []).map((i) => scaleFoodItem(i, factor));
+    if (!items.length) return null;
+    return {
+      type: 'add',
+      category: meal.category,
+      items,
+      replacesPlannedMeal: meal.id,
+      _note: `${Math.round(meal.calories * factor)} kcal z plánovaných ${meal.calories}`
+    };
   }
   return null;
 }
@@ -172,7 +215,26 @@ function coachPrompt(ctx) {
 
 ${STYLE}
 
-I tak buď fakt užitečný: propoj data a poraď na rovinu. Nediagnostikuj nemoci, u vážnejších věcí pošli k doktorovi.
+${ctx.focus ? `
+!!! DOMLUVA U KONKRÉTNÍHO JÍDLA — TOHLE JE TEĎ NEJDŮLEŽITĚJŠÍ !!!
+Uživatel otevřel okno u jednoho konkrétního jídla. VÍŠ PŘESNĚ, o které jde:
+${ctx.focus.summary || ''}
+
+- NIKDY se neptej „myslíš to a to jídlo?" ani na potvrzení, které jídlo myslí. Víš to. Ptát se je trapné.
+- NEZDRAV ho. Je uprostřed řešení jídla, ne na začátku konverzace.
+- Všechno, co napíše, se týká tohohle jídla.
+
+CO UDĚLAT PODLE TOHO, CO ŘÍKÁ (day="${ctx.focus.day}", mealId="${ctx.focus.mealId}"):
+- chce míň/víc kalorií, menší/větší porci, „ať to má 450 kcal" → scale_meal
+- chce změnit gramáž suroviny („dej sekanou na 120 g", „míň brambor") → adjust_meal_items
+- chce úplně jiné jídlo → replace_meal
+- ŘÍKÁ, KOLIK TOHO SNĚDL („snědl jsem o 100 kcal míň", „dal jsem si jen půlku", „snědl jsem to celé") → log_planned_meal se skutečným množstvím. TOHLE NEMĚNÍ PLÁN, jen zapíše do deníku, co fakt snědl
+- jídlo nesnědl vůbec → appka ho už odškrtla, ty jen poraď, čím to dohnat ve zbytku dne
+- jen se ptá nebo si kecá → žádný nástroj, prostě odpověz
+
+Odpovídej krátce a věcně k tomuhle jídlu.
+
+` : ''}I tak buď fakt užitečný: propoj data a poraď na rovinu. Nediagnostikuj nemoci, u vážnejších věcí pošli k doktorovi.
 
 MÁŠ VŠECHNA DATA — NEPTEJ SE NA NĚ:
 Výš v tomhle promptu máš KOMPLETNÍ obsah aplikace: profil, cíle, tréninkový plán, jídelníček, co snědl dnes i posledních 14 dní, váhu a její vývoj, vodu, historii vah u cviků, oblíbená jídla, série a dodržování plánu.
@@ -250,18 +312,7 @@ Když má na posledním tréninku splněný horní rozsah opakování, navrhni p
 Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej log_set.
 
 
-${ctx.focus ? `=== NA TOHLE SE PRÁVĚ PTÁ ===
-Uživatel otevřel domluvu u KONKRÉTNÍHO jídla. Všechno, co píše, se týká tohohle jídla — neptej se ho, které myslí.
-${ctx.focus.summary || ''}
-
-VŽDY zavolej nástroj s day="${ctx.focus.day}" a mealId="${ctx.focus.mealId}". Vyber podle toho, co chce:
-- míň/víc kalorií, menší/větší porce, „ať to má 450 kcal" → scale_meal (řekneš jen cílové kalorie, přepočet udělá appka)
-- změnit gramáž konkrétní suroviny („dej sekanou na 120 g", „míň brambor") → adjust_meal_items
-- úplně jiné jídlo → replace_meal
-Když říká, že jídlo nesnědl, appka ho už odškrtla — ty jen poraď, čím to dohnat ve zbytku dne, a případně uprav plán.
-Odpovídej krátce a věcně k tomuhle jídlu, žádné obecné řeči.
-
-` : ''}=== VŠECHNA OSTATNÍ DATA Z APPKY ===
+=== VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
 === PAMĚŤ ===
@@ -483,7 +534,7 @@ module.exports = async function handler(req, res) {
         if (FOOD_TOOL_NAMES.has(fc.name)) {
           // Food edits need the user's OK, so they are proposed, not applied.
           // Only the first proposal per turn survives — one card at a time.
-          const proposed = foodActionFromCall(fc.name, fc.args);
+          const proposed = foodActionFromCall(fc.name, fc.args, state);
           if (proposed && !foodAction) {
             foodAction = proposed;
             result = { ok: true, pending: true, note: 'Návrh byl poslán uživateli k potvrzení. Krátce mu popiš, co jsi navrhl — nepiš, že je to hotové.' };

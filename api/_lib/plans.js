@@ -948,5 +948,5 @@ module.exports = {
   TOOL_DECLARATIONS, applyTool, emptyPlanState, fillMealWeek,
   fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory, fmtAppSnapshot,
   normalizeExerciseName, todayPrague,
-  dayKeyForDate, normDayKey
+  dayKeyForDate, normDayKey, scaleFoodItem, parseAmount
 };

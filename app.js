@@ -5142,7 +5142,10 @@ function describeCoachAction(action) {
   if (action.type === 'add') {
     const cat = getCategoryName(czCategoryToId(action.category));
     const items = (action.items || []).map((i) => `${i.name} (${i.amount || ''}, ${Math.round(Number(i.calories) || 0)} kcal)`);
-    return `➕ Přidat do „${cat}":${actionDateNote(action)}\n${items.map((t) => '• ' + t).join('\n')}`;
+    const head = action.replacesPlannedMeal
+      ? `➕ Zapsat do „${cat}" to, co jsi fakt snědl${action._note ? ` (${action._note})` : ''}:`
+      : `➕ Přidat do „${cat}":${actionDateNote(action)}`;
+    return `${head}\n${items.map((t) => '• ' + t).join('\n')}`;
   }
   if (action.type === 'delete') {
     if (Array.isArray(action.ids) && action.ids.length) {
@@ -5181,6 +5184,14 @@ function executeCoachAction(action) {
     const date = resolveActionDate(action);
     if (!appState.logs[date]) appState.logs[date] = [];
     const catId = czCategoryToId(action.category);
+
+    // Logging what was actually eaten from a planned meal supersedes whatever
+    // that meal wrote earlier, so ticking then correcting can't double-count.
+    if (action.replacesPlannedMeal) {
+      appState.logs[date] = appState.logs[date].filter((i) => i.fromPlan !== action.replacesPlannedMeal);
+      const checks = getMealChecks(date);
+      if (!checks.includes(action.replacesPlannedMeal)) checks.push(action.replacesPlannedMeal);
+    }
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     let n = 0;
@@ -5195,7 +5206,8 @@ function executeCoachAction(action) {
         protein: Math.round((Number(it.protein) || 0) * 10) / 10,
         carbs: Math.round((Number(it.carbs) || 0) * 10) / 10,
         fat: Math.round((Number(it.fat) || 0) * 10) / 10,
-        category: catId
+        category: catId,
+        fromPlan: action.replacesPlannedMeal || undefined
       });
       n++;
     });
