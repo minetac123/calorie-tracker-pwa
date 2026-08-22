@@ -18,6 +18,7 @@ const {
   fmtProfile, fmtTargets, fmtWorkoutPlan, fmtMealPlan, fmtExerciseHistory, fmtAppSnapshot,
   dayKeyForDate, normDayKey, scaleFoodItem, DAY_CZ
 } = require('./_lib/plans');
+const { MINIAPP_TOOLS, MINIAPP_TOOL_NAMES, applyMiniAppTool, fmtMiniApps } = require('./_lib/miniapp');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
@@ -312,6 +313,17 @@ Když má na posledním tréninku splněný horní rozsah opakování, navrhni p
 Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej log_set.
 
 
+=== MINI APPKY, KTERÉ JSI MU UDĚLAL ===
+${fmtMiniApps(ctx.miniApps)}
+
+Umíš uživateli postavit malou appku na míru situaci, kterou plán neřeší — večeře v konkrétní restauraci, výlet, oslava, vaření dopředu, nákup. Nástroj create_mini_app.
+- Když popíše takovou situaci, NABÍDNI mu to („mám ti na to udělat appku?") a udělej to, až kývne
+- Nejdřív si zjisti, co potřebuješ vědět (jaká restaurace, kam jede) — na tohle se ptát MUSÍŠ, neuhádneš to
+- U jídel vždy vyplň makra, ať si je může jedním ťuknutím zapsat
+- Buď konkrétní: u restaurace vypiš skutečná jídla z její nabídky, ne obecné kategorie
+- Zohledni, kolik mu dnes zbývá do cíle — u doporučené volby dej recommended:true
+- Když chce něco jiného, uprav existující appku přes update_mini_app, nedělej duplikát
+
 === VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
@@ -403,7 +415,7 @@ module.exports = async function handler(req, res) {
     const {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
-      appSnapshot, focus, foodContext, workoutStatus, memories, today, nowTime
+      appSnapshot, focus, miniApps, foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
     if ((!message || !message.trim()) && !image) {
@@ -423,6 +435,9 @@ module.exports = async function handler(req, res) {
       exerciseLogs: (exerciseLogs && typeof exerciseLogs === 'object') ? exerciseLogs : {}
     });
 
+    // Mini apps live alongside the plan state and are mutated by their own tools.
+    const apps = Array.isArray(miniApps) ? miniApps.slice(0, 20) : [];
+
     const memBlock = (Array.isArray(memories) && memories.length)
       ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
       : 'Žádná uložená fakta.';
@@ -436,7 +451,8 @@ module.exports = async function handler(req, res) {
       lockedMeals: Array.isArray(lockedMeals) ? lockedMeals : [],
       exerciseHistory: Array.isArray(exerciseHistory) ? exerciseHistory : [],
       appSnapshot: (appSnapshot && typeof appSnapshot === 'object') ? appSnapshot : null,
-      focus: (focus && typeof focus === 'object') ? focus : null
+      focus: (focus && typeof focus === 'object') ? focus : null,
+      miniApps: apps
     };
 
     const systemInstruction = isOnboarding ? onboardingPrompt(ctx) : coachPrompt(ctx);
@@ -467,7 +483,7 @@ module.exports = async function handler(req, res) {
     // Onboarding has no food log to touch yet — only offer the plan tools.
     const activeTools = isOnboarding
       ? TOOL_DECLARATIONS
-      : TOOL_DECLARATIONS.concat(FOOD_TOOLS);
+      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS);
 
     const basePayload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -488,6 +504,8 @@ module.exports = async function handler(req, res) {
 
     let hitTokenLimit = false;
     let shrinkRetries = 0;
+    let appsChanged = false;
+    let lastAppId = null;
 
     // The loop is a function so it can be re-entered once when the model
     // claims a change it never actually made (see below).
@@ -541,6 +559,14 @@ module.exports = async function handler(req, res) {
           } else {
             result = { ok: false, error: 'Najednou lze navrhnout jen jednu změnu jídelního deníku.' };
           }
+        } else if (MINIAPP_TOOL_NAMES.has(fc.name)) {
+          try {
+            result = applyMiniAppTool(fc.name, fc.args, apps);
+          } catch (e) {
+            console.error(`Mini app tool ${fc.name} threw:`, e.message);
+            result = { ok: false, error: 'Nástroj selhal: ' + e.message };
+          }
+          if (result && result.ok) { appsChanged = true; lastAppId = result.id; }
         } else {
           try {
             result = applyTool(fc.name, fc.args, state);
@@ -574,7 +600,7 @@ module.exports = async function handler(req, res) {
     // and give the model exactly one chance to actually do it.
     const CLAIMS_A_CHANGE = /\b(upravil|upravila|změnil|změnila|nastavil|nastavila|snížil|snížila|zvýšil|zvýšila|vyměnil|vyměnila|přehodil|zmenšil|zvětšil|dal jsem|přidal jsem|ubral jsem|je teď|máš teď|hotovo|udělal jsem|udělala jsem)\b/i;
 
-    if (ctx.focus && reply && !planChanged && !foodAction && CLAIMS_A_CHANGE.test(reply)) {
+    if (ctx.focus && reply && !planChanged && !foodAction && !appsChanged && CLAIMS_A_CHANGE.test(reply)) {
       console.log('Model claimed a change without calling a tool — forcing a correction round');
       contents.push({ role: 'model', parts: [{ text: reply }] });
       contents.push({
@@ -587,7 +613,7 @@ module.exports = async function handler(req, res) {
       // Still nothing applied? Then whatever it wants to say, the plan is
       // unchanged — so never let a "done!" through. An honest failure beats a
       // confident lie the user only discovers by looking at the card.
-      if (!planChanged && !foodAction) {
+      if (!planChanged && !foodAction && !appsChanged) {
         if (reply) console.log(`Suppressed false claim: ${reply.slice(0, 120)}`);
         reply = 'tohle se mi nepovedlo změnit ||| zkus to říct jinak, třeba „dej to na 450 kcal"';
       } else if (!reply) {
@@ -625,6 +651,8 @@ module.exports = async function handler(req, res) {
       profile: state.profile,
       targets: state.targets,
       exerciseLogs: state.exerciseLogs,
+      miniApps: appsChanged ? apps : undefined,
+      newMiniAppId: lastAppId || undefined,
       workoutPlan: state.workoutPlan,
       mealPlan: state.mealPlan,
     });

@@ -134,7 +134,8 @@ function resetState() {
     onboardingChat: [],
     mealLocks: [],
     shoppingBought: [],
-    exerciseLogs: {}
+    exerciseLogs: {},
+    miniApps: []
   };
   saveState();
 }
@@ -152,6 +153,7 @@ function ensurePlanState() {
   if (!Array.isArray(appState.mealLocks)) appState.mealLocks = [];
   if (!appState.exerciseLogs || typeof appState.exerciseLogs !== 'object') appState.exerciseLogs = {};
   if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
+  if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
 }
 
 // ==========================================================================
@@ -776,6 +778,7 @@ function renderDashboard() {
 
   // Today's workout + meal plan cards
   renderDashboardPlanCards();
+  renderMiniAppCards();
 }
 
 // Fire/burn animace — spálí DOM element a po dokončení zavolá callback
@@ -3164,6 +3167,7 @@ function init() {
   initShoppingHandlers();
   initExerciseDetailHandlers();
   initMealChatHandlers();
+  initMiniAppHandlers();
 
   // Check if already logged in
   const session = getSession();
@@ -5014,9 +5018,9 @@ async function sendCoachMessage() {
     if (data && data.success && data.reply) {
       // Plan edits are applied immediately; food-log edits still go through
       // the confirmation card below.
-      if (data.planChanged) {
+      if (data.planChanged || Array.isArray(data.miniApps)) {
         applyCoachPlanUpdate(data);
-        showToast('Plán upraven ✓');
+        showToast(data.newMiniAppId ? 'Appka je hotová ✓' : 'Plán upraven ✓');
       }
       // Safeguard: never show a raw action block even if the backend missed it.
       const replyText = String(data.reply).replace(/\[\[ACTION\]\][\s\S]*$/, '').trim() || 'mám to';
@@ -5034,6 +5038,9 @@ async function sendCoachMessage() {
       // If the coach proposed a food change, ask the user to confirm it.
       if (data.action && typeof data.action === 'object') {
         renderCoachActionCard(data.action);
+      }
+      if (data.newMiniAppId) {
+        setTimeout(() => renderMiniAppChatCard(data.newMiniAppId), parts.length * 500 + 200);
       }
     } else if (netError) {
       appendCoachBubble('spojení vypadlo bro, zkus to ještě jednou', 'assistant');
@@ -5893,6 +5900,10 @@ function applyCoachPlanUpdate(data) {
     appState.exerciseLogs = data.exerciseLogs;
     changed = true;
   }
+  if (Array.isArray(data.miniApps)) {
+    appState.miniApps = data.miniApps;
+    changed = true;
+  }
   if (data.mealPlan) { appState.mealPlan = data.mealPlan; changed = true; }
   if (changed) {
     saveState();
@@ -5917,6 +5928,7 @@ function buildCoachPayload(message, opts = {}) {
     exerciseLogs: getExerciseLogs(),
     exerciseHistory: buildExerciseContext(),
     appSnapshot: buildAppSnapshot(),
+    miniApps: getMiniApps(),
     foodContext: buildFoodContext(),
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
@@ -6610,6 +6622,7 @@ function openShoppingList() {
     body.querySelectorAll('input[type=checkbox]').forEach((cb) => {
       cb.addEventListener('change', () => {
         if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
+  if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
         const n = cb.getAttribute('data-name');
         const idx = appState.shoppingBought.indexOf(n);
         if (cb.checked && idx === -1) appState.shoppingBought.push(n);
@@ -7234,6 +7247,9 @@ async function sendMealChatMessage(text, opts = {}) {
       if (data.action && typeof data.action === 'object') {
         renderMealChatAction(data.action);
       }
+      if (data.newMiniAppId) {
+        renderMiniAppChatCard(data.newMiniAppId, mealChat.container.querySelector('.mchat-messages'));
+      }
     } else {
       appendMealChatBubble((data && data.error) || 'sorry, zkus to ještě jednou', 'assistant');
     }
@@ -7312,4 +7328,239 @@ function initMealChatHandlers() {
   const closeBtn = document.getElementById('meal-chat-close');
   if (closeBtn) closeBtn.addEventListener('click', closeMealChatSheet);
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeMealChatSheet(); });
+}
+
+// ==========================================================================
+// MINI APPKY OD KOUČE
+// ==========================================================================
+// The coach can build a small purpose-made screen for a situation the plan
+// doesn't cover (restaurant tonight, a trip, a party). It sends a declarative
+// spec — never code — and this renders it with the app's own components.
+
+function getMiniApps() {
+  if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
+  return appState.miniApps;
+}
+
+function findMiniApp(id) {
+  return getMiniApps().find((a) => a.id === id) || null;
+}
+
+function deleteMiniApp(id) {
+  appState.miniApps = getMiniApps().filter((a) => a.id !== id);
+  saveState();
+  renderDashboard();
+}
+
+function miniAppRelativeTime(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return 'právě teď';
+  if (mins < 60) return `před ${mins} min`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `před ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'včera' : `před ${d} dny`;
+}
+
+// ---- Rendering ----
+
+function renderMiniAppBlock(block, app) {
+  const el = document.createElement('div');
+
+  if (block.type === 'info') {
+    el.className = 'ma-info';
+    el.innerHTML = `${block.title ? `<div class="ma-block-title">${block.title}</div>` : ''}
+      <div class="ma-info-text">${block.text}</div>`;
+    return el;
+  }
+
+  if (block.type === 'stats') {
+    el.className = 'ma-stats-wrap';
+    el.innerHTML = `${block.title ? `<div class="ma-block-title">${block.title}</div>` : ''}
+      <div class="ma-stats">${block.items.map((i) => `
+        <div class="ma-stat">
+          <span class="ma-stat-label">${i.label}</span>
+          <span class="ma-stat-value">${i.value}</span>
+          ${i.sub ? `<span class="ma-stat-sub">${i.sub}</span>` : ''}
+        </div>`).join('')}</div>`;
+    return el;
+  }
+
+  if (block.type === 'checklist') {
+    el.className = 'ma-checklist-wrap';
+    el.innerHTML = `${block.title ? `<div class="ma-block-title">${block.title}</div>` : ''}
+      <div class="ma-checklist"></div>`;
+    const list = el.querySelector('.ma-checklist');
+    block.items.forEach((item) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'ma-check-row' + (item.done ? ' done' : '');
+      row.innerHTML = `<span class="ma-check-box">${item.done ? '✓' : ''}</span><span class="ma-check-label">${item.label}</span>`;
+      row.addEventListener('click', () => {
+        item.done = !item.done;
+        saveState();
+        row.classList.toggle('done', item.done);
+        row.querySelector('.ma-check-box').textContent = item.done ? '✓' : '';
+      });
+      list.appendChild(row);
+    });
+    return el;
+  }
+
+  if (block.type === 'options') {
+    el.className = 'ma-options-wrap';
+    el.innerHTML = `${block.title ? `<div class="ma-block-title">${block.title}</div>` : ''}
+      ${block.note ? `<div class="ma-block-note">${block.note}</div>` : ''}
+      <div class="ma-options"></div>`;
+    const list = el.querySelector('.ma-options');
+
+    block.options.forEach((opt) => {
+      const card = document.createElement('div');
+      card.className = 'ma-option' + (opt.recommended ? ' recommended' : '');
+      card.innerHTML = `
+        <div class="ma-option-head">
+          <div class="ma-option-titles">
+            ${opt.tag ? `<span class="ma-option-tag">${opt.tag}</span>` : ''}
+            <div class="ma-option-name">${opt.name}</div>
+            ${opt.description ? `<div class="ma-option-desc">${opt.description}</div>` : ''}
+          </div>
+          ${opt.loggable ? `<div class="ma-option-kcal">${opt.calories}<span>kcal</span></div>` : ''}
+        </div>
+        ${opt.loggable ? `<div class="ma-option-macros">B ${opt.protein} g · S ${opt.carbs} g · T ${opt.fat} g${opt.amount ? ' · ' + opt.amount : ''}</div>` : ''}
+        <div class="ma-option-btns">
+          ${opt.loggable ? '<button class="ma-option-btn primary" data-act="log" type="button">Zapsat do deníku</button>' : ''}
+          <button class="ma-option-btn" data-act="ask" type="button">Zeptat se kouče</button>
+        </div>`;
+
+      card.querySelectorAll('.ma-option-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (btn.getAttribute('data-act') === 'log') logMiniAppOption(opt);
+          else {
+            closeMiniApp();
+            askCoach(`k té appce „${app.title}" — co si myslíš o „${opt.name}"?`);
+          }
+        });
+      });
+      list.appendChild(card);
+    });
+    return el;
+  }
+
+  return el;
+}
+
+// One tap logs a picked option straight into today's diary.
+function logMiniAppOption(opt) {
+  const date = getTodayDateString();
+  if (!appState.logs[date]) appState.logs[date] = [];
+  const now = new Date();
+  appState.logs[date].push({
+    id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
+    time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    name: opt.name,
+    amount: opt.amount || '1 porce',
+    calories: Math.round(Number(opt.calories) || 0),
+    protein: Math.round((Number(opt.protein) || 0) * 10) / 10,
+    carbs: Math.round((Number(opt.carbs) || 0) * 10) / 10,
+    fat: Math.round((Number(opt.fat) || 0) * 10) / 10,
+    category: guessMealCategoryByTime()
+  });
+  saveState();
+  renderDashboard();
+  showToast(`${opt.name} zapsáno ✓`);
+}
+
+function openMiniApp(id) {
+  const app = findMiniApp(id);
+  const modal = document.getElementById('miniapp-modal');
+  const body = document.getElementById('miniapp-body');
+  const head = document.getElementById('miniapp-head');
+  if (!app || !modal || !body) return;
+
+  if (head) {
+    head.innerHTML = `
+      <div class="ma-hero">
+        <div class="ma-hero-icon">${app.icon}</div>
+        <div class="ma-hero-text">
+          <div class="ma-hero-title">${app.title}</div>
+          ${app.subtitle ? `<div class="ma-hero-sub">${app.subtitle}</div>` : ''}
+        </div>
+      </div>`;
+  }
+
+  body.innerHTML = '';
+  app.blocks.forEach((b) => body.appendChild(renderMiniAppBlock(b, app)));
+
+  const footer = document.createElement('div');
+  footer.className = 'ma-footer';
+  footer.innerHTML = `
+    <button class="mc-btn secondary" id="ma-change" type="button">Chci to jinak</button>
+    <button class="ma-delete" id="ma-delete" type="button">Smazat appku</button>`;
+  body.appendChild(footer);
+
+  document.getElementById('ma-change').addEventListener('click', () => {
+    closeMiniApp();
+    askCoach(`uprav mi appku „${app.title}" (id: ${app.id})`);
+  });
+  document.getElementById('ma-delete').addEventListener('click', () => {
+    if (!confirm(`Smazat appku „${app.title}"?`)) return;
+    deleteMiniApp(app.id);
+    closeMiniApp();
+    showToast('Appka smazána');
+  });
+
+  modal.classList.add('active');
+}
+
+function closeMiniApp() {
+  const modal = document.getElementById('miniapp-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+// Cards on the dashboard — these are situational and usually about today.
+function renderMiniAppCards() {
+  const wrap = document.getElementById('dash-miniapps');
+  if (!wrap) return;
+  const apps = getMiniApps();
+  if (!apps.length) { wrap.innerHTML = ''; return; }
+
+  wrap.innerHTML = `
+    <div class="dash-section-label">Appky od kouče</div>
+    <div class="ma-card-row">${apps.slice(0, 6).map((a) => `
+      <button class="ma-card" type="button" data-id="${a.id}">
+        <span class="ma-card-icon">${a.icon}</span>
+        <span class="ma-card-title">${a.title}</span>
+        <span class="ma-card-time">${miniAppRelativeTime(a.updatedAt)}</span>
+      </button>`).join('')}</div>`;
+
+  wrap.querySelectorAll('.ma-card').forEach((el) => {
+    el.addEventListener('click', () => openMiniApp(el.getAttribute('data-id')));
+  });
+}
+
+// A card in the coach chat right after one is built.
+function renderMiniAppChatCard(id, container) {
+  const app = findMiniApp(id);
+  const box = container || document.getElementById('coach-messages');
+  if (!app || !box) return;
+  const card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'ma-chat-card';
+  card.innerHTML = `
+    <span class="ma-chat-icon">${app.icon}</span>
+    <span class="ma-chat-text">
+      <span class="ma-chat-title">${app.title}</span>
+      <span class="ma-chat-sub">${app.subtitle || 'appka je hotová'}</span>
+    </span>
+    <span class="ma-chat-open">Otevřít</span>`;
+  card.addEventListener('click', () => openMiniApp(app.id));
+  box.appendChild(card);
+  box.scrollTop = box.scrollHeight;
+}
+
+function initMiniAppHandlers() {
+  const modal = document.getElementById('miniapp-modal');
+  const closeBtn = document.getElementById('miniapp-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeMiniApp);
+  if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeMiniApp(); });
 }
