@@ -246,7 +246,15 @@ Když má na posledním tréninku splněný horní rozsah opakování, navrhni p
 Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej log_set.
 
 
-=== VŠECHNA OSTATNÍ DATA Z APPKY ===
+${ctx.focus ? `=== NA TOHLE SE PRÁVĚ PTÁ ===
+Uživatel otevřel domluvu u KONKRÉTNÍHO jídla. Všechno, co píše, se týká tohohle jídla — neptej se ho, které myslí.
+${ctx.focus.summary || ''}
+
+Když chce změnit gramáž, vyměnit jídlo nebo upravit makra, zavolej replace_meal s day="${ctx.focus.day}" a mealId="${ctx.focus.mealId}".
+Když říká, že jídlo nesnědl, appka ho už odškrtla — ty jen poraď, čím to dohnat ve zbytku dne, a případně uprav plán.
+Odpovídej krátce a věcně k tomuhle jídlu, žádné obecné řeči.
+
+` : ''}=== VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
 === PAMĚŤ ===
@@ -337,7 +345,7 @@ module.exports = async function handler(req, res) {
     const {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
-      appSnapshot, foodContext, workoutStatus, memories, today, nowTime
+      appSnapshot, focus, foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
     if ((!message || !message.trim()) && !image) {
@@ -369,7 +377,8 @@ module.exports = async function handler(req, res) {
       workoutStatus: workoutStatus || 'Dnešní trénink zatím nezačal.',
       lockedMeals: Array.isArray(lockedMeals) ? lockedMeals : [],
       exerciseHistory: Array.isArray(exerciseHistory) ? exerciseHistory : [],
-      appSnapshot: (appSnapshot && typeof appSnapshot === 'object') ? appSnapshot : null
+      appSnapshot: (appSnapshot && typeof appSnapshot === 'object') ? appSnapshot : null,
+      focus: (focus && typeof focus === 'object') ? focus : null
     };
 
     const systemInstruction = isOnboarding ? onboardingPrompt(ctx) : coachPrompt(ctx);
