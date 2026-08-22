@@ -7478,14 +7478,26 @@ function openMiniApp(id) {
   if (!app || !modal || !body) return;
 
   if (head) {
+    // Say plainly where the numbers came from. An app built without a web
+    // lookup is the coach's guess, and the user deserves to know that before
+    // trusting a menu's calories.
+    const sources = Array.isArray(app.sources) ? app.sources : [];
+    const badge = app.estimated === false
+      ? `<span class="ma-badge verified">ověřeno na webu</span>`
+      : `<span class="ma-badge estimate">hodnoty jsou odhad</span>`;
     head.innerHTML = `
       <div class="ma-hero">
         <div class="ma-hero-icon">${app.icon}</div>
         <div class="ma-hero-text">
           <div class="ma-hero-title">${app.title}</div>
           ${app.subtitle ? `<div class="ma-hero-sub">${app.subtitle}</div>` : ''}
+          <div class="ma-hero-badges">${badge}</div>
         </div>
-      </div>`;
+      </div>
+      ${sources.length ? `<div class="ma-sources">
+        <span class="ma-sources-label">Zdroje</span>
+        ${sources.map((x) => `<a class="ma-source" href="${x.uri}" target="_blank" rel="noopener noreferrer">${x.title || 'odkaz'}</a>`).join('')}
+      </div>` : ''}`;
   }
 
   body.innerHTML = '';
