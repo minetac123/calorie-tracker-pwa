@@ -192,12 +192,16 @@ Máš nástroje, které SKUTEČNĚ mění data v appce. Když si uživatel řekn
 - „zapiš mi k obědu kuřecí prso 200g" → log_food (POZOR: jen na přímý rozkaz, viz níž)
 - „dnes nemám čas na nohy, přehoď to na zítra" → swap_workout_days
 - „nemám rád losos, dej mi něco jinýho" → replace_meal (nové jídlo s podobnými makry)
+- „ať má oběd míň kalorií" → scale_meal (jen cílové kalorie, přepočet udělá appka)
+- „dej brambory na 100 g" → adjust_meal_items
 - „chci přidat víc bílkovin" → set_targets, a pak update_meal_plan_day / set_meal_plan aby to sedělo
 - „byl jsem týden nemocnej, uprav mi plán" → set_workout_plan s lehčím rozjezdem
 - „změň mi středu na push" → update_workout_day
 - změna váhy / cíle → save_profile a potom compute_targets
 
 PRAVIDLA PRO NÁSTROJE:
+- NIKDY nepiš, že jsi něco upravil, dokud jsi doopravdy nezavolal nástroj a nedostal ok:true. Věta typu „upravil jsem ti oběd na 450 kcal" bez zavolání nástroje je LEŽ — uživatel pak v appce vidí pořád staré hodnoty. Radši nejdřív zavolej nástroj a teprve pak piš.
+- Čísla, která hlásíš uživateli, ber Z VÝSLEDKU nástroje, ne z vlastní hlavy.
 - Po zavolání nástroje dostaneš zpátky výsledek. Teprve pak napiš uživateli KONKRÉTNĚ co se změnilo (např. „nohy jsou teď ve středu, push se posunul na dnešek"), ne jen „jasně, mám to"
 - Když si změnu nevyžádal a jen se ptá na radu, žádný nástroj nevolej — jen poraď
 - Když měníš jídlo v plánu, drž makra blízko původním, ať sedí denní cíle
@@ -250,7 +254,10 @@ ${ctx.focus ? `=== NA TOHLE SE PRÁVĚ PTÁ ===
 Uživatel otevřel domluvu u KONKRÉTNÍHO jídla. Všechno, co píše, se týká tohohle jídla — neptej se ho, které myslí.
 ${ctx.focus.summary || ''}
 
-Když chce změnit gramáž, vyměnit jídlo nebo upravit makra, zavolej replace_meal s day="${ctx.focus.day}" a mealId="${ctx.focus.mealId}".
+VŽDY zavolej nástroj s day="${ctx.focus.day}" a mealId="${ctx.focus.mealId}". Vyber podle toho, co chce:
+- míň/víc kalorií, menší/větší porce, „ať to má 450 kcal" → scale_meal (řekneš jen cílové kalorie, přepočet udělá appka)
+- změnit gramáž konkrétní suroviny („dej sekanou na 120 g", „míň brambor") → adjust_meal_items
+- úplně jiné jídlo → replace_meal
 Když říká, že jídlo nesnědl, appka ho už odškrtla — ty jen poraď, čím to dohnat ve zbytku dne, a případně uprav plán.
 Odpovídej krátce a věcně k tomuhle jídlu, žádné obecné řeči.
 
@@ -431,6 +438,9 @@ module.exports = async function handler(req, res) {
     let hitTokenLimit = false;
     let shrinkRetries = 0;
 
+    // The loop is a function so it can be re-entered once when the model
+    // claims a change it never actually made (see below).
+    async function runToolLoop() {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const remaining = deadline - Date.now();
       if (remaining < 5000) break;
@@ -490,6 +500,7 @@ module.exports = async function handler(req, res) {
           if (result && result.ok) planChanged = true;
         }
         if (result && result.ok) appliedTools.push({ name: fc.name, result });
+        console.log(`tool ${fc.name} -> ${result && result.ok ? 'ok' : 'FAIL: ' + (result && result.error)}`);
         responseParts.push({
           functionResponse: { name: fc.name, response: { result } }
         });
@@ -501,6 +512,36 @@ module.exports = async function handler(req, res) {
 
       // Keep any text the model produced alongside the calls as a fallback.
       if (text && !reply) reply = text;
+    }
+    }
+
+    await runToolLoop();
+
+    // The model sometimes NARRATES a change instead of calling the tool —
+    // "upravil jsem ti oběd na 450 kcal" while the plan is untouched. That is
+    // worse than refusing, because the user believes the app changed. Catch it
+    // and give the model exactly one chance to actually do it.
+    const CLAIMS_A_CHANGE = /\b(upravil|upravila|změnil|změnila|nastavil|nastavila|snížil|snížila|zvýšil|zvýšila|vyměnil|vyměnila|přehodil|zmenšil|zvětšil|dal jsem|přidal jsem|ubral jsem|je teď|máš teď|hotovo|udělal jsem|udělala jsem)\b/i;
+
+    if (ctx.focus && reply && !planChanged && !foodAction && CLAIMS_A_CHANGE.test(reply)) {
+      console.log('Model claimed a change without calling a tool — forcing a correction round');
+      contents.push({ role: 'model', parts: [{ text: reply }] });
+      contents.push({
+        role: 'user',
+        parts: [{ text: 'SYSTÉM: Právě jsi napsal, že jsi něco upravil, ale NEZAVOLAL jsi žádný nástroj, takže se v aplikaci NIC nezměnilo a uživatel vidí pořád původní hodnoty. Buď teď ZAVOLEJ správný nástroj (scale_meal na změnu kalorií, adjust_meal_items na změnu gramáže, replace_meal na výměnu jídla), nebo uživateli na rovinu napiš, že to udělat neumíš. Nikdy netvrď, že je něco hotové, když to hotové není.' }]
+      });
+      reply = null;
+      await runToolLoop();
+
+      // Still nothing applied? Then whatever it wants to say, the plan is
+      // unchanged — so never let a "done!" through. An honest failure beats a
+      // confident lie the user only discovers by looking at the card.
+      if (!planChanged && !foodAction) {
+        if (reply) console.log(`Suppressed false claim: ${reply.slice(0, 120)}`);
+        reply = 'tohle se mi nepovedlo změnit ||| zkus to říct jinak, třeba „dej to na 450 kcal"';
+      } else if (!reply) {
+        reply = 'jo, teď už je to fakt upravený';
+      }
     }
 
     // Onboarding promises a full week. The model only writes a few distinct
