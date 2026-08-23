@@ -4322,6 +4322,123 @@ input, textarea, select, button {
 }
 .ses-action.primary { background: var(--bg-elevated-3); color: var(--text-1); border-color: transparent; }
 
+/* Úpravy cviků a sérií za běhu */
+.ses-exname { background: none; border: none; padding: 0; font-family: var(--font-family); color: var(--text-1); cursor: pointer; }
+.ses-pencil { font-size: 15px; color: var(--text-2); opacity: 0.75; margin-left: 8px; vertical-align: middle; }
+.ses-exnote {
+  margin: -10px 0 18px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg-elevated-2);
+  border: 0.5px solid var(--sep);
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.ses-set.done { cursor: pointer; }
+.ses-set.done:active { transform: scale(0.99); }
+.ses-set-edit { font-size: 14px; color: var(--text-3); opacity: 0.7; margin-left: 2px; }
+.ses-set.input.editing { border-color: var(--accent, #FFF); }
+.ses-set-del {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  border: 0.5px solid var(--sep-strong);
+  background: transparent;
+  color: #FF6B6B;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ses-set-del:active { transform: scale(0.94); }
+
+.ses-sheet { position: absolute; inset: 0; z-index: 30; display: block; }
+.ses-sheet-back { position: absolute; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); }
+.ses-sheet-card {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  max-height: 88%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-elevated);
+  border-top: 0.5px solid var(--sep-strong);
+  border-radius: 22px 22px 0 0;
+  padding: 18px 16px calc(env(safe-area-inset-bottom, 14px) + 18px);
+  animation: sheetUp 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.ses-sheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 16px; font-weight: 750; letter-spacing: -0.3px;
+  margin-bottom: 16px;
+}
+.ses-f { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; flex: 1; min-width: 0; }
+.ses-f > span { font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-3); }
+.ses-f input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-input);
+  border: 0.5px solid var(--sep);
+  border-radius: 11px;
+  padding: 12px;
+  color: var(--text-1);
+  font-size: 16px;
+  font-family: var(--font-family);
+  outline: none;
+}
+.ses-f input:focus { border-color: var(--sep-strong); }
+.ses-f-row { display: flex; gap: 9px; }
+.ses-f-row .ses-f input { text-align: center; font-variant-numeric: tabular-nums; }
+
+.ses-sync { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.ses-sync input { width: 19px; height: 19px; accent-color: #FFF; flex-shrink: 0; }
+
+.ses-sheet-tools { display: flex; gap: 8px; margin-bottom: 12px; }
+.ses-tool {
+  flex: 1;
+  padding: 11px 6px;
+  border-radius: 11px;
+  background: var(--bg-elevated-2);
+  border: 0.5px solid var(--sep);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 650;
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+.ses-tool:disabled { opacity: 0.32; }
+.ses-tool.danger { color: #FF6B6B; }
+.ses-sheet-warn { font-size: 12px; color: var(--text-3); line-height: 1.45; margin-bottom: 12px; }
+.ses-sheet-save { margin-top: 4px; }
+
+.ses-picker { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.ses-pick {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-card);
+  border: 0.5px solid var(--sep);
+  border-radius: var(--r-md);
+  padding: 10px 11px;
+}
+.ses-pick.current {
+  border-color: var(--sep-strong);
+  background: var(--bg-elevated-2);
+  box-shadow: inset 3px 0 0 rgba(255,255,255,0.85);
+}
+.ses-pick-main { flex: 1; min-width: 0; text-align: left; background: none; border: none; padding: 0; color: var(--text-1); font-family: var(--font-family); cursor: pointer; }
+.ses-pick-t { font-size: 14.5px; font-weight: 700; letter-spacing: -0.2px; }
+.ses-pick-s { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.ses-pick-tools { display: flex; gap: 5px; flex-shrink: 0; }
+.ses-pick-btn {
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  background: var(--bg-elevated-2);
+  border: 0.5px solid var(--sep);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ses-pick-btn:disabled { opacity: 0.3; }
+
 /* Kouč u tréninku */
 .ses-chat-toggle {
   position: absolute;
