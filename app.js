@@ -7759,8 +7759,17 @@ function renderMiniAppHtmlBlock(block) {
 let sessionTick = null;      // 1s render loop
 let sessionCountdown = null; // 3-2-1 before the start
 let coachPingTimer = null;
+let sessionEditingSet = -1;  // index of the logged set currently being edited
 
 const SESSION_COACH_MIN_GAP = 100000; // ≥100 s between proactive coach pings
+
+// Exercise names and notes are free text the user types mid-workout, so they
+// go through here before they ever reach innerHTML.
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 function getSession_() { return appState.activeSession || null; }
 
@@ -7789,7 +7798,8 @@ function newSessionFromDay(dayKey) {
       restSec: e.restSec, note: e.note || '', sets: []
     })),
     messages: [],
-    lastPing: 0
+    lastPing: 0,
+    syncPlan: true // structural edits also land in the weekly plan
   };
 }
 
@@ -7848,6 +7858,7 @@ function startWorkoutSession(dayKey) {
   if (!s) { showToast('Na tenhle den není trénink'); return; }
 
   appState.activeSession = s;
+  sessionEditingSet = -1;
   saveState();
   requestWakeLock();
 
@@ -7944,6 +7955,8 @@ function closeSessionOverlay() {
   clearInterval(sessionTick);
   clearInterval(sessionCountdown);
   clearTimeout(coachPingTimer);
+  sessionEditingSet = -1;
+  closeSessionSheet();
   const overlay = document.getElementById('session-overlay');
   if (overlay) overlay.classList.remove('active');
   document.body.style.overflow = '';
@@ -8027,16 +8040,30 @@ function renderSession() {
   body.innerHTML = `
     <div class="ses-exnav">
       <button class="ses-nav-btn" id="ses-prev" type="button" ${s.idx === 0 ? 'disabled' : ''}>‹</button>
-      <div class="ses-exname">
-        <div class="ses-exname-t">${ex.name}</div>
-        <div class="ses-exname-s">${ex.targetSets} × ${ex.targetReps}${lastTop ? ' · minule ' + formatSet(lastTop) : ''}</div>
-      </div>
+      <button class="ses-exname" id="ses-exedit" type="button">
+        <div class="ses-exname-t">${esc(ex.name)}<span class="ses-pencil">✎</span></div>
+        <div class="ses-exname-s">${ex.targetSets} × ${esc(ex.targetReps)} · pauza ${ex.restSec || 90}s${lastTop ? ' · minule ' + formatSet(lastTop) : ''}</div>
+      </button>
       <button class="ses-nav-btn" id="ses-next" type="button" ${s.idx >= s.exercises.length - 1 ? 'disabled' : ''}>›</button>
     </div>
 
+    ${ex.note ? `<div class="ses-exnote">${esc(ex.note)}</div>` : ''}
+
     <div class="ses-setlist">
-      ${ex.sets.map((x, i) => `<div class="ses-set done"><span>${i + 1}.</span><b>${x.w} kg × ${x.r}</b><span class="ses-set-vol">${Math.round(x.w * x.r)} kg</span></div>`).join('')}
-      ${ex.sets.length < 20 ? `
+      ${ex.sets.map((x, i) => i === sessionEditingSet ? `
+      <div class="ses-set input editing">
+        <span>${i + 1}.</span>
+        <input class="ses-edit-w" type="number" inputmode="decimal" step="0.5" min="0" placeholder="kg" value="${x.w}">
+        <span class="ses-x">×</span>
+        <input class="ses-edit-r" type="number" inputmode="numeric" step="1" min="0" placeholder="op." value="${x.r}">
+        <button class="ses-add" data-save-set="${i}" type="button">✓</button>
+        <button class="ses-set-del" data-del-set="${i}" type="button" aria-label="Smazat sérii">✕</button>
+      </div>` : `
+      <div class="ses-set done" data-edit-set="${i}">
+        <span>${i + 1}.</span><b>${x.w} kg × ${x.r}</b>
+        <span class="ses-set-vol">${Math.round(x.w * x.r)} kg</span><span class="ses-set-edit">✎</span>
+      </div>`).join('')}
+      ${ex.sets.length < 20 && sessionEditingSet < 0 ? `
       <div class="ses-set input">
         <span>${ex.sets.length + 1}.</span>
         <input id="ses-w" type="number" inputmode="decimal" step="0.5" min="0" placeholder="kg" value="${prev ? prev.w : ''}">
@@ -8047,14 +8074,30 @@ function renderSession() {
     </div>
 
     <div class="ses-actions">
+      <button class="ses-action" id="ses-list" type="button">Cviky &amp; pořadí (${s.exercises.length})</button>
+      <button class="ses-action" id="ses-addex" type="button">+ Přidat cvik</button>
       <button class="ses-action" id="ses-skiprest" type="button">Přeskočit pauzu</button>
       <button class="ses-action primary" id="ses-finish" type="button">Ukončit trénink</button>
     </div>`;
 
   document.getElementById('ses-prev').addEventListener('click', () => moveExercise(-1));
   document.getElementById('ses-next').addEventListener('click', () => moveExercise(1));
+  document.getElementById('ses-exedit').addEventListener('click', () => openExerciseEditor(s.idx));
+  document.getElementById('ses-list').addEventListener('click', openExercisePicker);
+  document.getElementById('ses-addex').addEventListener('click', () => openExerciseEditor(-1));
   const add = document.getElementById('ses-add');
   if (add) add.addEventListener('click', logSessionSet);
+
+  body.querySelectorAll('[data-edit-set]').forEach((el) => {
+    el.addEventListener('click', () => { sessionEditingSet = Number(el.dataset.editSet); renderSession(); });
+  });
+  body.querySelectorAll('[data-save-set]').forEach((el) => {
+    el.addEventListener('click', () => saveEditedSet(Number(el.dataset.saveSet)));
+  });
+  body.querySelectorAll('[data-del-set]').forEach((el) => {
+    el.addEventListener('click', () => deleteSessionSet(Number(el.dataset.delSet)));
+  });
+
   document.getElementById('ses-skiprest').addEventListener('click', () => {
     const cur = getSession_();
     if (cur) { cur.restEndsAt = null; saveState(); renderSessionClock(); }
@@ -8062,6 +8105,283 @@ function renderSession() {
   document.getElementById('ses-finish').addEventListener('click', finishWorkoutSession);
 
   renderSessionClock();
+}
+
+// ---- Úpravy zapsaných sérií ----
+
+function saveEditedSet(i) {
+  const ex = sessionCurrentExercise();
+  if (!ex || !ex.sets[i]) return;
+  const body = document.getElementById('ses-body');
+  const w = parseFloat(String(body.querySelector('.ses-edit-w').value).replace(',', '.'));
+  const r = parseInt(body.querySelector('.ses-edit-r').value, 10);
+  if (!(w > 0) || !(r > 0)) { showToast('Vyplň váhu i opakování'); return; }
+  ex.sets[i].w = Math.round(w * 10) / 10;
+  ex.sets[i].r = r;
+  sessionEditingSet = -1;
+  saveState();
+  buzz(30);
+  renderSession();
+}
+
+function deleteSessionSet(i) {
+  const ex = sessionCurrentExercise();
+  if (!ex || !ex.sets[i]) return;
+  ex.sets.splice(i, 1);
+  sessionEditingSet = -1;
+  saveState();
+  buzz(30);
+  renderSession();
+  showToast('Série smazána');
+}
+
+// ---- Úpravy cviků za běhu ----
+// Everything the plan knows about an exercise is editable mid-workout: name,
+// targets, rest, note, order, and whether it's there at all. Structural edits
+// can optionally be written back into the weekly plan, so a swap you make
+// because the gym was busy is still there next week.
+
+function closeSessionSheet() {
+  const sheet = document.getElementById('ses-sheet');
+  if (sheet) { sheet.style.display = 'none'; sheet.innerHTML = ''; }
+}
+
+function planSyncOn() {
+  const s = getSession_();
+  return !!(s && s.syncPlan !== false);
+}
+
+// Mirror the session's exercise list back into the weekly plan for this day.
+function syncSessionToPlan() {
+  const s = getSession_();
+  if (!s || !planSyncOn()) return;
+  const day = getWorkoutForDay(s.dayKey);
+  if (!day) return;
+  day.exercises = s.exercises.map((e) => ({
+    id: e.id,
+    name: e.name,
+    sets: e.targetSets,
+    reps: e.targetReps,
+    restSec: e.restSec,
+    note: e.note || ''
+  }));
+  day.rest = day.exercises.length === 0;
+  if (day.rest) day.title = day.title || 'Volno';
+}
+
+function openExerciseEditor(i) {
+  const s = getSession_();
+  if (!s) return;
+  const isNew = i < 0;
+  const ex = isNew
+    ? { name: '', targetSets: 3, targetReps: '8-12', restSec: 90, note: '' }
+    : s.exercises[i];
+  if (!ex) return;
+
+  const sheet = document.getElementById('ses-sheet');
+  if (!sheet) return;
+  const dayCz = PLAN_DAY_CZ[s.dayKey] || 'tenhle den';
+  const logged = !isNew && ex.sets && ex.sets.length;
+
+  sheet.innerHTML = `
+    <div class="ses-sheet-back" data-close="1"></div>
+    <div class="ses-sheet-card">
+      <div class="ses-sheet-head">
+        <span>${isNew ? 'Nový cvik' : 'Upravit cvik'}</span>
+        <button class="mc-close" data-close="1" type="button" aria-label="Zavřít">×</button>
+      </div>
+      <label class="ses-f">
+        <span>Název</span>
+        <input id="sesf-name" type="text" maxlength="80" placeholder="např. Bench press" value="${esc(ex.name)}">
+      </label>
+      <div class="ses-f-row">
+        <label class="ses-f">
+          <span>Sérií</span>
+          <input id="sesf-sets" type="number" inputmode="numeric" min="1" max="12" value="${ex.targetSets}">
+        </label>
+        <label class="ses-f">
+          <span>Opakování</span>
+          <input id="sesf-reps" type="text" maxlength="20" placeholder="8-12" value="${esc(ex.targetReps)}">
+        </label>
+        <label class="ses-f">
+          <span>Pauza (s)</span>
+          <input id="sesf-rest" type="number" inputmode="numeric" min="15" max="600" step="15" value="${ex.restSec || 90}">
+        </label>
+      </div>
+      <label class="ses-f">
+        <span>Poznámka</span>
+        <input id="sesf-note" type="text" maxlength="140" placeholder="technika, tempo…" value="${esc(ex.note || '')}">
+      </label>
+
+      <label class="ses-sync">
+        <input type="checkbox" id="sesf-sync" ${planSyncOn() ? 'checked' : ''}>
+        <span>Uložit i do plánu (každé ${esc(dayCz.toLowerCase())})</span>
+      </label>
+
+      ${isNew ? '' : `
+      <div class="ses-sheet-tools">
+        <button class="ses-tool" data-move="-1" type="button" ${i === 0 ? 'disabled' : ''}>↑ Nahoru</button>
+        <button class="ses-tool" data-move="1" type="button" ${i >= s.exercises.length - 1 ? 'disabled' : ''}>↓ Dolů</button>
+        <button class="ses-tool danger" data-remove="${i}" type="button">Smazat cvik</button>
+      </div>
+      ${logged ? `<div class="ses-sheet-warn">Máš tu ${ex.sets.length} zapsaných sérií — smazáním cviku zmizí i ty.</div>` : ''}`}
+
+      <button class="ses-action primary ses-sheet-save" id="sesf-save" type="button">${isNew ? 'Přidat cvik' : 'Uložit'}</button>
+    </div>`;
+  sheet.style.display = 'block';
+
+  sheet.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', closeSessionSheet));
+  // Bind the toggle immediately — delete and reorder act straight away, so
+  // they must see the checkbox as it stands, not as it was at the last save.
+  sheet.querySelector('#sesf-sync').addEventListener('change', (e) => {
+    const cur = getSession_();
+    if (cur) { cur.syncPlan = !!e.target.checked; saveState(); }
+  });
+  const moveBtns = sheet.querySelectorAll('[data-move]');
+  moveBtns.forEach((el) => el.addEventListener('click', () => {
+    reorderSessionExercise(i, Number(el.dataset.move));
+    closeSessionSheet();
+  }));
+  const rm = sheet.querySelector('[data-remove]');
+  if (rm) rm.addEventListener('click', () => removeSessionExercise(i));
+  sheet.querySelector('#sesf-save').addEventListener('click', () => saveExerciseEditor(i));
+  setTimeout(() => { const n = document.getElementById('sesf-name'); if (n && isNew) n.focus(); }, 60);
+}
+
+function saveExerciseEditor(i) {
+  const s = getSession_();
+  if (!s) return;
+  const name = String(document.getElementById('sesf-name').value || '').trim();
+  if (!name) { showToast('Cvik potřebuje název'); return; }
+
+  const sets = Math.min(12, Math.max(1, parseInt(document.getElementById('sesf-sets').value, 10) || 3));
+  const reps = String(document.getElementById('sesf-reps').value || '8-12').trim().slice(0, 20);
+  const rest = Math.min(600, Math.max(15, parseInt(document.getElementById('sesf-rest').value, 10) || 90));
+  const note = String(document.getElementById('sesf-note').value || '').trim().slice(0, 140);
+  const syncBox = document.getElementById('sesf-sync');
+  if (syncBox) s.syncPlan = !!syncBox.checked;
+
+  if (i < 0) {
+    // New exercises land right after the one you're on, so you can slot in a
+    // superset without scrolling to the end.
+    s.exercises.splice(s.idx + 1, 0, {
+      id: 'ex_' + Date.now().toString(36),
+      name, targetSets: sets, targetReps: reps, restSec: rest, note, sets: []
+    });
+    s.idx = s.idx + 1;
+  } else {
+    const ex = s.exercises[i];
+    if (!ex) return;
+    ex.name = name.slice(0, 80);
+    ex.targetSets = sets;
+    ex.targetReps = reps;
+    ex.restSec = rest;
+    ex.note = note;
+  }
+
+  syncSessionToPlan();
+  sessionEditingSet = -1;
+  saveState();
+  buzz(30);
+  closeSessionSheet();
+  renderSession();
+  if (i < 0) pingSessionCoach('exercise_change');
+  showToast(i < 0 ? 'Cvik přidán' : 'Cvik upraven');
+}
+
+function reorderSessionExercise(i, delta) {
+  const s = getSession_();
+  if (!s) return;
+  const j = i + delta;
+  if (j < 0 || j >= s.exercises.length) return;
+  const [moved] = s.exercises.splice(i, 1);
+  s.exercises.splice(j, 0, moved);
+  // Keep looking at whatever exercise you were on, wherever it ended up.
+  if (s.idx === i) s.idx = j;
+  else if (s.idx === j) s.idx = i;
+  syncSessionToPlan();
+  sessionEditingSet = -1;
+  saveState();
+  renderSession();
+}
+
+function removeSessionExercise(i) {
+  const s = getSession_();
+  if (!s || !s.exercises[i]) return;
+  if (s.exercises.length <= 1) { showToast('Poslední cvik nejde smazat — ukonči trénink'); return; }
+  const ex = s.exercises[i];
+  const msg = ex.sets.length
+    ? `Smazat "${ex.name}" i s ${ex.sets.length} zapsanými sériemi?`
+    : `Smazat "${ex.name}"?`;
+  if (!confirm(msg)) return;
+
+  s.exercises.splice(i, 1);
+  if (s.idx >= s.exercises.length) s.idx = s.exercises.length - 1;
+  else if (s.idx > i) s.idx--;
+  syncSessionToPlan();
+  sessionEditingSet = -1;
+  saveState();
+  closeSessionSheet();
+  renderSession();
+  showToast('Cvik smazán');
+}
+
+// Full list: jump anywhere, reorder, edit or drop any exercise — not just the
+// one you happen to be standing on.
+function openExercisePicker() {
+  const s = getSession_();
+  if (!s) return;
+  const sheet = document.getElementById('ses-sheet');
+  if (!sheet) return;
+
+  sheet.innerHTML = `
+    <div class="ses-sheet-back" data-close="1"></div>
+    <div class="ses-sheet-card">
+      <div class="ses-sheet-head">
+        <span>Cviky &amp; pořadí</span>
+        <button class="mc-close" data-close="1" type="button" aria-label="Zavřít">×</button>
+      </div>
+      <div class="ses-picker">
+        ${s.exercises.map((e, i) => `
+        <div class="ses-pick ${i === s.idx ? 'current' : ''}">
+          <button class="ses-pick-main" data-jump="${i}" type="button">
+            <div class="ses-pick-t">${esc(e.name)}</div>
+            <div class="ses-pick-s">${e.sets.length}/${e.targetSets} sérií · ${esc(e.targetReps)} op.</div>
+          </button>
+          <div class="ses-pick-tools">
+            <button class="ses-pick-btn" data-up="${i}" type="button" ${i === 0 ? 'disabled' : ''} aria-label="Nahoru">↑</button>
+            <button class="ses-pick-btn" data-down="${i}" type="button" ${i >= s.exercises.length - 1 ? 'disabled' : ''} aria-label="Dolů">↓</button>
+            <button class="ses-pick-btn" data-edit="${i}" type="button" aria-label="Upravit">✎</button>
+          </div>
+        </div>`).join('')}
+      </div>
+      <button class="ses-action ses-sheet-save" id="sesp-add" type="button">+ Přidat cvik</button>
+    </div>`;
+  sheet.style.display = 'block';
+
+  sheet.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', closeSessionSheet));
+  sheet.querySelectorAll('[data-jump]').forEach((el) => el.addEventListener('click', () => {
+    const cur = getSession_();
+    if (!cur) return;
+    cur.idx = Number(el.dataset.jump);
+    sessionEditingSet = -1;
+    saveState();
+    closeSessionSheet();
+    renderSession();
+    pingSessionCoach('exercise_change');
+  }));
+  sheet.querySelectorAll('[data-up]').forEach((el) => el.addEventListener('click', () => {
+    reorderSessionExercise(Number(el.dataset.up), -1);
+    openExercisePicker();
+  }));
+  sheet.querySelectorAll('[data-down]').forEach((el) => el.addEventListener('click', () => {
+    reorderSessionExercise(Number(el.dataset.down), 1);
+    openExercisePicker();
+  }));
+  sheet.querySelectorAll('[data-edit]').forEach((el) => el.addEventListener('click', () => {
+    openExerciseEditor(Number(el.dataset.edit));
+  }));
+  sheet.querySelector('#sesp-add').addEventListener('click', () => openExerciseEditor(-1));
 }
 
 function moveExercise(delta) {
