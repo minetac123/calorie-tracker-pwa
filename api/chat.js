@@ -230,6 +230,48 @@ ${fmtTargets(ctx.targets)}
 Dnes je ${ctx.todayDate} (${DAY_CZ[ctx.todayKey]}).`;
 }
 
+// Live-workout mode. The coach is next to the user mid-set, so the bar for
+// saying anything at all is high — silence is a valid answer.
+function workoutPrompt(ctx) {
+  const s = ctx.session || {};
+  const ex = s.currentExercise;
+  return `Jsi AI kouč a JSI PŘÍMO U TRÉNINKU s uživatelem. Sleduješ ho v reálném čase, vidíš každou sérii, kterou zapíše.
+
+${STYLE}
+
+JAK SE CHOVAT U TRÉNINKU:
+- Piš JEŠTĚ KRATČEJI než jindy. Uživatel má telefon v ruce mezi sériemi, ne čas na čtení
+- Ideál je jedna věta. Dvě jsou maximum
+- Buď parťák u činky: povzbuď, upozorni na techniku, navrhni váhu na další sérii
+- Když ti položí otázku, odpověz na ni věcně a stručně
+- Nediktuj mu, co má dělat, u každé série. Otravný spotter je horší než žádný
+
+${ctx.proactive ? `TEĎHLE ZPRÁVU POSÍLÁŠ SÁM OD SEBE, uživatel se tě na nic neptal.
+Ozvi se JEN když máš fakt co říct — posun na osobák, znatelný propad výkonu, moc krátká pauza, poslední cvik.
+Když není nic zajímavého, odpověz PŘESNĚ takhle a nic víc: [nic]
+Radši mlč, než abys plácal.` : ''}
+
+=== TRÉNINK PRÁVĚ TEĎ ===
+Trénink: ${s.title || '—'}
+Uběhlo: ${s.elapsed || '0:00'}
+Postup: ${s.progress || '—'}
+${s.resting ? 'Uživatel má právě pauzu mezi sériemi.' : 'Uživatel právě cvičí (nemá pauzu).'}
+${ex ? `
+AKTUÁLNÍ CVIK: ${ex.name}
+Cíl: ${ex.target}, pauza ${ex.restSec}s
+Série dnes: ${ex.setsDone && ex.setsDone.length ? ex.setsDone.join(', ') : 'zatím žádná'}
+Minule: ${ex.lastTime || 'poprvé'}` : ''}
+${s.remaining && s.remaining.length ? `Zbývá pak: ${s.remaining.join(', ')}` : 'Tohle je poslední cvik.'}
+
+=== HISTORIE VAH ===
+${fmtExerciseHistory(ctx.exerciseHistory)}
+
+=== PROFIL ===
+${fmtProfile(ctx.profile)}
+
+Dnes je ${ctx.todayDate}, čas ${ctx.nowTime || 'neznámý'}.`;
+}
+
 function coachPrompt(ctx) {
   return `Jsi AI kouč v appce FitAI. Píšeš jako kámoš z gen z, ne jako oficiální asistent. Máš přístup ke VŠEM datům uživatele v aplikaci.
 
@@ -490,7 +532,8 @@ module.exports = async function handler(req, res) {
     const {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
-      appSnapshot, focus, miniApps, foodContext, workoutStatus, memories, today, nowTime
+      appSnapshot, focus, miniApps, session, proactive, sessionHistory,
+      foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
     if ((!message || !message.trim()) && !image) {
@@ -498,6 +541,7 @@ module.exports = async function handler(req, res) {
     }
 
     const isOnboarding = mode === 'onboarding';
+    const isWorkout = mode === 'workout';
     const todayDate = (today && /^\d{4}-\d{2}-\d{2}$/.test(today)) ? today : null;
     const todayKey = dayKeyForDate(todayDate);
 
@@ -527,10 +571,15 @@ module.exports = async function handler(req, res) {
       exerciseHistory: Array.isArray(exerciseHistory) ? exerciseHistory : [],
       appSnapshot: (appSnapshot && typeof appSnapshot === 'object') ? appSnapshot : null,
       focus: (focus && typeof focus === 'object') ? focus : null,
-      miniApps: apps
+      miniApps: apps,
+      session: (session && typeof session === 'object') ? session : null,
+      proactive: proactive === true,
+      sessionHistory: Array.isArray(sessionHistory) ? sessionHistory.slice(0, 5) : []
     };
 
-    const systemInstruction = isOnboarding ? onboardingPrompt(ctx) : coachPrompt(ctx);
+    const systemInstruction = isOnboarding
+      ? onboardingPrompt(ctx)
+      : (isWorkout ? workoutPrompt(ctx) : coachPrompt(ctx));
 
     // Build the conversation.
     const contents = [];
@@ -556,13 +605,15 @@ module.exports = async function handler(req, res) {
     contents.push({ role: 'user', parts: userParts });
 
     // Onboarding has no food log to touch yet — only offer the plan tools.
-    const activeTools = isOnboarding
+    const activeTools = isWorkout
+      ? []
+      : isOnboarding
       ? TOOL_DECLARATIONS
       : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS).concat([SEARCH_TOOL]);
 
     const basePayload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
-      tools: [{ functionDeclarations: activeTools }],
+      ...(activeTools.length ? { tools: [{ functionDeclarations: activeTools }] } : {}),
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 24576,

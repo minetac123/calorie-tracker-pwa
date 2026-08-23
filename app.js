@@ -135,7 +135,9 @@ function resetState() {
     mealLocks: [],
     shoppingBought: [],
     exerciseLogs: {},
-    miniApps: []
+    miniApps: [],
+    activeSession: null,
+    sessionHistory: []
   };
   saveState();
 }
@@ -154,6 +156,8 @@ function ensurePlanState() {
   if (!appState.exerciseLogs || typeof appState.exerciseLogs !== 'object') appState.exerciseLogs = {};
   if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
   if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
+  if (appState.activeSession === undefined) appState.activeSession = null;
+  if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
 }
 
 // ==========================================================================
@@ -3031,6 +3035,9 @@ function showAppAfterLogin() {
 
   renderDashboard();
 
+  // A workout left running survives a reload — pick it back up.
+  if (hasActiveSession()) setTimeout(resumeSessionIfAny, 400);
+
   // First run: let the coach do the setup conversation instead of a form.
   if (onboardingNeeded()) {
     setTimeout(() => startOnboarding(false), 600);
@@ -3168,6 +3175,7 @@ function init() {
   initExerciseDetailHandlers();
   initMealChatHandlers();
   initMiniAppHandlers();
+  initSessionHandlers();
 
   // Check if already logged in
   const session = getSession();
@@ -5564,7 +5572,13 @@ function renderWorkoutView() {
       ${isToday ? `<div class="plan-progress-pill">${doneCount}/${w.exercises.length}</div>` : ''}
     </div>
     ${isToday ? `<div class="plan-progress-bar"><div class="plan-progress-fill" style="width:${pct}%"></div></div>` : ''}
+    ${isToday ? `<button class="ses-start-btn" id="ses-start" type="button">${hasActiveSession() ? '▶  Pokračovat v tréninku' : '▶  Spustit trénink'}</button>` : ''}
     <div class="plan-ex-list" id="plan-ex-list"></div>`;
+
+  const startBtn = document.getElementById('ses-start');
+  if (startBtn) startBtn.addEventListener('click', () => {
+    if (hasActiveSession()) resumeSessionIfAny(); else startWorkoutSession(dayKey);
+  });
 
   const list = document.getElementById('plan-ex-list');
   w.exercises.forEach((ex) => {
@@ -5929,6 +5943,7 @@ function buildCoachPayload(message, opts = {}) {
     exerciseHistory: buildExerciseContext(),
     appSnapshot: buildAppSnapshot(),
     miniApps: getMiniApps(),
+    sessionHistory: (appState.sessionHistory || []).slice(0, 5),
     foodContext: buildFoodContext(),
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
@@ -6623,6 +6638,8 @@ function openShoppingList() {
       cb.addEventListener('change', () => {
         if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
   if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
+  if (appState.activeSession === undefined) appState.activeSession = null;
+  if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
         const n = cb.getAttribute('data-name');
         const idx = appState.shoppingBought.indexOf(n);
         if (cb.checked && idx === -1) appState.shoppingBought.push(n);
@@ -7339,6 +7356,8 @@ function initMealChatHandlers() {
 
 function getMiniApps() {
   if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
+  if (appState.activeSession === undefined) appState.activeSession = null;
+  if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
   return appState.miniApps;
 }
 
@@ -7727,4 +7746,490 @@ function renderMiniAppHtmlBlock(block) {
   wrap._detach = () => window.removeEventListener('message', onMessage);
 
   return wrap;
+}
+
+// ==========================================================================
+// ŽIVÝ TRÉNINK — session s časovačem, sériemi a koučem u toho
+// ==========================================================================
+// Everything time-related is stored as an absolute timestamp, never as a
+// counted-down number. iOS suspends timers the moment the screen locks or the
+// app goes to background, so a counter would silently drift; a timestamp is
+// still correct whenever the user comes back.
+
+let sessionTick = null;      // 1s render loop
+let sessionCountdown = null; // 3-2-1 before the start
+let coachPingTimer = null;
+
+const SESSION_COACH_MIN_GAP = 100000; // ≥100 s between proactive coach pings
+
+function getSession_() { return appState.activeSession || null; }
+
+function hasActiveSession() {
+  const s = getSession_();
+  return !!(s && !s.endedAt);
+}
+
+function newSessionFromDay(dayKey) {
+  const w = getWorkoutForDay(dayKey);
+  if (!w || w.rest || !w.exercises.length) return null;
+  return {
+    id: 'ses_' + Date.now().toString(36),
+    date: getTodayDateString(),
+    dayKey,
+    title: w.title,
+    startedAt: Date.now(),
+    endedAt: null,
+    pausedAt: null,
+    pausedTotal: 0,
+    idx: 0,
+    restEndsAt: null,
+    restTotal: 0,
+    exercises: w.exercises.map((e) => ({
+      id: e.id, name: e.name, targetSets: e.sets, targetReps: e.reps,
+      restSec: e.restSec, note: e.note || '', sets: []
+    })),
+    messages: [],
+    lastPing: 0
+  };
+}
+
+function sessionElapsedMs() {
+  const s = getSession_();
+  if (!s) return 0;
+  const end = s.endedAt || (s.pausedAt || Date.now());
+  return Math.max(0, end - s.startedAt - (s.pausedTotal || 0));
+}
+
+// Haptics, but only when the browser will actually allow it. Chrome logs an
+// intervention warning if vibrate() is called before the page has ever been
+// tapped, and that log can't be caught — so check user activation first rather
+// than spamming the console on desktop and in tests.
+function buzz(pattern) {
+  try {
+    if (!navigator.vibrate) return;
+    const ua = navigator.userActivation;
+    if (ua && !ua.hasBeenActive) return;
+    navigator.vibrate(pattern);
+  } catch (e) { /* no haptics available */ }
+}
+
+function fmtClock(ms) {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  const h = Math.floor(m / 60);
+  return h > 0
+    ? `${h}:${String(m % 60).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+function sessionCurrentExercise() {
+  const s = getSession_();
+  return s ? s.exercises[s.idx] || null : null;
+}
+
+function sessionTotals() {
+  const s = getSession_();
+  if (!s) return { sets: 0, volume: 0, done: 0 };
+  let sets = 0, volume = 0, done = 0;
+  s.exercises.forEach((e) => {
+    sets += e.sets.length;
+    e.sets.forEach((x) => { volume += (Number(x.w) || 0) * (Number(x.r) || 0); });
+    if (e.sets.length >= e.targetSets) done++;
+  });
+  return { sets, volume: Math.round(volume), done };
+}
+
+// ---- Lifecycle ----
+
+function startWorkoutSession(dayKey) {
+  if (hasActiveSession() && !confirm('Máš rozdělaný trénink. Zahodit ho a začít nový?')) return;
+  const s = newSessionFromDay(dayKey);
+  if (!s) { showToast('Na tenhle den není trénink'); return; }
+
+  appState.activeSession = s;
+  saveState();
+  requestWakeLock();
+
+  const overlay = document.getElementById('session-overlay');
+  if (overlay) overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  runSessionCountdown();
+}
+
+function runSessionCountdown() {
+  const el = document.getElementById('session-countdown');
+  const view = document.getElementById('session-view');
+  if (!el || !view) return;
+  view.style.display = 'none';
+  el.style.display = 'flex';
+
+  let n = 3;
+  const paint = () => {
+    el.innerHTML = `<div class="sc-num">${n > 0 ? n : 'JEDEM'}</div>`;
+  };
+  paint();
+  clearInterval(sessionCountdown);
+  sessionCountdown = setInterval(() => {
+    n--;
+    if (n < 0) {
+      clearInterval(sessionCountdown);
+      el.style.display = 'none';
+      view.style.display = 'flex';
+      // The clock only really starts once the countdown is done.
+      const s = getSession_();
+      if (s) { s.startedAt = Date.now(); saveState(); }
+      startSessionTick();
+      pingSessionCoach('start');
+      return;
+    }
+    paint();
+  }, 800);
+}
+
+function startSessionTick() {
+  clearInterval(sessionTick);
+  sessionTick = setInterval(renderSessionClock, 1000);
+  renderSession();
+}
+
+function togglePauseSession() {
+  const s = getSession_();
+  if (!s) return;
+  if (s.pausedAt) {
+    s.pausedTotal = (s.pausedTotal || 0) + (Date.now() - s.pausedAt);
+    s.pausedAt = null;
+  } else {
+    s.pausedAt = Date.now();
+  }
+  saveState();
+  renderSession();
+}
+
+function finishWorkoutSession() {
+  const s = getSession_();
+  if (!s) return;
+  const t = sessionTotals();
+  if (!t.sets && !confirm('Nezapsal jsi ani sérii. Fakt ukončit?')) return;
+
+  s.endedAt = Date.now();
+  const durationMs = sessionElapsedMs(); // capture before the session is cleared
+
+  // Fold the session into the permanent per-exercise history and mark the
+  // day's exercises done, so the plan screen and the coach both see it.
+  const log = getWorkoutLog(s.date);
+  s.exercises.forEach((e) => {
+    if (!e.sets.length) return;
+    logExerciseSession(e.name, s.date, e.sets.map((x) => ({ w: x.w, r: x.r })));
+    if (!log.done.includes(e.id)) log.done.push(e.id);
+  });
+
+  if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
+  appState.sessionHistory.unshift({
+    id: s.id, date: s.date, title: s.title,
+    durationMs, sets: t.sets, volume: t.volume,
+    exercises: s.exercises.filter((e) => e.sets.length).map((e) => ({ name: e.name, sets: e.sets }))
+  });
+  if (appState.sessionHistory.length > 60) appState.sessionHistory.length = 60;
+
+  appState.activeSession = null;
+  saveState();
+  closeSessionOverlay();
+  renderPlanScreen();
+  renderDashboard();
+  showToast(`Trénink hotov · ${fmtClock(durationMs)} · ${t.sets} sérií`);
+}
+
+function closeSessionOverlay() {
+  clearInterval(sessionTick);
+  clearInterval(sessionCountdown);
+  clearTimeout(coachPingTimer);
+  const overlay = document.getElementById('session-overlay');
+  if (overlay) overlay.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function resumeSessionIfAny() {
+  if (!hasActiveSession()) return;
+  const overlay = document.getElementById('session-overlay');
+  const cd = document.getElementById('session-countdown');
+  const view = document.getElementById('session-view');
+  if (!overlay) return;
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  if (cd) cd.style.display = 'none';
+  if (view) view.style.display = 'flex';
+  requestWakeLock();
+  startSessionTick();
+}
+
+// ---- Rendering ----
+
+// Cheap 1s update: only the numbers that actually move.
+function renderSessionClock() {
+  const s = getSession_();
+  if (!s) return;
+  const clock = document.getElementById('ses-clock');
+  if (clock) clock.textContent = fmtClock(sessionElapsedMs());
+
+  const rest = document.getElementById('ses-rest');
+  if (!rest) return;
+  if (s.restEndsAt) {
+    const left = s.restEndsAt - Date.now();
+    if (left <= 0) {
+      s.restEndsAt = null;
+      saveState();
+      rest.style.display = 'none';
+      buzz([120, 60, 120]);
+      showToast('Pauza je pryč, jedem');
+      pingSessionCoach('rest_over');
+    } else {
+      rest.style.display = 'flex';
+      const el = document.getElementById('ses-rest-num');
+      if (el) el.textContent = Math.ceil(left / 1000) + 's';
+    }
+  } else {
+    rest.style.display = 'none';
+  }
+}
+
+function renderSession() {
+  const s = getSession_();
+  if (!s) return;
+  const ex = sessionCurrentExercise();
+  const t = sessionTotals();
+
+  const head = document.getElementById('ses-head');
+  if (head) {
+    head.innerHTML = `
+      <div class="ses-top">
+        <button class="ses-icon-btn" id="ses-pause" type="button">${s.pausedAt ? '▶' : '❚❚'}</button>
+        <div class="ses-clock-wrap">
+          <div class="ses-clock" id="ses-clock">${fmtClock(sessionElapsedMs())}</div>
+          <div class="ses-sub">${s.title} · ${t.done}/${s.exercises.length} cviků · ${t.sets} sérií</div>
+        </div>
+        <button class="ses-icon-btn" id="ses-close" type="button">✕</button>
+      </div>`;
+    document.getElementById('ses-pause').addEventListener('click', togglePauseSession);
+    document.getElementById('ses-close').addEventListener('click', () => {
+      if (confirm('Nechat trénink běžet na pozadí?')) { closeSessionOverlay(); return; }
+      finishWorkoutSession();
+    });
+  }
+
+  const body = document.getElementById('ses-body');
+  if (!body || !ex) return;
+
+  const last = getLastExerciseSession(ex.name, s.date);
+  const lastTop = sessionTopSet(last);
+  const prev = ex.sets.length ? ex.sets[ex.sets.length - 1] : (last && last.sets[ex.sets.length]) || lastTop;
+
+  body.innerHTML = `
+    <div class="ses-exnav">
+      <button class="ses-nav-btn" id="ses-prev" type="button" ${s.idx === 0 ? 'disabled' : ''}>‹</button>
+      <div class="ses-exname">
+        <div class="ses-exname-t">${ex.name}</div>
+        <div class="ses-exname-s">${ex.targetSets} × ${ex.targetReps}${lastTop ? ' · minule ' + formatSet(lastTop) : ''}</div>
+      </div>
+      <button class="ses-nav-btn" id="ses-next" type="button" ${s.idx >= s.exercises.length - 1 ? 'disabled' : ''}>›</button>
+    </div>
+
+    <div class="ses-setlist">
+      ${ex.sets.map((x, i) => `<div class="ses-set done"><span>${i + 1}.</span><b>${x.w} kg × ${x.r}</b><span class="ses-set-vol">${Math.round(x.w * x.r)} kg</span></div>`).join('')}
+      ${ex.sets.length < 20 ? `
+      <div class="ses-set input">
+        <span>${ex.sets.length + 1}.</span>
+        <input id="ses-w" type="number" inputmode="decimal" step="0.5" min="0" placeholder="kg" value="${prev ? prev.w : ''}">
+        <span class="ses-x">×</span>
+        <input id="ses-r" type="number" inputmode="numeric" step="1" min="0" placeholder="op." value="${prev ? prev.r : ''}">
+        <button class="ses-add" id="ses-add" type="button">✓</button>
+      </div>` : ''}
+    </div>
+
+    <div class="ses-actions">
+      <button class="ses-action" id="ses-skiprest" type="button">Přeskočit pauzu</button>
+      <button class="ses-action primary" id="ses-finish" type="button">Ukončit trénink</button>
+    </div>`;
+
+  document.getElementById('ses-prev').addEventListener('click', () => moveExercise(-1));
+  document.getElementById('ses-next').addEventListener('click', () => moveExercise(1));
+  const add = document.getElementById('ses-add');
+  if (add) add.addEventListener('click', logSessionSet);
+  document.getElementById('ses-skiprest').addEventListener('click', () => {
+    const cur = getSession_();
+    if (cur) { cur.restEndsAt = null; saveState(); renderSessionClock(); }
+  });
+  document.getElementById('ses-finish').addEventListener('click', finishWorkoutSession);
+
+  renderSessionClock();
+}
+
+function moveExercise(delta) {
+  const s = getSession_();
+  if (!s) return;
+  const next = s.idx + delta;
+  if (next < 0 || next >= s.exercises.length) return;
+  s.idx = next;
+  saveState();
+  renderSession();
+  pingSessionCoach('exercise_change');
+}
+
+function logSessionSet() {
+  const s = getSession_();
+  const ex = sessionCurrentExercise();
+  if (!s || !ex) return;
+  const w = parseFloat(String(document.getElementById('ses-w').value).replace(',', '.'));
+  const r = parseInt(document.getElementById('ses-r').value, 10);
+  if (!(w > 0) || !(r > 0)) { showToast('Vyplň váhu i opakování'); return; }
+
+  ex.sets.push({ w: Math.round(w * 10) / 10, r, at: Date.now() });
+  s.restEndsAt = Date.now() + (ex.restSec || 90) * 1000;
+  s.restTotal = (s.restTotal || 0) + (ex.restSec || 90);
+  saveState();
+  buzz(40);
+  renderSession();
+  pingSessionCoach('set_logged');
+}
+
+// ---- Kouč u tréninku ----
+
+function sessionContextForCoach() {
+  const s = getSession_();
+  if (!s) return null;
+  const ex = sessionCurrentExercise();
+  const t = sessionTotals();
+  return {
+    title: s.title,
+    elapsed: fmtClock(sessionElapsedMs()),
+    currentExercise: ex ? {
+      name: ex.name, target: `${ex.targetSets} × ${ex.targetReps}`,
+      setsDone: ex.sets.map((x) => `${x.w}kg×${x.r}`),
+      restSec: ex.restSec,
+      lastTime: (() => { const l = sessionTopSet(getLastExerciseSession(ex.name, s.date)); return l ? formatSet(l) : null; })()
+    } : null,
+    progress: `${t.done}/${s.exercises.length} cviků, ${t.sets} sérií, objem ${t.volume} kg`,
+    remaining: s.exercises.slice(s.idx + 1).map((e) => e.name),
+    resting: !!s.restEndsAt
+  };
+}
+
+function appendSessionMessage(text, role) {
+  const s = getSession_();
+  if (!s) return;
+  s.messages.push({ role, text, ts: Date.now() });
+  if (s.messages.length > 60) s.messages = s.messages.slice(-60);
+  saveState();
+  renderSessionChat();
+}
+
+function renderSessionChat() {
+  const s = getSession_();
+  const box = document.getElementById('ses-chat-msgs');
+  if (!s || !box) return;
+  box.innerHTML = '';
+  s.messages.slice(-20).forEach((m) => {
+    m.text.split(/\s*\|\|\|\s*/).filter(Boolean).forEach((part) => {
+      const el = document.createElement('div');
+      el.className = `coach-bubble ${m.role}`;
+      el.innerHTML = formatCoachText(part.trim());
+      box.appendChild(el);
+    });
+  });
+  box.scrollTop = box.scrollHeight;
+
+  const badge = document.getElementById('ses-chat-badge');
+  if (badge) {
+    const unread = s.messages.length && s.messages[s.messages.length - 1].role === 'assistant' && !isSessionChatOpen();
+    badge.style.display = unread ? 'block' : 'none';
+  }
+}
+
+function isSessionChatOpen() {
+  const p = document.getElementById('ses-chat');
+  return !!(p && p.classList.contains('open'));
+}
+
+function toggleSessionChat() {
+  const p = document.getElementById('ses-chat');
+  if (!p) return;
+  p.classList.toggle('open');
+  if (p.classList.contains('open')) {
+    renderSessionChat();
+    const i = document.getElementById('ses-chat-input');
+    if (i) setTimeout(() => i.focus(), 200);
+  }
+}
+
+// Proactive nudge. Rate-limited, and the coach may answer with the sentinel
+// [nic] to stay quiet — a spotter who comments on every single set is noise.
+async function pingSessionCoach(trigger) {
+  const s = getSession_();
+  if (!s || s.endedAt) return;
+  if (trigger !== 'user' && Date.now() - (s.lastPing || 0) < SESSION_COACH_MIN_GAP) return;
+  s.lastPing = Date.now();
+
+  try {
+    const payload = buildCoachPayload(`(trénink běží — událost: ${trigger})`, {
+      mode: 'workout',
+      history: s.messages.slice(-8)
+    });
+    payload.session = sessionContextForCoach();
+    payload.proactive = true;
+    const data = await callCoachAPI(payload);
+    const cur = getSession_();
+    if (!cur || cur.endedAt) return;
+    if (data && data.success && data.reply) {
+      const txt = String(data.reply).trim();
+      if (/^\[?nic\]?$/i.test(txt)) return; // coach chose silence
+      appendSessionMessage(txt, 'assistant');
+      if (!isSessionChatOpen()) showToast('Kouč něco poslal');
+    }
+  } catch (e) { /* a missed nudge is not worth bothering the user about */ }
+}
+
+async function sendSessionChatMessage() {
+  const input = document.getElementById('ses-chat-input');
+  const s = getSession_();
+  if (!input || !s) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  appendSessionMessage(text, 'user');
+
+  const box = document.getElementById('ses-chat-msgs');
+  const typing = document.createElement('div');
+  typing.className = 'coach-bubble assistant typing';
+  typing.textContent = 'Píše…';
+  if (box) { box.appendChild(typing); box.scrollTop = box.scrollHeight; }
+
+  try {
+    const payload = buildCoachPayload(text, { mode: 'workout', history: s.messages.slice(0, -1).slice(-10) });
+    payload.session = sessionContextForCoach();
+    const data = await callCoachAPI(payload);
+    typing.remove();
+    appendSessionMessage((data && data.reply) || 'sorry, zkus to ještě jednou', 'assistant');
+    if (data && data.planChanged) applyCoachPlanUpdate(data);
+  } catch (e) {
+    typing.remove();
+    appendSessionMessage('spojení vypadlo', 'assistant');
+  }
+}
+
+function initSessionHandlers() {
+  const send = document.getElementById('ses-chat-send');
+  const input = document.getElementById('ses-chat-input');
+  const toggle = document.getElementById('ses-chat-toggle');
+  const close = document.getElementById('ses-chat-close');
+  if (send) send.addEventListener('click', sendSessionChatMessage);
+  if (input) input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); sendSessionChatMessage(); }
+  });
+  if (toggle) toggle.addEventListener('click', toggleSessionChat);
+  if (close) close.addEventListener('click', toggleSessionChat);
+
+  // Coming back from a locked screen: repaint from timestamps immediately.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && hasActiveSession()) { renderSessionClock(); requestWakeLock(); }
+  });
 }
