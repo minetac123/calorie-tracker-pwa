@@ -19,6 +19,9 @@ const {
   dayKeyForDate, normDayKey, scaleFoodItem, DAY_CZ
 } = require('./_lib/plans');
 const { MINIAPP_TOOLS, MINIAPP_TOOL_NAMES, applyMiniAppTool, fmtMiniApps } = require('./_lib/miniapp');
+const {
+  SESSION_TOOLS, SESSION_TOOL_NAMES, applySessionTool, normSessionState, fmtSessionExercises
+} = require('./_lib/session');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
@@ -245,8 +248,23 @@ JAK SE CHOVAT U TRÉNINKU:
 - Buď parťák u činky: povzbuď, upozorni na techniku, navrhni váhu na další sérii
 - Když ti položí otázku, odpověz na ni věcně a stručně
 - Nediktuj mu, co má dělat, u každé série. Otravný spotter je horší než žádný
-- Cvičení si může za běhu libovolně upravit: klepnutím na název cviku změní název, počet sérií, opakování i pauzu, přes "Cviky & pořadí" cviky prohodí, přidá nebo smaže, a klepnutím na zapsanou sérii ji opraví nebo smaže. Když má smysl něco změnit (stroj je obsazený, váha je moc, chybí čas), navrhni to a řekni mu, kam ťuknout
+- Cvičení si může upravit i sám: klepnutím na název cviku, přes "Cviky & pořadí", nebo klepnutím na zapsanou sérii
+${ctx.canEditSession ? `
+=== MŮŽEŠ TRÉNINK MĚNIT SÁM ===
+Máš nástroje, kterými do probíhajícího tréninku přímo saháš. Cviky adresuješ přes ID v hranatých závorkách níže.
+- Chce vyměnit cvik ("dej mi místo benche jednoručky") → edit_exercise s novým name
+- Chce jinou váhu/opakování/pauzu/míň sérií → edit_exercise
+- Chce něco přidat nebo vyhodit → add_exercise / remove_exercise
+- Chce prohodit pořadí nebo přeskočit na jiný cvik → move_exercise / goto_exercise
+- Nadiktuje ti sérii ("dal jsem 60 na osm") → log_session_set
+- Přepsal se → edit_logged_set, zapsal omylem → delete_logged_set
+- "dej mi delší pauzu" / "už jdu" → set_rest_timer
 
+ŽELEZNÉ PRAVIDLO: co řekneš, to udělej NÁSTROJEM. Nikdy nenapiš "změnil jsem ti to",
+"vyměnil jsem", "dal jsem ti tam" bez toho, že jsi zavolal nástroj — uživatel má telefon
+v ruce a hned vidí, že se nic nestalo. Buď to zavolej, nebo řekni, že to neumíš.
+Po zavolání nástroje odpověz jednou krátkou větou, co je teď jinak. Nevypisuj celý trénink.
+` : ''}
 ${ctx.proactive ? `TEĎHLE ZPRÁVU POSÍLÁŠ SÁM OD SEBE, uživatel se tě na nic neptal.
 Ozvi se JEN když máš fakt co říct — posun na osobák, znatelný propad výkonu, moc krátká pauza, poslední cvik.
 Když není nic zajímavého, odpověz PŘESNĚ takhle a nic víc: [nic]
@@ -263,6 +281,9 @@ Cíl: ${ex.target}, pauza ${ex.restSec}s
 Série dnes: ${ex.setsDone && ex.setsDone.length ? ex.setsDone.join(', ') : 'zatím žádná'}
 Minule: ${ex.lastTime || 'poprvé'}` : ''}
 ${s.remaining && s.remaining.length ? `Zbývá pak: ${s.remaining.join(', ')}` : 'Tohle je poslední cvik.'}
+${ctx.sessionExercises ? `
+=== CVIKY V TRÉNINKU (ID pro nástroje) ===
+${ctx.sessionExercises}` : ''}
 
 === HISTORIE VAH ===
 ${fmtExerciseHistory(ctx.exerciseHistory)}
@@ -533,7 +554,7 @@ module.exports = async function handler(req, res) {
     const {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
-      appSnapshot, focus, miniApps, session, proactive, sessionHistory,
+      appSnapshot, focus, miniApps, session, sessionState, proactive, sessionHistory,
       foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
@@ -558,6 +579,11 @@ module.exports = async function handler(req, res) {
     // Mini apps live alongside the plan state and are mutated by their own tools.
     const apps = Array.isArray(miniApps) ? miniApps.slice(0, 20) : [];
 
+    // Working copy of the live workout. Tools mutate this only so the model can
+    // be told what its call did — the client replays sessionActions instead.
+    const sess = isWorkout ? normSessionState(sessionState) : null;
+    const sessionActions = [];
+
     const memBlock = (Array.isArray(memories) && memories.length)
       ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
       : 'Žádná uložená fakta.';
@@ -574,6 +600,8 @@ module.exports = async function handler(req, res) {
       focus: (focus && typeof focus === 'object') ? focus : null,
       miniApps: apps,
       session: (session && typeof session === 'object') ? session : null,
+      sessionExercises: (sess && sess.exercises.length) ? fmtSessionExercises(sess) : null,
+      canEditSession: !!(sess && sess.exercises.length && proactive !== true),
       proactive: proactive === true,
       sessionHistory: Array.isArray(sessionHistory) ? sessionHistory.slice(0, 5) : []
     };
@@ -606,8 +634,11 @@ module.exports = async function handler(req, res) {
     contents.push({ role: 'user', parts: userParts });
 
     // Onboarding has no food log to touch yet — only offer the plan tools.
+    // During a workout the coach can restructure the session — but only when
+    // the user actually asked. A proactive nudge fires on its own schedule, and
+    // a spotter that silently deletes an exercise mid-set is not a feature.
     const activeTools = isWorkout
-      ? []
+      ? (ctx.canEditSession ? SESSION_TOOLS : [])
       : isOnboarding
       ? TOOL_DECLARATIONS
       : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS).concat([SEARCH_TOOL]);
@@ -721,6 +752,17 @@ module.exports = async function handler(req, res) {
           } else {
             result = { ok: false, error: 'Najednou lze navrhnout jen jednu změnu jídelního deníku.' };
           }
+        } else if (SESSION_TOOL_NAMES.has(fc.name)) {
+          if (!sess) {
+            result = { ok: false, error: 'Žádný trénink teď neběží.' };
+          } else {
+            try {
+              result = applySessionTool(fc.name, fc.args, sess, sessionActions);
+            } catch (e) {
+              console.error(`Session tool ${fc.name} threw:`, e.message);
+              result = { ok: false, error: 'Nástroj selhal: ' + e.message };
+            }
+          }
         } else if (MINIAPP_TOOL_NAMES.has(fc.name)) {
           try {
             result = applyMiniAppTool(fc.name, fc.args, apps);
@@ -783,6 +825,12 @@ module.exports = async function handler(req, res) {
         note: 'SYSTÉM: Právě jsi napsal, že appku děláš nebo že bude něco obsahovat, ale NEZAVOLAL jsi create_mini_app, takže žádná appka neexistuje a uživatel čeká na něco, co nemá. Zavolej create_mini_app TEĎ. Obsah nevypisuj do chatu — od toho je ta appka. Makra si doplň sám z dat, která máš, a na nic se už neptej.',
         fallback: 'appku se mi nepovedlo postavit ||| zkus mi napsat znovu, co v ní chceš'
       };
+    } else if (isWorkout && ctx.canEditSession && reply && !sessionActions.length && CLAIMS_A_CHANGE.test(reply)) {
+      correction = {
+        kind: 'session',
+        note: 'SYSTÉM: Právě jsi napsal, že jsi v tréninku něco změnil, ale NEZAVOLAL jsi žádný nástroj, takže se nezměnilo vůbec nic a uživatel má na displeji pořád to původní. Zavolej TEĎ správný nástroj (edit_exercise na výměnu cviku nebo změnu sérií/opakování/pauzy, add_exercise, remove_exercise, move_exercise, goto_exercise, log_session_set, edit_logged_set, delete_logged_set, set_rest_timer). Když to udělat neumíš, řekni to na rovinu. Nikdy netvrď, že je něco hotové, když to hotové není.',
+        fallback: 'tohle se mi nepovedlo změnit ||| zkus to říct jinak, nebo si to přepiš přes ✎ u cviku'
+      };
     } else if (ctx.focus && reply && !planChanged && !foodAction && !appsChanged && CLAIMS_A_CHANGE.test(reply)) {
       correction = {
         kind: 'change',
@@ -803,13 +851,17 @@ module.exports = async function handler(req, res) {
       // lie the user only discovers by looking for the result.
       const didSomething = correction.kind === 'app'
         ? appsChanged
+        : correction.kind === 'session'
+        ? sessionActions.length > 0
         : (planChanged || foodAction || appsChanged);
 
       if (!didSomething) {
         if (reply) console.log(`Suppressed false claim: ${reply.slice(0, 120)}`);
         reply = correction.fallback;
       } else if (!reply) {
-        reply = correction.kind === 'app' ? 'hotovo, appka je dole' : 'jo, teď už je to fakt upravený';
+        reply = correction.kind === 'app'
+          ? 'hotovo, appka je dole'
+          : correction.kind === 'session' ? 'jo, hotovo' : 'jo, teď už je to fakt upravený';
       }
     }
 
@@ -824,7 +876,9 @@ module.exports = async function handler(req, res) {
     }
 
     if (!reply) {
-      if (appliedTools.length) {
+      if (sessionActions.length) {
+        reply = 'hotovo';
+      } else if (appliedTools.length) {
         reply = 'hotovo, mrkni na plán';
       } else if (hitTokenLimit) {
         // Be honest: this is not overload, it is us asking for too much at once.
@@ -840,6 +894,7 @@ module.exports = async function handler(req, res) {
       planChanged,
       action: foodAction,
       appliedTools: appliedTools.map((t) => t.name),
+      sessionActions: sessionActions.length ? sessionActions : undefined,
       profile: state.profile,
       targets: state.targets,
       exerciseLogs: state.exerciseLogs,

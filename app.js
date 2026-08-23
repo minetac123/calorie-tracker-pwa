@@ -8414,6 +8414,122 @@ function logSessionSet() {
 
 // ---- Kouč u tréninku ----
 
+// The structure the coach's tools address. Ids matter more than order here:
+// the reply comes back as a list of actions keyed by exercise id, and by then
+// the user may well have logged another set.
+function sessionStateForCoach() {
+  const s = getSession_();
+  if (!s) return null;
+  return {
+    idx: s.idx,
+    exercises: s.exercises.map((e) => ({
+      id: e.id, name: e.name, targetSets: e.targetSets, targetReps: e.targetReps,
+      restSec: e.restSec, note: e.note || '',
+      sets: e.sets.map((x) => ({ w: x.w, r: x.r }))
+    }))
+  };
+}
+
+// Replays what the coach did onto the CURRENT session — never a snapshot swap,
+// so a set logged while the request was in flight survives.
+function applySessionActions(actions) {
+  const s = getSession_();
+  if (!s || s.endedAt || !Array.isArray(actions) || !actions.length) return 0;
+  const at = (id) => s.exercises.findIndex((e) => e.id === id);
+  let applied = 0;
+
+  actions.forEach((a) => {
+    if (!a || !a.op) return;
+    const i = a.id ? at(a.id) : -1;
+    const ex = i >= 0 ? s.exercises[i] : null;
+
+    switch (a.op) {
+      case 'set_rest':
+        s.restEndsAt = a.seconds > 0 ? Date.now() + a.seconds * 1000 : null;
+        applied++;
+        break;
+
+      case 'add_exercise': {
+        if (s.exercises.length >= 20 || at(a.id) !== -1) break;
+        const pos = a.position === 'end' ? s.exercises.length : Math.min(s.idx + 1, s.exercises.length);
+        s.exercises.splice(pos, 0, {
+          id: a.id, name: a.name, targetSets: a.targetSets, targetReps: a.targetReps,
+          restSec: a.restSec, note: a.note || '', sets: []
+        });
+        if (pos <= s.idx) s.idx++;
+        applied++;
+        break;
+      }
+
+      case 'edit_exercise':
+        if (!ex) break;
+        ex.name = a.name;
+        ex.targetSets = a.targetSets;
+        ex.targetReps = a.targetReps;
+        ex.restSec = a.restSec;
+        ex.note = a.note || '';
+        applied++;
+        break;
+
+      case 'remove_exercise':
+        if (!ex || s.exercises.length <= 1) break;
+        s.exercises.splice(i, 1);
+        if (s.idx >= s.exercises.length) s.idx = s.exercises.length - 1;
+        else if (s.idx > i) s.idx--;
+        applied++;
+        break;
+
+      case 'move_exercise': {
+        if (!ex) break;
+        const j = i + (a.delta < 0 ? -1 : 1);
+        if (j < 0 || j >= s.exercises.length) break;
+        const [moved] = s.exercises.splice(i, 1);
+        s.exercises.splice(j, 0, moved);
+        if (s.idx === i) s.idx = j;
+        else if (s.idx === j) s.idx = i;
+        applied++;
+        break;
+      }
+
+      case 'goto_exercise':
+        if (!ex) break;
+        s.idx = i;
+        applied++;
+        break;
+
+      case 'log_set':
+        if (!ex || ex.sets.length >= 20) break;
+        ex.sets.push({ w: a.w, r: a.r, at: Date.now() });
+        applied++;
+        break;
+
+      case 'edit_set':
+        if (!ex || !ex.sets[a.index]) break;
+        ex.sets[a.index].w = a.w;
+        ex.sets[a.index].r = a.r;
+        applied++;
+        break;
+
+      case 'delete_set':
+        if (!ex || !ex.sets[a.index]) break;
+        ex.sets.splice(a.index, 1);
+        applied++;
+        break;
+
+      default:
+        break;
+    }
+  });
+
+  if (!applied) return 0;
+  syncSessionToPlan();
+  sessionEditingSet = -1;
+  saveState();
+  buzz(30);
+  renderSession();
+  return applied;
+}
+
 function sessionContextForCoach() {
   const s = getSession_();
   if (!s) return null;
@@ -8495,6 +8611,7 @@ async function pingSessionCoach(trigger) {
       history: s.messages.slice(-8)
     });
     payload.session = sessionContextForCoach();
+    payload.sessionState = sessionStateForCoach();
     payload.proactive = true;
     const data = await callCoachAPI(payload);
     const cur = getSession_();
@@ -8526,9 +8643,11 @@ async function sendSessionChatMessage() {
   try {
     const payload = buildCoachPayload(text, { mode: 'workout', history: s.messages.slice(0, -1).slice(-10) });
     payload.session = sessionContextForCoach();
+    payload.sessionState = sessionStateForCoach();
     const data = await callCoachAPI(payload);
     typing.remove();
     appendSessionMessage((data && data.reply) || 'sorry, zkus to ještě jednou', 'assistant');
+    if (data && data.sessionActions) applySessionActions(data.sessionActions);
     if (data && data.planChanged) applyCoachPlanUpdate(data);
   } catch (e) {
     typing.remove();
