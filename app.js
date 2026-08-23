@@ -7367,6 +7367,10 @@ function miniAppRelativeTime(ts) {
 function renderMiniAppBlock(block, app) {
   const el = document.createElement('div');
 
+  if (block.type === 'html') {
+    return renderMiniAppHtmlBlock(block);
+  }
+
   if (block.type === 'info') {
     el.className = 'ma-info';
     el.innerHTML = `${block.title ? `<div class="ma-block-title">${block.title}</div>` : ''}
@@ -7500,6 +7504,7 @@ function openMiniApp(id) {
       </div>` : ''}`;
   }
 
+  detachMiniAppFrames();
   body.innerHTML = '';
   app.blocks.forEach((b) => body.appendChild(renderMiniAppBlock(b, app)));
 
@@ -7527,6 +7532,17 @@ function openMiniApp(id) {
 function closeMiniApp() {
   const modal = document.getElementById('miniapp-modal');
   if (modal) modal.classList.remove('active');
+  detachMiniAppFrames();
+}
+
+// Each HTML block registers a window message listener; drop them when its
+// markup goes away, otherwise reopening apps piles listeners up.
+function detachMiniAppFrames() {
+  const body = document.getElementById('miniapp-body');
+  if (!body) return;
+  body.querySelectorAll('.ma-html-wrap').forEach((w) => {
+    if (typeof w._detach === 'function') w._detach();
+  });
 }
 
 // Cards on the dashboard — these are situational and usually about today.
@@ -7575,4 +7591,140 @@ function initMiniAppHandlers() {
   const closeBtn = document.getElementById('miniapp-close');
   if (closeBtn) closeBtn.addEventListener('click', closeMiniApp);
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeMiniApp(); });
+}
+
+// ==========================================================================
+// VLASTNÍ HTML BLOK V MINI APPCE
+// ==========================================================================
+// The coach sometimes needs a layout the four fixed block types can't express.
+// It may then write plain HTML + CSS, which renders inside a sandboxed iframe.
+//
+// Why an iframe and not innerHTML: the sandbox has NO allow-same-origin, so the
+// frame runs in an opaque origin and cannot reach the app's DOM, localStorage
+// or session. On top of that the markup is stripped of <script> and on*
+// handlers server-side, and a CSP inside the frame blocks every external load.
+// The only script that runs in there is the bootstrap below, written by us.
+
+// The app's look, handed to the frame so coach-authored markup matches the rest
+// of the UI instead of inventing its own colours.
+const MINIAPP_FRAME_CSS = `
+:root{
+  --bg-app:#000;--bg-card:#0E0E10;--bg-elevated:#131315;--bg-elevated-2:#1B1B1E;--bg-elevated-3:#26262A;
+  --text-1:#fff;--text-2:rgba(255,255,255,.62);--text-3:rgba(255,255,255,.40);
+  --sep:rgba(255,255,255,.09);--sep-strong:rgba(255,255,255,.17);--red:#FF453A;
+  --r-lg:24px;--r-md:16px;--r-pill:100px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0;background:transparent;color:var(--text-1);
+  font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',system-ui,sans-serif;
+  font-size:15px;line-height:1.45;
+}
+.card{background:var(--bg-card);border:.5px solid var(--sep);border-radius:var(--r-lg);padding:14px;margin-bottom:10px}
+.card.hi{border-color:rgba(255,255,255,.45)}
+.row{display:flex;align-items:center;gap:12px}
+.row.between{justify-content:space-between}
+.col{display:flex;flex-direction:column;gap:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.grid.g3{grid-template-columns:1fr 1fr 1fr}
+.title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text-3);margin-bottom:9px}
+.name{font-size:15.5px;font-weight:700;letter-spacing:-.2px}
+.muted{font-size:13px;color:var(--text-3);line-height:1.4}
+.big{font-size:20px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.pill{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;
+  padding:3px 9px;border-radius:var(--r-pill);background:linear-gradient(180deg,#fff,#D9D9D9);color:#000}
+.pill.dim{background:rgba(255,255,255,.07);color:var(--text-2);border:.5px solid var(--sep-strong)}
+.bar{height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#fff,#C7C7C7)}
+.btn{display:block;width:100%;margin-top:12px;padding:11px;border-radius:11px;border:.5px solid var(--sep-strong);
+  background:transparent;color:var(--text-2);font:inherit;font-size:13.5px;font-weight:650;cursor:pointer}
+.btn.primary{background:linear-gradient(180deg,#fff,#DCDCDC);border-color:transparent;color:#000;font-weight:700}
+.btn:active{transform:scale(.98)}
+hr{border:0;border-top:.5px solid var(--sep);margin:14px 0}
+a{color:var(--text-1)}
+`;
+
+// Runs inside the frame. Reports height so the iframe can size itself, and
+// forwards taps on [data-log-name] up to the app. Nothing else.
+const MINIAPP_FRAME_JS = `
+(function(){
+  function post(m){ parent.postMessage(m,'*'); }
+  function height(){ post({t:'h', h: Math.ceil(document.documentElement.scrollHeight)}); }
+  new ResizeObserver(height).observe(document.documentElement);
+  addEventListener('load', height); height();
+  addEventListener('click', function(e){
+    var el = e.target.closest('[data-log-name]');
+    if(!el) return;
+    post({ t:'log', food:{
+      name: el.getAttribute('data-log-name'),
+      amount: el.getAttribute('data-log-amount') || '',
+      calories: el.getAttribute('data-log-calories'),
+      protein: el.getAttribute('data-log-protein'),
+      carbs: el.getAttribute('data-log-carbs'),
+      fat: el.getAttribute('data-log-fat')
+    }});
+    el.textContent = 'zapsáno ✓';
+    el.setAttribute('disabled','');
+  });
+})();
+`;
+
+function buildMiniAppFrameDoc(block) {
+  // The CSP is what stops the frame reaching the network at all. Combined with
+  // the missing allow-same-origin, there is nowhere for data to leak to.
+  return `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:">
+<style>${MINIAPP_FRAME_CSS}${block.css || ''}</style>
+</head><body>${block.html}<script>${MINIAPP_FRAME_JS}<\/script></body></html>`;
+}
+
+function renderMiniAppHtmlBlock(block) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ma-html-wrap';
+  if (block.title) {
+    const t = document.createElement('div');
+    t.className = 'ma-block-title';
+    t.textContent = block.title;
+    wrap.appendChild(t);
+  }
+
+  const frame = document.createElement('iframe');
+  frame.className = 'ma-html-frame';
+  // No allow-same-origin: the frame gets an opaque origin and stays walled off.
+  frame.setAttribute('sandbox', 'allow-scripts');
+  frame.setAttribute('referrerpolicy', 'no-referrer');
+  frame.setAttribute('loading', 'lazy');
+  frame.srcdoc = buildMiniAppFrameDoc(block);
+  wrap.appendChild(frame);
+
+  const onMessage = (e) => {
+    // Origin is "null" for a sandboxed frame, so identity comes from the source
+    // window — that is the only thing that can't be spoofed by another frame.
+    if (e.source !== frame.contentWindow) return;
+    const msg = e.data;
+    if (!msg || typeof msg !== 'object') return;
+
+    if (msg.t === 'h') {
+      const h = Number(msg.h);
+      if (Number.isFinite(h) && h > 0) frame.style.height = Math.min(h + 4, 2000) + 'px';
+      return;
+    }
+    if (msg.t === 'log' && msg.food && msg.food.name) {
+      const f = msg.food;
+      logMiniAppOption({
+        name: String(f.name).slice(0, 90),
+        amount: String(f.amount || '1 porce').slice(0, 30),
+        calories: Number(f.calories) || 0,
+        protein: Number(f.protein) || 0,
+        carbs: Number(f.carbs) || 0,
+        fat: Number(f.fat) || 0
+      });
+    }
+  };
+  window.addEventListener('message', onMessage);
+  // Dropped along with the modal contents; keep a handle so it can be removed.
+  wrap._detach = () => window.removeEventListener('message', onMessage);
+
+  return wrap;
 }
