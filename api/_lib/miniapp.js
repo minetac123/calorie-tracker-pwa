@@ -8,7 +8,7 @@
 // result always looks like the rest of the app. Everything below is the shape
 // of that spec plus the validation that makes model output safe to store.
 
-const MINIAPP_BLOCK_TYPES = ['info', 'options', 'checklist', 'stats'];
+const MINIAPP_BLOCK_TYPES = ['info', 'options', 'checklist', 'stats', 'html'];
 
 function num(v, fallback = 0) {
   const n = Number(v);
@@ -50,6 +50,37 @@ function normOption(o) {
   return out;
 }
 
+// Strip everything executable out of coach-authored markup.
+//
+// The block is rendered in a sandboxed iframe WITHOUT allow-same-origin, so it
+// already can't touch the app. This is the second layer: the coach writes
+// markup and CSS only, so the sole script running inside the frame is our own
+// bootstrap. Interactivity goes through data-* attributes instead.
+function sanitizeHtml(html) {
+  return String(html || '')
+    // whole elements that can execute or embed foreign content
+    .replace(/<\s*(script|iframe|object|embed|link|meta|base|form)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*(script|iframe|object|embed|link|meta|base|form)\b[^>]*>/gi, '')
+    // inline event handlers: onclick=, onerror=, ...
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
+    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, '')
+    // javascript:/vbscript: URLs and srcdoc smuggling
+    .replace(/(href|src|action|formaction|srcdoc)\s*=\s*"\s*(javascript|vbscript|data:text\/html)[^"]*"/gi, '')
+    .replace(/(href|src|action|formaction|srcdoc)\s*=\s*'\s*(javascript|vbscript|data:text\/html)[^']*'/gi, '')
+    .slice(0, 12000);
+}
+
+// CSS can't execute, but url() and @import can phone home, and the frame's CSP
+// blocks those anyway — strip them so nothing even tries.
+function sanitizeCss(css) {
+  return String(css || '')
+    .replace(/@import[^;]*;/gi, '')
+    .replace(/expression\s*\(/gi, '')
+    .replace(/url\s*\(\s*(?!['"]?data:image)[^)]*\)/gi, 'none')
+    .slice(0, 8000);
+}
+
 function normBlock(b) {
   if (!b || !MINIAPP_BLOCK_TYPES.includes(b.type)) return null;
 
@@ -79,6 +110,12 @@ function normBlock(b) {
       .slice(0, 25);
     if (!items.length) return null;
     return { type: 'checklist', title: str(b.title, 80), items };
+  }
+
+  if (b.type === 'html') {
+    const html = sanitizeHtml(b.html);
+    if (!html.trim()) return null;
+    return { type: 'html', title: str(b.title, 80), html, css: sanitizeCss(b.css) };
   }
 
   if (b.type === 'stats') {
@@ -126,6 +163,7 @@ function fmtMiniApps(apps) {
       if (b.type === 'options') return `${b.options.length} voleb (${b.options.slice(0, 4).map((o) => o.name).join(', ')}${b.options.length > 4 ? '…' : ''})`;
       if (b.type === 'checklist') return `checklist ${b.items.length} položek`;
       if (b.type === 'stats') return `${b.items.length} čísel`;
+      if (b.type === 'html') return 'vlastní HTML blok';
       return 'text';
     });
     const src = app.estimated === false ? ' [postavená z reálných dat z webu]' : ' [hodnoty jsou odhad, nebyla dohledaná]';
@@ -156,11 +194,13 @@ const OPTION_SCHEMA = {
 const BLOCK_SCHEMA = {
   type: 'OBJECT',
   properties: {
-    type: { type: 'STRING', enum: MINIAPP_BLOCK_TYPES, description: 'info = text, options = výběr z možností, checklist = odškrtávací seznam, stats = pár klíčových čísel' },
+    type: { type: 'STRING', enum: MINIAPP_BLOCK_TYPES, description: 'info = text, options = výběr z možností, checklist = odškrtávací seznam, stats = pár klíčových čísel, html = vlastní rozvržení, když ti hotové bloky nestačí' },
     title: { type: 'STRING' },
     text: { type: 'STRING', description: 'Jen pro type "info"' },
     note: { type: 'STRING', description: 'Poznámka pod nadpisem, jen pro "options"' },
     options: { type: 'ARRAY', items: OPTION_SCHEMA, description: 'Jen pro type "options"' },
+    html: { type: 'STRING', description: 'Jen pro type "html". Čisté HTML bez <script> a bez onclick — ty se stejně zahodí. Používej třídy design systému (card, row, title, muted, pill, grid, big) a proměnné var(--text-1) atd. Interaktivní prvek uděláš atributem data-log-name/data-log-calories/data-log-protein/data-log-carbs/data-log-fat/data-log-amount na tlačítku.' },
+    css: { type: 'STRING', description: 'Jen pro type "html". Doplňkové CSS, když potřebuješ něco navíc. Barvy ber z proměnných design systému, ne natvrdo.' },
     items: {
       type: 'ARRAY',
       description: 'Pro "checklist" použij {label}, pro "stats" {label, value, sub}',

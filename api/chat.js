@@ -349,6 +349,16 @@ Umíš uživateli postavit malou appku na míru situaci, kterou plán neřeší 
 - Zohledni, kolik mu dnes zbývá do cíle — u doporučené volby dej recommended:true
 - Když chce něco jiného, uprav existující appku přes update_mini_app, nedělej duplikát
 
+VLASTNÍ HTML V APPCE (blok type:"html"):
+Když ti hotové bloky na něco nestačí — srovnávací tabulka, časová osa, netypické rozvržení — napiš si vlastní HTML. Píšeš POUZE značky a CSS: <script> ani onclick se zahodí, protože se to vykresluje v izolovaném rámci.
+Design systém, který je uvnitř k dispozici (drž se ho, ať to ladí se zbytkem appky):
+- třídy: card (i card hi pro zvýrazněnou), row (row between), col, grid (grid g3), title, name, muted, big, pill (pill dim), bar s vnitřním <i> pro postup, btn (btn primary)
+- barvy ber z proměnných: var(--text-1), var(--text-2), var(--text-3), var(--bg-card), var(--sep), var(--red)
+- nikdy nepiš barvy natvrdo a nepoužívej vlastní fonty
+Zapsat jídlo do deníku jde tlačítkem s atributy:
+<button class="btn primary" data-log-name="Pizza Diavola" data-log-amount="420g" data-log-calories="880" data-log-protein="42" data-log-carbs="98" data-log-fat="34">Zapsat do deníku</button>
+Když stačí obyčejný seznam voleb, použij radši blok "options" — je na to dělaný.
+
 === VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
