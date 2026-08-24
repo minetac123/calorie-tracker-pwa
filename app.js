@@ -3160,11 +3160,12 @@ function initWakeLock() {
     }
     // Coming back to the app is a good moment to push whatever was written
     // while there was no connection.
-    if (document.visibilityState === 'visible') flushPendingSync();
+    if (document.visibilityState === 'visible') { flushPendingSync(); flushCoachQueue(); }
   });
 
-  // Back on a network — push anything that was saved while offline.
-  window.addEventListener('online', flushPendingSync);
+  // Back on a network — push anything that was saved while offline, and let the
+  // coach answer whatever was asked in the meantime.
+  window.addEventListener('online', () => { flushPendingSync(); flushCoachQueue(); });
 }
 
 // ==========================================================================
@@ -5187,7 +5188,13 @@ async function sendCoachMessage() {
         setTimeout(() => renderMiniAppChatCard(data.newMiniAppId), parts.length * 500 + 200);
       }
     } else if (netError) {
-      appendCoachBubble('spojení vypadlo bro, zkus to ještě jednou', 'assistant');
+      const local = offlineCoachAnswer(message);
+      if (local) {
+        appendCoachBubble(local + ' (offline, tohle vím z tvých dat)', 'assistant');
+      } else {
+        const n = queueCoachMessage('chat', message, image);
+        appendCoachBubble(`nemám signál — uložil jsem si to (${n} ve frontě) a odpovím, až chytnu síť`, 'assistant');
+      }
     } else {
       appendCoachBubble((data && data.error) || 'sorry, jsem teď dost cooked, zkus to za chvíli', 'assistant');
     }
@@ -8795,6 +8802,180 @@ async function pingSessionCoach(trigger) {
   } catch (e) { /* a missed nudge is not worth bothering the user about */ }
 }
 
+// ==========================================================================
+// OFFLINE KOUČ
+// ==========================================================================
+// Cell signal in a basement gym is a coin flip, and a language model that fits
+// on a phone does not fit in an iOS PWA (see the note in the README of this
+// feature: multi-gigabyte weights, WebKit memory ceilings). But most of what
+// anyone actually asks between sets is answerable from data already on the
+// device — deterministically, so it can never make something up. Whatever this
+// cannot answer gets queued and sent the moment there is signal again.
+
+const BAR_KG = 20;
+const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
+
+function stripDia(t) {
+  return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Which plates go on each side to reach a target weight.
+function plateMath(target, bar) {
+  const barKg = bar == null ? BAR_KG : bar;
+  if (!(target > 0)) return null;
+  if (target < barKg) return { impossible: true, bar: barKg };
+  let perSide = (target - barKg) / 2;
+  const used = [];
+  PLATES.forEach((pl) => {
+    while (perSide >= pl - 0.001) { used.push(pl); perSide -= pl; }
+  });
+  const rest = Math.round(perSide * 100) / 100;
+  return { bar: barKg, perSide: used, leftover: rest, exact: rest < 0.01 };
+}
+
+function fmtPlates(target) {
+  const r = plateMath(target);
+  if (!r) return null;
+  if (r.impossible) return `${target} kg je míň než prázdná osa (${r.bar} kg) — vem si jednoručky.`;
+  if (!r.perSide.length) return `${target} kg je přesně prázdná osa, nic nenakládej.`;
+  const counts = {};
+  r.perSide.forEach((x) => { counts[x] = (counts[x] || 0) + 1; });
+  const list = Object.keys(counts)
+    .sort((a, b) => Number(b) - Number(a))
+    .map((k) => `${counts[k]}× ${k}`)
+    .join(' + ');
+  const tail = r.exact ? '' : ` (přesně to nevyjde, chybí ${r.leftover} kg na stranu)`;
+  return `${target} kg = osa ${r.bar} + na každou stranu ${list}${tail}`;
+}
+
+// Next-set suggestion straight from this device's own history.
+function offlineProgressionHint(exName) {
+  const hist = getExerciseHistory(exName) || [];
+  if (!hist.length) return `Na ${exName} tu ještě nic zapsaného nemám — dej váhu, kterou uděláš na čistých 8 a od toho se odpíchni.`;
+  const last = hist[0];
+  const top = sessionTopSet(last);
+  if (!top) return `Minule u ${exName} nemám zapsané série.`;
+  const reps = last.sets.map((x) => x.r);
+  const allHigh = reps.every((r) => r >= 12);
+  const line = `Minule (${last.date}): ${last.sets.map((x) => `${x.w}×${x.r}`).join(', ')}.`;
+  if (allHigh) return `${line} Všechno na 12+, přidej 2,5 kg → ${Math.round((top.w + 2.5) * 10) / 10} kg.`;
+  return `${line} Zůstaň na ${top.w} kg a zkus přidat opakování.`;
+}
+
+// Returns an answer built purely from local data, or null when the question
+// genuinely needs the model.
+function offlineCoachAnswer(question) {
+  const q = stripDia(question);
+  const s = getSession_();
+  const ex = s ? sessionCurrentExercise() : null;
+
+  // "kolik kotoučů na 60", "jak naložit 80 kg"
+  if (/(kotouc|naloz|nalozit|zavaz)/.test(q)) {
+    const m = q.match(/(\d+[.,]?\d*)\s*(kg)?/);
+    const target = m ? parseFloat(m[1].replace(',', '.')) : null;
+    if (target) return fmtPlates(target);
+    return 'Řekni mi váhu a spočítám ti kotouče — třeba „kolik kotoučů na 60".';
+  }
+
+  if (!s) return null; // the rest only makes sense inside a workout
+
+  if (/(minule|posledn)/.test(q) && ex) {
+    const last = getLastExerciseSession(ex.name, s.date);
+    if (!last) return `Na ${ex.name} tu z dřívějška nic nemám, tohle je poprvé.`;
+    return `${ex.name} minule (${last.date}): ${last.sets.map((x) => `${x.w} kg × ${x.r}`).join(', ')}.`;
+  }
+
+  // Checked before the "what weight" branch below — "kolik už mám objem" also
+  // starts with "kolik" and would otherwise be answered as a weight question.
+  if (/(objem|kolik jsem uz|kolik uz jsem|nadrel)/.test(q)) {
+    const t = sessionTotals();
+    return `Zatím ${t.sets} sérií, objem ${t.volume} kg, ${fmtClock(sessionElapsedMs())} v hale.`;
+  }
+
+  if (/(kolik.*(mam|bych|dat|davat)|jakou vahu|kolik ted|co ted dat)/.test(q) && ex) {
+    return offlineProgressionHint(ex.name);
+  }
+
+  if (/(zbyva|zbyvaji|kolik jeste|co jeste|kolik mi zbyva)/.test(q)) {
+    const t = sessionTotals();
+    const rest = s.exercises.slice(s.idx + 1).map((e) => e.name);
+    return `Máš ${t.done}/${s.exercises.length} cviků a ${t.sets} sérií. ${rest.length ? 'Zbývá: ' + rest.join(', ') + '.' : 'Tohle je poslední cvik.'}`;
+  }
+
+  if (/(pauz|odpocin|odpocinek)/.test(q) && ex) {
+    const left = s.restEndsAt ? Math.max(0, Math.ceil((s.restEndsAt - Date.now()) / 1000)) : 0;
+    return left
+      ? `Zbývá ${left}s pauzy (u ${ex.name} je nastavená na ${ex.restSec}s).`
+      : `U ${ex.name} máš pauzu ${ex.restSec}s. Teď žádná neběží.`;
+  }
+
+  return null;
+}
+
+// ---- Fronta na dobu bez signálu ----
+
+function getCoachQueue() {
+  if (!Array.isArray(appState.coachQueue)) appState.coachQueue = [];
+  return appState.coachQueue;
+}
+
+function queueCoachMessage(where, text, image) {
+  const q = getCoachQueue();
+  q.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    where, text: String(text || '').slice(0, 2000), image: image || null, ts: Date.now()
+  });
+  // Photos are heavy; keep the backlog from eating the storage quota.
+  if (q.length > 20) appState.coachQueue = q.slice(-20);
+  saveState();
+  return q.length;
+}
+
+let flushingQueue = false;
+
+async function flushCoachQueue() {
+  if (flushingQueue) return;
+  const q = getCoachQueue();
+  if (!q.length || navigator.onLine === false) return;
+  flushingQueue = true;
+  try {
+    while (getCoachQueue().length) {
+      const item = getCoachQueue()[0];
+      const payload = buildCoachPayload(item.text, {
+        mode: item.where === 'trénink' ? 'workout' : 'coach',
+        history: []
+      });
+      if (item.image) payload.image = item.image;
+      const s = getSession_();
+      if (item.where === 'trénink' && s) {
+        payload.session = sessionContextForCoach();
+        payload.sessionState = sessionStateForCoach();
+      }
+      let data;
+      try {
+        data = await callCoachAPI(payload);
+      } catch (e) {
+        break; // still no connection — leave the rest queued
+      }
+      appState.coachQueue = getCoachQueue().slice(1);
+      if (data && data.newMemories) applyNewMemories(data.newMemories);
+      if (data && data.sessionActions) applySessionActions(data.sessionActions);
+      const reply = (data && data.reply) || null;
+      if (reply) {
+        if (item.where === 'trénink' && getSession_()) {
+          appendSessionMessage(reply, 'assistant');
+        } else {
+          logCoachTurn(item.where, 'assistant', reply);
+          showToast('Kouč odpověděl na zprávu z offlinu');
+        }
+      }
+      saveState();
+    }
+  } finally {
+    flushingQueue = false;
+  }
+}
+
 // ---- Fotka do chatu u tréninku ----
 let sessionPendingImage = null;
 
@@ -8864,12 +9045,17 @@ async function sendSessionChatMessage() {
     if (data && data.planChanged) applyCoachPlanUpdate(data);
   } catch (e) {
     typing.remove();
-    // Being specific matters here: the workout itself keeps working offline,
-    // and the user should know that rather than assume the app is broken.
+    // No signal. A lot of what gets asked between sets — plate math, what you
+    // lifted last time, what's left — is answerable from this phone alone, so
+    // try that before giving up. Anything else waits in the queue.
+    const local = offlineCoachAnswer(text);
+    if (local) {
+      appendSessionMessage(local + ' ||| (offline, tohle vím z tvých dat)', 'assistant');
+      return;
+    }
+    const n = queueCoachMessage('trénink', text || 'mrkni na tu fotku', image);
     appendSessionMessage(
-      navigator.onLine === false
-        ? 'jsi offline, takže se ti teď neozvu ||| trénink si klidně zapisuj dál, uloží se a přijde ke mně, až budeš zas na síti'
-        : 'spojení vypadlo, zkus to znovu',
+      `nemám signál, tak ti teď neporadím ||| uložil jsem si to (${n} ve frontě) a odpovím, jakmile chytnu síť — trénink zapisuj dál`,
       'assistant'
     );
   }
