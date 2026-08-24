@@ -2930,10 +2930,25 @@ async function syncToCloud() {
       favorites: appState.favorites,
       coachChats: appState.coachChats,
       coachMemories: appState.coachMemories,
-      coachMemoryEnabled: appState.coachMemoryEnabled
+      coachMemoryEnabled: appState.coachMemoryEnabled,
+      // The whole plan layer used to live only in this browser's localStorage —
+      // clear site data or pick up another device and the plan, every logged
+      // weight and the entire training history were simply gone.
+      profile: appState.profile,
+      targets: appState.targets,
+      workoutPlan: appState.workoutPlan,
+      mealPlan: appState.mealPlan,
+      workoutLogs: appState.workoutLogs,
+      mealChecks: appState.mealChecks,
+      exerciseLogs: appState.exerciseLogs,
+      sessionHistory: appState.sessionHistory,
+      miniApps: appState.miniApps,
+      planSavedAt: Date.now()
+      // activeSession stays local on purpose — resuming a half-finished
+      // workout on a different device would be nonsense.
     };
 
-    await fetch('/api/sync', {
+    const resp = await fetch('/api/sync', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2941,9 +2956,69 @@ async function syncToCloud() {
       },
       body: JSON.stringify(dataToSync)
     });
+    if (!resp.ok) throw new Error('sync HTTP ' + resp.status);
+    appState.planSavedAt = dataToSync.planSavedAt;
+    syncPending = false;
+    localStorage.setItem('fitai_state', JSON.stringify(appState)); // no re-sync loop
   } catch (err) {
+    // Offline or the request failed. Nothing is lost — it is all still in
+    // localStorage — but it has to be pushed again once there is a connection.
+    syncPending = true;
     console.error('Cloud sync error:', err);
   }
+}
+
+// A save made offline used to sit in localStorage forever: syncToCloud only
+// ever ran off the next saveState, so if the user just closed the app after
+// their last set, the cloud never heard about it.
+let syncPending = false;
+
+function flushPendingSync() {
+  if (!syncPending) return;
+  if (!getSession() || isLocalDev()) return;
+  syncToCloud();
+}
+
+// Folds the cloud's plan layer into the local one. Date-keyed and id-keyed
+// collections merge key by key so nothing is lost either way; the single-object
+// ones (plan, profile, targets) can't merge, so the newer write wins — and if
+// this device has never synced, whatever the cloud holds is strictly better
+// than nothing.
+function mergePlanFromCloud(cloud) {
+  if (!cloud) return;
+
+  const mergeByKey = (localObj, cloudObj) => {
+    if (!cloudObj || typeof cloudObj !== 'object') return localObj || {};
+    const out = Object.assign({}, localObj || {});
+    Object.keys(cloudObj).forEach((k) => { if (!(k in out)) out[k] = cloudObj[k]; });
+    return out;
+  };
+
+  const mergeById = (localArr, cloudArr, cap) => {
+    const out = Array.isArray(localArr) ? localArr.slice() : [];
+    const seen = new Set(out.map((x) => x && x.id).filter(Boolean));
+    (Array.isArray(cloudArr) ? cloudArr : []).forEach((x) => {
+      if (x && x.id && !seen.has(x.id)) { out.push(x); seen.add(x.id); }
+    });
+    out.sort((a, b) => String((b && b.date) || '').localeCompare(String((a && a.date) || '')));
+    return cap ? out.slice(0, cap) : out;
+  };
+
+  appState.workoutLogs = mergeByKey(appState.workoutLogs, cloud.workoutLogs);
+  appState.mealChecks = mergeByKey(appState.mealChecks, cloud.mealChecks);
+  appState.exerciseLogs = mergeByKey(appState.exerciseLogs, cloud.exerciseLogs);
+  appState.sessionHistory = mergeById(appState.sessionHistory, cloud.sessionHistory, 60);
+  appState.miniApps = mergeById(appState.miniApps, cloud.miniApps, 20);
+
+  const cloudAt = Number(cloud.planSavedAt) || 0;
+  const localAt = Number(appState.planSavedAt) || 0;
+  const takeCloud = (localValue) => !localValue || cloudAt > localAt;
+
+  if (cloud.workoutPlan && takeCloud(appState.workoutPlan)) appState.workoutPlan = cloud.workoutPlan;
+  if (cloud.mealPlan && takeCloud(appState.mealPlan)) appState.mealPlan = cloud.mealPlan;
+  if (cloud.profile && takeCloud(appState.profile)) appState.profile = cloud.profile;
+  if (cloud.targets && takeCloud(appState.targets)) appState.targets = cloud.targets;
+  if (cloudAt > localAt) appState.planSavedAt = cloudAt;
 }
 
 async function syncFromCloud() {
@@ -2979,6 +3054,8 @@ async function syncFromCloud() {
       if (Array.isArray(cloudState.coachChats)) appState.coachChats = cloudState.coachChats;
       if (Array.isArray(cloudState.coachMemories)) appState.coachMemories = cloudState.coachMemories;
       if (cloudState.coachMemoryEnabled !== undefined) appState.coachMemoryEnabled = cloudState.coachMemoryEnabled;
+
+      mergePlanFromCloud(cloudState);
       migrateCoachChats();
 
       saveState(true);
@@ -3069,7 +3146,13 @@ function initWakeLock() {
     if (document.visibilityState === 'visible' && wakeLock === null) {
       requestWakeLock();
     }
+    // Coming back to the app is a good moment to push whatever was written
+    // while there was no connection.
+    if (document.visibilityState === 'visible') flushPendingSync();
   });
+
+  // Back on a network — push anything that was saved while offline.
+  window.addEventListener('online', flushPendingSync);
 }
 
 // ==========================================================================
@@ -8550,10 +8633,10 @@ function sessionContextForCoach() {
   };
 }
 
-function appendSessionMessage(text, role) {
+function appendSessionMessage(text, role, thumb) {
   const s = getSession_();
   if (!s) return;
-  s.messages.push({ role, text, ts: Date.now() });
+  s.messages.push({ role, text, ts: Date.now(), thumb: thumb || undefined });
   if (s.messages.length > 60) s.messages = s.messages.slice(-60);
   saveState();
   renderSessionChat();
@@ -8565,6 +8648,16 @@ function renderSessionChat() {
   if (!s || !box) return;
   box.innerHTML = '';
   s.messages.slice(-20).forEach((m) => {
+    if (m.thumb) {
+      const wrap = document.createElement('div');
+      wrap.className = `coach-bubble ${m.role} has-photo`;
+      const img = document.createElement('img');
+      img.className = 'ses-chat-photo';
+      img.src = m.thumb;
+      img.alt = 'fotka';
+      wrap.appendChild(img);
+      box.appendChild(wrap);
+    }
     m.text.split(/\s*\|\|\|\s*/).filter(Boolean).forEach((part) => {
       const el = document.createElement('div');
       el.className = `coach-bubble ${m.role}`;
@@ -8625,14 +8718,51 @@ async function pingSessionCoach(trigger) {
   } catch (e) { /* a missed nudge is not worth bothering the user about */ }
 }
 
+// ---- Fotka do chatu u tréninku ----
+let sessionPendingImage = null;
+
+async function handleSessionImageFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    sessionPendingImage = await downscaleImage(dataUrl, 1024, 0.8);
+    const preview = document.getElementById('ses-chat-preview');
+    const thumb = document.getElementById('ses-chat-thumb');
+    if (thumb) thumb.src = sessionPendingImage;
+    if (preview) preview.style.display = 'flex';
+  } catch (e) {
+    showToast('Nepodařilo se načíst fotku');
+  }
+}
+
+function clearSessionImage() {
+  sessionPendingImage = null;
+  const preview = document.getElementById('ses-chat-preview');
+  const file = document.getElementById('ses-chat-file');
+  if (preview) preview.style.display = 'none';
+  if (file) file.value = '';
+}
+
 async function sendSessionChatMessage() {
   const input = document.getElementById('ses-chat-input');
   const s = getSession_();
   if (!input || !s) return;
   const text = input.value.trim();
-  if (!text) return;
+  const image = sessionPendingImage;
+  if (!text && !image) return;
   input.value = '';
-  appendSessionMessage(text, 'user');
+  clearSessionImage();
+
+  // Store a small thumbnail with the message so the bubble survives a reload,
+  // but send the full-size one — the session lives in localStorage and a stack
+  // of 1024px data URLs would blow the quota.
+  const thumb = image ? await downscaleImage(image, 200, 0.6) : null;
+  appendSessionMessage(text || '📷', 'user', thumb);
 
   const box = document.getElementById('ses-chat-msgs');
   const typing = document.createElement('div');
@@ -8641,9 +8771,12 @@ async function sendSessionChatMessage() {
   if (box) { box.appendChild(typing); box.scrollTop = box.scrollHeight; }
 
   try {
-    const payload = buildCoachPayload(text, { mode: 'workout', history: s.messages.slice(0, -1).slice(-10) });
+    const payload = buildCoachPayload(text || 'mrkni na tu fotku', {
+      mode: 'workout', history: s.messages.slice(0, -1).slice(-10)
+    });
     payload.session = sessionContextForCoach();
     payload.sessionState = sessionStateForCoach();
+    if (image) payload.image = image;
     const data = await callCoachAPI(payload);
     typing.remove();
     appendSessionMessage((data && data.reply) || 'sorry, zkus to ještě jednou', 'assistant');
@@ -8651,7 +8784,14 @@ async function sendSessionChatMessage() {
     if (data && data.planChanged) applyCoachPlanUpdate(data);
   } catch (e) {
     typing.remove();
-    appendSessionMessage('spojení vypadlo', 'assistant');
+    // Being specific matters here: the workout itself keeps working offline,
+    // and the user should know that rather than assume the app is broken.
+    appendSessionMessage(
+      navigator.onLine === false
+        ? 'jsi offline, takže se ti teď neozvu ||| trénink si klidně zapisuj dál, uloží se a přijde ke mně, až budeš zas na síti'
+        : 'spojení vypadlo, zkus to znovu',
+      'assistant'
+    );
   }
 }
 
@@ -8661,6 +8801,12 @@ function initSessionHandlers() {
   const toggle = document.getElementById('ses-chat-toggle');
   const close = document.getElementById('ses-chat-close');
   if (send) send.addEventListener('click', sendSessionChatMessage);
+  const attach = document.getElementById('ses-chat-attach');
+  const fileInput = document.getElementById('ses-chat-file');
+  const imgRemove = document.getElementById('ses-chat-imgremove');
+  if (attach && fileInput) attach.addEventListener('click', () => fileInput.click());
+  if (fileInput) fileInput.addEventListener('change', (e) => handleSessionImageFile(e.target.files[0]));
+  if (imgRemove) imgRemove.addEventListener('click', clearSessionImage);
   if (input) input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); sendSessionChatMessage(); }
   });
