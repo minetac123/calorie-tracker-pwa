@@ -34,6 +34,22 @@ const MAX_TOOL_ROUNDS = 6;
 // loop matters: the coach must never silently rewrite what someone ate.
 const FOOD_CATEGORIES = ['Snídaně', 'Dopolední svačina', 'Oběd', 'Odpolední svačina', 'Večeře', 'Druhá večeře'];
 
+// The coach could never write to its own memory — the user filled it by hand in
+// settings — so a constraint stated mid-workout ("tady jsou jen desítky a
+// patnáctky") lived only in the chat scrollback and was re-forgotten a few
+// messages later. This lets the coach keep it for good.
+const MEMORY_TOOL = {
+  name: 'remember_fact',
+  description: 'Ulož si natrvalo fakt o uživateli nebo jeho posilovně, který má platit i příště. Volej VŽDY, když ti uživatel řekne nějaké omezení nebo trvalou informaci: jaké má k dispozici váhy a stroje, co ho bolí, co nejí, co nesnáší za cviky. Neukládej nálady ani jednorázové věci ("dnes jsem unavený").',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      fact: { type: 'STRING', description: 'Krátká věta v češtině, např. "V posilovně má jednoručky jen po 10 a 15 kg."' }
+    },
+    required: ['fact']
+  }
+};
+
 const FOOD_TOOL_NAMES = new Set(['log_food', 'delete_food', 'edit_food', 'log_planned_meal']);
 
 const FOOD_TOOLS = [
@@ -248,6 +264,18 @@ JAK SE CHOVAT U TRÉNINKU:
 - Buď parťák u činky: povzbuď, upozorni na techniku, navrhni váhu na další sérii
 - Když ti položí otázku, odpověz na ni věcně a stručně
 - Nediktuj mu, co má dělat, u každé série. Otravný spotter je horší než žádný
+
+CO TI UŽIVATEL ŘEKNE, TO PLATÍ — TOHLE JE NEJDŮLEŽITĚJŠÍ PRAVIDLO:
+- Když ti řekne, jaké má k dispozici váhy nebo vybavení ("jsou tu jen desítky a patnáctky"),
+  je to TVRDÉ OMEZENÍ. Nikdy mu pak nenavrhni váhu, která tam není. Ani "pro zajímavost",
+  ani o dvě zprávy později
+- Takové omezení si OKAMŽITĚ ulož přes remember_fact, ať ho víš i příští trénink
+- Když ti řekne, že něco nedá nebo nechce, NEOPAKUJ to samé znovu jinými slovy.
+  Přijmi to a pracuj s tím, co má. "Sorry" a hned nato stejný návrh je to nejhorší, co můžeš udělat
+- Když ti odmítne návrh dvakrát, přestaň navrhovat váhy úplně. Zeptej se, co chce dělat,
+  nebo mu prostě zapiš, co udělal
+- Než navrhneš jakoukoliv váhu, projdi si PAMĚŤ a CO DNES ŘEKL níž. Když tam je omezení, drž se ho
+- Neptej se u každé zprávy "co ty na to?". Uživatel stojí u činky, ne v konverzaci
 - Cvičení si může upravit i sám: klepnutím na název cviku, přes "Cviky & pořadí", nebo klepnutím na zapsanou sérii
 - MŮŽE TI POSLAT FOTKU přímo z posilovny. Typicky štítek na stroji nebo kotouče (přečti váhu a řekni, kolik to je), neznámý stroj (řekni, co to je a jak se na tom cvičí), nastavení sedačky, nebo sám sebe při cviku (mrkni na techniku). Popiš jen to, co na fotce fakt vidíš — když je rozmazaná nebo z ní váhu nepřečteš, řekni to a nehádej. Pořád platí stručnost: dvě věty
 ${ctx.canEditSession ? `
@@ -291,6 +319,13 @@ ${fmtExerciseHistory(ctx.exerciseHistory)}
 
 === PROFIL ===
 ${fmtProfile(ctx.profile)}
+
+=== PAMĚŤ (trvalá fakta, PLATÍ VŽDY) ===
+${ctx.memBlock}
+${ctx.saidToday ? `
+=== CO TI UŽIVATEL DNES NAPSAL (doslova, od začátku tréninku) ===
+Tohle je závazné. Když je tu omezení, drž se ho — i kdyby padlo před půl hodinou.
+${ctx.saidToday}` : ''}
 
 Dnes je ${ctx.todayDate}, čas ${ctx.nowTime || 'neznámý'}.`;
 }
@@ -427,8 +462,12 @@ Když stačí obyčejný seznam voleb, použij radši blok "options" — je na t
 === VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
-=== PAMĚŤ ===
+=== PAMĚŤ (trvalá fakta, PLATÍ VŽDY) ===
 ${ctx.memBlock}
+Když ti uživatel řekne trvalé omezení nebo fakt o sobě — jaké má doma či v posilovně
+vybavení a váhy, co ho bolí, co nejí, na co má alergii, co nesnáší za cviky — ulož si
+to přes remember_fact. Pak už mu nikdy nenavrhuj něco, co podle paměti nemůže.
+Neukládej nálady ani jednorázovky ("dneska jsem unavený").
 
 Dnes je ${ctx.todayDate} (${DAY_CZ[ctx.todayKey]}), čas ${ctx.nowTime || 'neznámý'}.`;
 }
@@ -584,6 +623,7 @@ module.exports = async function handler(req, res) {
     // be told what its call did — the client replays sessionActions instead.
     const sess = isWorkout ? normSessionState(sessionState) : null;
     const sessionActions = [];
+    const newMemories = [];
 
     const memBlock = (Array.isArray(memories) && memories.length)
       ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
@@ -602,6 +642,14 @@ module.exports = async function handler(req, res) {
       miniApps: apps,
       session: (session && typeof session === 'object') ? session : null,
       sessionExercises: (sess && sess.exercises.length) ? fmtSessionExercises(sess) : null,
+      // Every word the user has said this workout, in full. The rolling history
+      // window kept dropping constraints stated a few minutes earlier, and the
+      // coach then cheerfully suggested the dumbbell that isn't in the gym.
+      saidToday: (Array.isArray(history) ? history : [])
+        .filter((m) => m && m.role === 'user' && m.text && !/^\(trénink běží/.test(m.text))
+        .slice(-40)
+        .map((m) => `- „${String(m.text).slice(0, 300)}"`)
+        .join('\n') || null,
       canEditSession: !!(sess && sess.exercises.length && proactive !== true),
       proactive: proactive === true,
       sessionHistory: Array.isArray(sessionHistory) ? sessionHistory.slice(0, 5) : []
@@ -639,10 +687,10 @@ module.exports = async function handler(req, res) {
     // the user actually asked. A proactive nudge fires on its own schedule, and
     // a spotter that silently deletes an exercise mid-set is not a feature.
     const activeTools = isWorkout
-      ? (ctx.canEditSession ? SESSION_TOOLS : [])
+      ? (ctx.canEditSession ? SESSION_TOOLS.concat([MEMORY_TOOL]) : [])
       : isOnboarding
       ? TOOL_DECLARATIONS
-      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS).concat([SEARCH_TOOL]);
+      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS).concat([SEARCH_TOOL, MEMORY_TOOL]);
 
     const basePayload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -753,6 +801,19 @@ module.exports = async function handler(req, res) {
           } else {
             result = { ok: false, error: 'Najednou lze navrhnout jen jednu změnu jídelního deníku.' };
           }
+        } else if (fc.name === 'remember_fact') {
+          const fact = String((fc.args && fc.args.fact) || '').trim().slice(0, 200);
+          const known = (Array.isArray(memories) ? memories : []).map((m) => String(m).toLowerCase());
+          if (!fact) {
+            result = { ok: false, error: 'Prázdný fakt.' };
+          } else if (known.includes(fact.toLowerCase()) || newMemories.some((m) => m.toLowerCase() === fact.toLowerCase())) {
+            result = { ok: true, note: 'Tohle už si pamatuješ, znovu to ukládat nemusíš.' };
+          } else if (newMemories.length >= 3) {
+            result = { ok: false, error: 'Najednou si ukládej nanejvýš tři věci.' };
+          } else {
+            newMemories.push(fact);
+            result = { ok: true, note: 'Uloženo do paměti natrvalo. Uživateli to zmiň jednou větou.' };
+          }
         } else if (SESSION_TOOL_NAMES.has(fc.name)) {
           if (!sess) {
             result = { ok: false, error: 'Žádný trénink teď neběží.' };
@@ -826,7 +887,7 @@ module.exports = async function handler(req, res) {
         note: 'SYSTÉM: Právě jsi napsal, že appku děláš nebo že bude něco obsahovat, ale NEZAVOLAL jsi create_mini_app, takže žádná appka neexistuje a uživatel čeká na něco, co nemá. Zavolej create_mini_app TEĎ. Obsah nevypisuj do chatu — od toho je ta appka. Makra si doplň sám z dat, která máš, a na nic se už neptej.',
         fallback: 'appku se mi nepovedlo postavit ||| zkus mi napsat znovu, co v ní chceš'
       };
-    } else if (isWorkout && ctx.canEditSession && reply && !sessionActions.length && CLAIMS_A_CHANGE.test(reply)) {
+    } else if (isWorkout && ctx.canEditSession && reply && !sessionActions.length && !newMemories.length && CLAIMS_A_CHANGE.test(reply)) {
       correction = {
         kind: 'session',
         note: 'SYSTÉM: Právě jsi napsal, že jsi v tréninku něco změnil, ale NEZAVOLAL jsi žádný nástroj, takže se nezměnilo vůbec nic a uživatel má na displeji pořád to původní. Zavolej TEĎ správný nástroj (edit_exercise na výměnu cviku nebo změnu sérií/opakování/pauzy, add_exercise, remove_exercise, move_exercise, goto_exercise, log_session_set, edit_logged_set, delete_logged_set, set_rest_timer). Když to udělat neumíš, řekni to na rovinu. Nikdy netvrď, že je něco hotové, když to hotové není.',
@@ -896,6 +957,7 @@ module.exports = async function handler(req, res) {
       action: foodAction,
       appliedTools: appliedTools.map((t) => t.name),
       sessionActions: sessionActions.length ? sessionActions : undefined,
+      newMemories: newMemories.length ? newMemories : undefined,
       profile: state.profile,
       targets: state.targets,
       exerciseLogs: state.exerciseLogs,
