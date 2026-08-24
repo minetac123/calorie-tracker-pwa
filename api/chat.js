@@ -41,6 +41,30 @@ const FOOD_CATEGORIES = ['Snídaně', 'Dopolední svačina', 'Oběd', 'Odpoledn�
 // One shared conversation log across the main chat, meal chats and workouts.
 // Only a recent slice goes into the prompt; anything older is reachable through
 // search_history, which keeps the prompt small without losing the past.
+// Today's real numbers, as one line. They exist further down in the full food
+// dump, but at line ~90 of a 150-line prompt they were getting skimmed: the
+// user typed "upss za dnesek" while 383 kcal over target and got back "čau, co
+// se stalo" — a question whose answer was already on screen. This goes at the
+// very top so it cannot be missed.
+function fmtTodayLine(food, workoutStatus) {
+  if (!food || !food.totals || !food.goals) return null;
+  const t = food.totals;
+  const g = food.goals;
+  const diff = Math.round((t.calories || 0) - (g.calories || 0));
+  const kcal = diff > 0
+    ? `${t.calories}/${g.calories} kcal — o ${diff} PŘES cíl`
+    : `${t.calories}/${g.calories} kcal — zbývá ${Math.abs(diff)}`;
+  const bits = [kcal, `B ${t.protein}/${g.protein} g`];
+  if (workoutStatus) {
+    const m = String(workoutStatus).match(/hotovo (\d+\/\d+) cviků/);
+    if (m) bits.push(`trénink ${m[1]}`);
+    else if (/dokončen/i.test(workoutStatus)) bits.push('trénink hotový');
+    else if (/volno/i.test(workoutStatus)) bits.push('dnes volno');
+  }
+  if (Array.isArray(food.items)) bits.push(`${food.items.length} zapsaných jídel`);
+  return bits.join(' · ');
+}
+
 function fmtCoachLog(log, recentN) {
   if (!Array.isArray(log) || !log.length) return 'Zatím jste spolu nemluvili.';
   const slice = log.slice(-recentN);
@@ -327,6 +351,8 @@ CO TI UŽIVATEL ŘEKNE, TO PLATÍ — TOHLE JE NEJDŮLEŽITĚJŠÍ PRAVIDLO:
   nebo mu prostě zapiš, co udělal
 - Než navrhneš jakoukoliv váhu, projdi si PAMĚŤ a CO DNES ŘEKL níž. Když tam je omezení, drž se ho
 - Neptej se u každé zprávy "co ty na to?". Uživatel stojí u činky, ne v konverzaci
+- Když komentuje, jak mu to jde ("ups", "to bylo těžký", "nedal jsem to"), NEPTEJ SE "co se stalo".
+  Máš před sebou každou jeho sérii — řekni mu, co v těch číslech vidíš
 - Cvičení si může upravit i sám: klepnutím na název cviku, přes "Cviky & pořadí", nebo klepnutím na zapsanou sérii
 - MŮŽE TI POSLAT FOTKU přímo z posilovny. Typicky štítek na stroji nebo kotouče (přečti váhu a řekni, kolik to je), neznámý stroj (řekni, co to je a jak se na tom cvičí), nastavení sedačky, nebo sám sebe při cviku (mrkni na techniku). Popiš jen to, co na fotce fakt vidíš — když je rozmazaná nebo z ní váhu nepřečteš, řekni to a nehádej. Pořád platí stručnost: dvě věty
 ${ctx.canEditSession ? `
@@ -390,6 +416,17 @@ function coachPrompt(ctx) {
   return `Jsi AI kouč v appce FitAI. Píšeš jako kámoš z gen z, ne jako oficiální asistent. Máš přístup ke VŠEM datům uživatele v aplikaci.
 
 ${STYLE}
+${ctx.todayLine ? `
+>>> DNEŠEK, JAK HO VIDÍŠ TY: ${ctx.todayLine}
+Tohle má uživatel právě teď na obrazovce. Ty to vidíš taky. Pracuj s tím.
+` : ''}
+KDYŽ KOMENTUJE SVŮJ DEN, NEPTEJ SE „CO SE STALO":
+Když napíše něco jako „ups", „sorry", „dneska to nedopadlo", „přejedl jsem se",
+„za dnešek", „mám toho dost", „cheat day" — NEODPOVÍDEJ otázkou. Odpověď máš nad sebou.
+Řekni mu rovnou, jak dnešek vypadá v číslech, a co s tím. Ptát se „co se stalo",
+když ti čísla koukají do očí, je to nejhorší, co můžeš udělat.
+Špatně: „čau, co se stalo"
+Dobře: „vidím, 2263 z 1880 ||| o 383 nahoře, ale trénink máš 5/5 — na recompu to není žádná tragédie"
 
 ${ctx.focus ? `
 !!! DOMLUVA U KONKRÉTNÍHO JÍDLA — TOHLE JE TEĎ NEJDŮLEŽITĚJŠÍ !!!
@@ -423,7 +460,7 @@ Výš v tomhle promptu máš KOMPLETNÍ obsah aplikace: profil, cíle, tréninko
 POSLOUCHEJ USERA — NEJDŮLEŽITĚJŠÍ:
 - Vždycky reaguj na to, co user fakt napsal. Když se zeptá, odpověz na TO
 - NEopakuj pořád dokola to samý (bílkoviny, cíle, váhu), když se ho to netýká
-- Když tě jen pozdraví, pozdrav zpátky a zeptej se co je — žádná přednáška
+- Když tě POUZE pozdraví („čau", „ahoj", „yo") a nic víc, pozdrav zpátky a zeptej se co je — žádná přednáška. Tohle platí JEN na holý pozdrav, ne na cokoliv, co už něco říká o jeho dni
 - Když si jen kecá, kecej zpátky. Seš kámoš, ne motivační plakát
 
 === NÁSTROJE — MĚNÍŠ APPKU DOOPRAVDY ===
@@ -705,6 +742,7 @@ module.exports = async function handler(req, res) {
       miniApps: apps,
       session: (session && typeof session === 'object') ? session : null,
       coachLog: fmtCoachLog(coachLog, 45),
+      todayLine: fmtTodayLine(foodContext, workoutStatus),
       sessionExercises: (sess && sess.exercises.length) ? fmtSessionExercises(sess) : null,
       // Every word the user has said this workout, in full. The rolling history
       // window kept dropping constraints stated a few minutes earlier, and the
