@@ -1,8 +1,14 @@
 // Daily proactive check-in sent to all Telegram-linked users.
 // Triggered by Vercel Cron (see vercel.json). Vercel passes
 // Authorization: Bearer <CRON_SECRET> automatically when CRON_SECRET is set.
+//
+// This used to send a generic line every single morning. A message that arrives
+// whether or not anything happened is noise, and noise gets muted. Now the data
+// is checked for something actually worth saying, and when nothing scores, the
+// user hears nothing at all — which is most days, by design.
 const { blobGet } = require('./_lib/blob');
 const { getTelegramIndex, sendMessage } = require('./_lib/telegram');
+const { detectSignals } = require('./_lib/signals');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
@@ -30,6 +36,7 @@ module.exports = async function handler(req, res) {
     today = new Date().toISOString().split('T')[0];
   }
   let sent = 0;
+  let skipped = 0;
 
   for (const { username, chatId } of index) {
     try {
@@ -37,16 +44,33 @@ module.exports = async function handler(req, res) {
       const userData = await blobGet(`data/${username}.json`);
       if (!userData) continue;
 
-      const goals = userData.goals || { calories: 2000 };
-      const logs = (userData.logs && userData.logs[today]) || [];
-      const consumed = Math.round(logs.reduce((s, i) => s + (Number(i.calories) || 0), 0));
+      const signals = detectSignals(userData, today);
+      if (!signals.length) {
+        skipped++;
+        continue; // nothing happened worth a notification — stay quiet
+      }
+      const top = signals[0];
+      console.log(`Cron: ${username} -> ${top.id}`);
 
+      const prompt = `Jsi AI kouč a píšeš uživateli sám od sebe do Telegramu, protože sis něčeho všiml v jeho datech.
 
-      const prompt = `Napiš jednu krátkou ranní zprávu (max 100 znaků, gen-z čeština, začínej malým písmenem, bez tečky, žádné emoji, konkrétní a motivující ne generické). Kontext: dnesni cil ${goals.calories} kcal, zatim snezeno ${consumed} kcal.`;
+TOHLE JSI ZJISTIL (je to pravda, spočítáno z jeho čísel):
+${top.fact}
+
+CO S TÍM: ${top.hint}
+
+JAK PSÁT:
+- jedna zpráva, max 160 znaků
+- začni malým písmenem, nekonči tečkou, žádné emoji
+- gen-z čeština, mluv jako kámoš
+- ZMIŇ TO KONKRÉTNÍ ČÍSLO z toho, co jsi zjistil — bez něj je zpráva k ničemu
+- nekonči otázkou, pokud na ni fakt potřebuješ odpověď
+- žádné motivační fráze typu "makej dál" nebo "jen tak dál"
+- nevymýšlej si žádná další čísla ani fakta, máš jen tohle`;
 
       const payload = {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 150, thinkingConfig: { thinkingBudget: 0 } }
+        generationConfig: { temperature: 0.8, maxOutputTokens: 200, thinkingConfig: { thinkingBudget: 0 } }
       };
 
       let reply = null;
@@ -81,5 +105,5 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  return res.status(200).json({ sent, total: index.length });
+  return res.status(200).json({ sent, skipped, total: index.length });
 };
