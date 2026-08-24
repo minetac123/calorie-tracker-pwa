@@ -5107,6 +5107,7 @@ async function sendCoachMessage() {
     if (typing) typing.remove();
 
     if (data && data.success && data.reply) {
+      if (data.newMemories) applyNewMemories(data.newMemories);
       // Plan edits are applied immediately; food-log edits still go through
       // the confirmation card below.
       if (data.planChanged || Array.isArray(data.miniApps)) {
@@ -7336,6 +7337,7 @@ async function sendMealChatMessage(text, opts = {}) {
     typing.remove();
 
     if (data && data.success && data.reply) {
+      if (data.newMemories) applyNewMemories(data.newMemories);
       if (data.planChanged) {
         applyCoachPlanUpdate(data);
         // The meal object we hold may have been replaced by the coach.
@@ -8513,6 +8515,25 @@ function sessionStateForCoach() {
   };
 }
 
+// Facts the coach decided to keep. They go into the same store the user fills
+// by hand in settings, so they survive the workout and every one after it.
+function applyNewMemories(facts) {
+  if (!Array.isArray(facts) || !facts.length) return 0;
+  const mem = getCoachMemories();
+  let added = 0;
+  facts.forEach((f) => {
+    const text = String(f || '').trim().slice(0, 200);
+    if (!text) return;
+    if (mem.some((m) => String(m.text).toLowerCase() === text.toLowerCase())) return;
+    mem.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), text });
+    added++;
+  });
+  if (!added) return 0;
+  if (mem.length > 60) appState.coachMemories = mem.slice(-60);
+  saveState();
+  return added;
+}
+
 // Replays what the coach did onto the CURRENT session — never a snapshot swap,
 // so a set logged while the request was in flight survives.
 function applySessionActions(actions) {
@@ -8701,7 +8722,7 @@ async function pingSessionCoach(trigger) {
   try {
     const payload = buildCoachPayload(`(trénink běží — událost: ${trigger})`, {
       mode: 'workout',
-      history: s.messages.slice(-8)
+      history: s.messages.slice(-30)
     });
     payload.session = sessionContextForCoach();
     payload.sessionState = sessionStateForCoach();
@@ -8772,7 +8793,9 @@ async function sendSessionChatMessage() {
 
   try {
     const payload = buildCoachPayload(text || 'mrkni na tu fotku', {
-      mode: 'workout', history: s.messages.slice(0, -1).slice(-10)
+      // The whole workout conversation, not a short tail: a constraint the user
+      // stated twenty minutes ago still has to bind.
+      mode: 'workout', history: s.messages.slice(0, -1).slice(-30)
     });
     payload.session = sessionContextForCoach();
     payload.sessionState = sessionStateForCoach();
@@ -8781,6 +8804,7 @@ async function sendSessionChatMessage() {
     typing.remove();
     appendSessionMessage((data && data.reply) || 'sorry, zkus to ještě jednou', 'assistant');
     if (data && data.sessionActions) applySessionActions(data.sessionActions);
+    if (data && data.newMemories) applyNewMemories(data.newMemories);
     if (data && data.planChanged) applyCoachPlanUpdate(data);
   } catch (e) {
     typing.remove();
