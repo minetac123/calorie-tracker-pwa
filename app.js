@@ -500,6 +500,7 @@ function showToast(message) {
 // UI RENDERING - DASHBOARD
 // ==========================================================================
 function renderDashboard() {
+  renderPendingPhotoBanner();
   updateCalendarRow();
   // Food list/totals follow the day selected in the calendar (defaults to today).
   // Water tracking stays on the real "today".
@@ -1511,10 +1512,47 @@ function initFoodLogSheet() {
         showStage('detected');
       }
     } catch (err) {
+      // Losing the photo is the worst outcome: the food is eaten, the moment is
+      // gone, and there is nothing to re-shoot. Offline it gets parked and
+      // analysed by itself once there is a connection.
+      const offline = navigator.onLine === false ||
+        /fetch|network|failed|spojení|timeout/i.test(String(err && err.message));
+      if (offline) {
+        const n = addPendingPhoto(flsPhotoBase64, flsPresetCategory || flsPickedCategory);
+        closeSheet();
+        showToast(n ? `Nemám signál — fotku mám uloženou, rozeberu ji, až chytnu síť (${n})` : 'Fotka se nevešla do úložiště');
+        return;
+      }
       closeSheet();
       showToast('AI analýza selhala: ' + err.message);
     }
   }
+
+  // Entry point for a parked photo: reopens the sheet either straight on the
+  // finished result, or on the spinner if it still needs analysing.
+  window.flsResumePending = function (pending) {
+    if (!pending || !pending.dataUrl) return;
+    openSheet(pending.category || null);
+    flsPhotoBase64 = pending.dataUrl;
+    capturePreview.src = pending.dataUrl;
+    capturePreview.style.display = 'block';
+    vfPlaceholder.style.display = 'none';
+    analyzeImg.src = pending.dataUrl;
+
+    const r = pending.result;
+    if (r && r.type === 'image_choices' && Array.isArray(r.choices) && r.choices.length) {
+      flsChoices = r.choices;
+      renderChoices();
+      showStage('choices');
+    } else if (r && Array.isArray(r.items) && r.items.length) {
+      flsItems = attachBaseValues(JSON.parse(JSON.stringify(r.items)));
+      renderDetectedStage();
+      showStage('detected');
+    } else {
+      showStage('analyzing');
+      runAI();
+    }
+  };
 
   function renderChoices() {
     if (flsPhotoBase64) {
@@ -3160,12 +3198,12 @@ function initWakeLock() {
     }
     // Coming back to the app is a good moment to push whatever was written
     // while there was no connection.
-    if (document.visibilityState === 'visible') { flushPendingSync(); flushCoachQueue(); }
+    if (document.visibilityState === 'visible') { flushPendingSync(); flushCoachQueue(); flushPendingPhotos(); }
   });
 
   // Back on a network — push anything that was saved while offline, and let the
   // coach answer whatever was asked in the meantime.
-  window.addEventListener('online', () => { flushPendingSync(); flushCoachQueue(); });
+  window.addEventListener('online', () => { flushPendingSync(); flushCoachQueue(); flushPendingPhotos(); });
 }
 
 // ==========================================================================
@@ -8910,6 +8948,139 @@ function offlineCoachAnswer(question) {
   }
 
   return null;
+}
+
+// ---- Fotky čekající na analýzu ----
+// Reading a plate of food genuinely needs a vision model, and that will not run
+// inside an iOS PWA. What it must never do is lose the photo: the meal is eaten
+// and unrepeatable. So an offline shot is parked here, analysed automatically
+// the moment there is signal, and then waits — with results ready — for one tap.
+
+const PENDING_PHOTO_CAP = 8; // base64 JPEGs are heavy; keep the quota safe
+
+function getPendingPhotos() {
+  if (!Array.isArray(appState.pendingPhotos)) appState.pendingPhotos = [];
+  return appState.pendingPhotos;
+}
+
+function addPendingPhoto(dataUrl, category) {
+  if (!dataUrl) return 0;
+  const list = getPendingPhotos();
+  if (list.length >= PENDING_PHOTO_CAP) {
+    showToast(`Čeká už ${PENDING_PHOTO_CAP} fotek, nejstarší jsem zahodil`);
+    list.shift();
+  }
+  list.push({
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    dataUrl,
+    category: category || null,
+    date: getActiveDateString(),
+    ts: Date.now(),
+    result: null
+  });
+  try {
+    saveState();
+  } catch (e) {
+    // Quota blown — drop this one rather than wedging the whole app.
+    list.pop();
+    console.error('Pending photo storage failed:', e);
+    return 0;
+  }
+  renderPendingPhotoBanner();
+  return list.length;
+}
+
+function removePendingPhoto(id) {
+  appState.pendingPhotos = getPendingPhotos().filter((x) => x.id !== id);
+  saveState();
+  renderPendingPhotoBanner();
+}
+
+let analysingPending = false;
+
+async function flushPendingPhotos() {
+  if (analysingPending || navigator.onLine === false) return;
+  const waiting = getPendingPhotos().filter((x) => !x.result);
+  if (!waiting.length) return;
+
+  analysingPending = true;
+  let done = 0;
+  try {
+    for (const item of waiting) {
+      let data;
+      try {
+        data = await callGeminiAPI(null, item.dataUrl);
+      } catch (e) {
+        break; // still no usable connection — the rest keeps waiting
+      }
+      const cur = getPendingPhotos().find((x) => x.id === item.id);
+      if (!cur) continue; // user dealt with it in the meantime
+      cur.result = (data && data.type === 'image_choices')
+        ? { type: 'image_choices', choices: data.choices || [] }
+        : { items: (data && data.items) || [] };
+      done++;
+      saveState();
+    }
+  } finally {
+    analysingPending = false;
+  }
+
+  if (done) {
+    renderPendingPhotoBanner();
+    showToast(done === 1
+      ? 'Fotka je rozebraná, mrkni na ni'
+      : done < 5 ? `${done} fotky jsou rozebrané` : `${done} fotek je rozebraných`);
+  }
+}
+
+// A quiet banner on the dashboard — a parked photo the user cannot see is a
+// photo they will never come back to.
+function renderPendingPhotoBanner() {
+  const el = document.getElementById('pending-photos');
+  if (!el) return;
+  const list = getPendingPhotos();
+  if (!list.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const ready = list.filter((x) => x.result).length;
+  // 1 fotka / 2-4 fotky / 5+ fotek — a wrong plural reads like a bug.
+  const readyLabel = ready === 1
+    ? '1 rozebraná fotka čeká na zapsání'
+    : ready < 5
+    ? `${ready} rozebrané fotky čekají na zapsání`
+    : `${ready} rozebraných fotek čeká na zapsání`;
+  const waitLabel = list.length === 1 ? 'Fotka čeká na signál' : 'Fotky čekají na signál';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="pp-head">${ready ? readyLabel : waitLabel}</div>
+    <div class="pp-list">
+      ${list.map((x) => `
+        <div class="pp-item ${x.result ? 'ready' : ''}" data-pp="${x.id}">
+          <img src="${x.dataUrl}" alt="fotka jídla">
+          <span class="pp-badge">${x.result ? '✓' : '⏳'}</span>
+          <button class="pp-x" data-pp-del="${x.id}" type="button" aria-label="Zahodit">×</button>
+        </div>`).join('')}
+    </div>`;
+
+  el.querySelectorAll('[data-pp]').forEach((node) => {
+    node.addEventListener('click', (e) => {
+      if (e.target.closest('[data-pp-del]')) return;
+      const item = getPendingPhotos().find((x) => x.id === node.dataset.pp);
+      if (!item) return;
+      if (!item.result && navigator.onLine === false) {
+        showToast('Ještě nemám signál, jakmile ho chytnu, rozeberu ji');
+        return;
+      }
+      removePendingPhoto(item.id);
+      if (typeof window.flsResumePending === 'function') window.flsResumePending(item);
+    });
+  });
+  el.querySelectorAll('[data-pp-del]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removePendingPhoto(btn.dataset.ppDel);
+    });
+  });
 }
 
 // ---- Fronta na dobu bez signálu ----
