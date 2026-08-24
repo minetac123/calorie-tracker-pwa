@@ -7960,7 +7960,10 @@ let sessionCountdown = null; // 3-2-1 before the start
 let coachPingTimer = null;
 let sessionEditingSet = -1;  // index of the logged set currently being edited
 
-const SESSION_COACH_MIN_GAP = 100000; // ≥100 s between proactive coach pings
+// Gap between unprompted nudges. 100 s meant a nudge every couple of sets,
+// which is exactly what makes a spotter unbearable. Most pings answer [nic]
+// anyway, so a longer gap costs nothing and buys quiet.
+const SESSION_COACH_MIN_GAP = 240000; // ≥4 min between proactive coach pings
 
 // Exercise names and notes are free text the user types mid-workout, so they
 // go through here before they ever reach innerHTML.
