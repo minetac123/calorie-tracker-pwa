@@ -3196,14 +3196,27 @@ function initWakeLock() {
     if (document.visibilityState === 'visible' && wakeLock === null) {
       requestWakeLock();
     }
-    // Coming back to the app is a good moment to push whatever was written
-    // while there was no connection.
-    if (document.visibilityState === 'visible') { flushPendingSync(); flushCoachQueue(); flushPendingPhotos(); }
   });
+}
 
-  // Back on a network — push anything that was saved while offline, and let the
-  // coach answer whatever was asked in the meantime.
-  window.addEventListener('online', () => { flushPendingSync(); flushCoachQueue(); flushPendingPhotos(); });
+// Catching up on offline work must NOT hang off initWakeLock: that function
+// bails out early on any browser without the Wake Lock API, which used to take
+// every connectivity listener down with it. It is also its own concern.
+function catchUpAfterOffline() {
+  flushPendingSync();
+  flushCoachQueue();
+  flushPendingPhotos();
+}
+
+function initConnectivity() {
+  // Neither 'online' nor 'visibilitychange' fires on a cold start, so without
+  // this a parked photo would sit there until the user happened to background
+  // the app and come back.
+  catchUpAfterOffline();
+  window.addEventListener('online', catchUpAfterOffline);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') catchUpAfterOffline();
+  });
 }
 
 // ==========================================================================
@@ -3222,6 +3235,7 @@ function init() {
   initItemActionsHandlers();
   initLeftoverHandlers();
   initWakeLock();
+  initConnectivity();
 
   // Calendar "go back to today" button
   const backToTodayBtn = document.getElementById('btn-back-to-today');
@@ -9048,7 +9062,11 @@ function renderPendingPhotoBanner() {
     : ready < 5
     ? `${ready} rozebrané fotky čekají na zapsání`
     : `${ready} rozebraných fotek čeká na zapsání`;
-  const waitLabel = list.length === 1 ? 'Fotka čeká na signál' : 'Fotky čekají na signál';
+  // Say plainly when it will happen. Analysis runs in the page, so it needs the
+  // app open — promising background uploads would be a lie on iOS.
+  const waitLabel = list.length === 1
+    ? 'Fotka čeká — rozeberu ji, až tu budeš mít signál'
+    : 'Fotky čekají — rozeberu je, až tu budeš mít signál';
 
   el.style.display = 'block';
   el.innerHTML = `
