@@ -4439,6 +4439,38 @@ input, textarea, select, button {
 }
 .ses-pick-btn:disabled { opacity: 0.3; }
 
+/* Fotka v chatu u tréninku */
+.ses-chat-preview {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border-top: 0.5px solid var(--sep);
+}
+.ses-chat-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: 9px; }
+.ses-chat-preview button {
+  margin-left: auto;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--bg-elevated-2);
+  border: 0.5px solid var(--sep);
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+#ses-chat-attach {
+  flex-shrink: 0;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+#ses-chat-attach:active { transform: scale(0.92); }
+.coach-bubble.has-photo { padding: 5px; }
+.ses-chat-photo { display: block; max-width: 180px; border-radius: 11px; }
+
 /* Kouč u tréninku */
 .ses-chat-toggle {
   position: absolute;
