@@ -500,6 +500,7 @@ function showToast(message) {
 // UI RENDERING - DASHBOARD
 // ==========================================================================
 function renderDashboard() {
+  renderDailyBrief();
   renderPendingPhotoBanner();
   updateCalendarRow();
   // Food list/totals follow the day selected in the calendar (defaults to today).
@@ -8855,6 +8856,157 @@ async function pingSessionCoach(trigger) {
       if (!isSessionChatOpen()) showToast('Kouč něco poslal');
     }
   } catch (e) { /* a missed nudge is not worth bothering the user about */ }
+}
+
+// ==========================================================================
+// BRÍFINK — co ti kouč řekne, než se zeptáš
+// ==========================================================================
+// Computed on the device, never over the network: it has to be on screen the
+// instant the app opens, work with no signal, and cost nothing. It answers the
+// question you were about to type — what's left today, and what to do next.
+
+function briefTotals(date) {
+  const items = appState.logs[date] || [];
+  return items.reduce((a, i) => ({
+    kcal: a.kcal + (Number(i.calories) || 0),
+    protein: a.protein + (Number(i.protein) || 0)
+  }), { kcal: 0, protein: 0 });
+}
+
+// The planned meal that best fits what's left, so the answer is "eat this",
+// not "you have 400 kcal left, figure it out".
+function briefSuggestMeal(dayKey, kcalLeft) {
+  const meals = getMealsForDay(dayKey) || [];
+  if (!meals.length) return null;
+  const eaten = getMealChecks(getTodayDateString());
+  const open = meals.filter((m) => !eaten.includes(m.id));
+  if (!open.length) return null;
+  // Closest fit that doesn't blow the remainder by more than a quarter.
+  const fits = open
+    .map((m) => ({ m, diff: Math.abs((Number(m.calories) || 0) - kcalLeft) }))
+    .filter((x) => (Number(x.m.calories) || 0) <= kcalLeft * 1.25)
+    .sort((a, b) => a.diff - b.diff);
+  return fits.length ? fits[0].m : null;
+}
+
+function buildDailyBrief() {
+  const date = getTodayDateString();
+  const dayKey = getTodayDayKey();
+  const hour = new Date().getHours();
+  const goals = appState.goals || {};
+  const goalKcal = Number(goals.calories) || 0;
+  const t = briefTotals(date);
+  const kcal = Math.round(t.kcal);
+  const left = goalKcal ? goalKcal - kcal : null;
+
+  const w = getWorkoutForDay(dayKey);
+  const isTrainingDay = !!(w && !w.rest && w.exercises && w.exercises.length);
+  const log = getWorkoutLog(date);
+  const doneCount = isTrainingDay ? w.exercises.filter((e) => log.done.includes(e.id)).length : 0;
+  const workoutDone = isTrainingDay && doneCount >= w.exercises.length;
+  const sessionRunning = hasActiveSession();
+
+  // Ordered by what actually matters at this moment, most urgent first.
+
+  if (sessionRunning) {
+    return { text: 'trénink běží', sub: 'ťukni a vrať se k němu', action: 'session' };
+  }
+
+  if (goalKcal && left != null && left < -100) {
+    const over = Math.abs(left);
+    const tail = workoutDone ? `trénink máš 5/5, nic se neděje`
+      : isTrainingDay ? `dneska ještě máš ${w.title}` : 'zítra to vyrovnáš';
+    return { text: `jsi ${over} kcal přes cíl`, sub: tail,
+             action: isTrainingDay && !workoutDone ? 'workout' : null };
+  }
+
+  if (isTrainingDay && !workoutDone && hour >= 6) {
+    const rest = w.exercises.length - doneCount;
+    return {
+      text: doneCount ? `zbývá ${rest} z ${w.exercises.length} cviků` : `dnes ${w.title}`,
+      sub: doneCount ? 'dokonči to' : `${w.exercises.length} cviků · ťukni a jedem`,
+      action: 'workout'
+    };
+  }
+
+  // Checked before the "kcal left" branch: at 21:00 with nothing logged all day,
+  // "you logged nothing" is the honest read — suggesting one dinner for a whole
+  // untouched daily allowance is not.
+  if (hour >= 20 && kcal === 0) {
+    return { text: 'dneska nic zapsanýho', sub: 'ještě to jde dohnat', action: 'add' };
+  }
+
+  if (goalKcal && left != null && left > 150) {
+    // Only suggest a meal once the day is actually underway. In the morning the
+    // whole allowance is left and the closest "fit" would be dinner.
+    const meal = left < goalKcal * 0.6 ? briefSuggestMeal(dayKey, left) : null;
+    const proteinLeft = Math.max(0, Math.round((Number(goals.protein) || 0) - t.protein));
+    if (meal) {
+      return { text: `zbývá ${left} kcal`, sub: `sedí na to ${meal.name}`, action: 'meals' };
+    }
+    return {
+      text: `zbývá ${left} kcal`,
+      sub: proteinLeft ? `a ${proteinLeft} g bílkovin` : 'makra jinak sedí',
+      action: 'add'
+    };
+  }
+
+  if (goalKcal && left != null && Math.abs(left) <= 150) {
+    const bits = [];
+    if (workoutDone) bits.push('trénink hotový');
+    else if (!isTrainingDay) bits.push('dnes volno');
+    bits.push('kalorie sedí');
+    return { text: 'dneska to sedí', sub: bits.join(' · '), action: null };
+  }
+
+  if (!isTrainingDay) {
+    return { text: 'dnes volno', sub: goalKcal ? `cíl ${goalKcal} kcal` : 'odpočiň si', action: null };
+  }
+  return null;
+}
+
+function renderDailyBrief() {
+  const el = document.getElementById('daily-brief');
+  if (!el) return;
+  // Only ever about today — on a past day the calendar is the story.
+  if (getActiveDateString() !== getTodayDateString()) {
+    el.style.display = 'none';
+    return;
+  }
+  let b = null;
+  try { b = buildDailyBrief(); } catch (e) { b = null; }
+  if (!b) { el.style.display = 'none'; return; }
+
+  el.style.display = 'flex';
+  el.className = 'daily-brief' + (b.action ? ' tappable' : '');
+  el.innerHTML = `
+    <div class="db-text">
+      <div class="db-main">${esc(b.text)}</div>
+      <div class="db-sub">${esc(b.sub)}</div>
+    </div>
+    ${b.action ? '<span class="db-go" aria-hidden="true">›</span>' : ''}`;
+
+  // switchScreen lives inside another closure, so navigate the way a person
+  // would: by pressing the same buttons.
+  const goPlan = () => {
+    const nav = document.querySelector('.nav-item[data-screen="plan"]');
+    if (nav) nav.click();
+  };
+
+  el.onclick = b.action ? () => {
+    if (b.action === 'session') { resumeSessionIfAny(); return; }
+    if (b.action === 'workout') { goPlan(); return; }
+    if (b.action === 'meals') {
+      goPlan();
+      const tab = document.getElementById('plan-tab-meals');
+      if (tab) setTimeout(() => tab.click(), 80);
+      return;
+    }
+    if (b.action === 'add') {
+      const fab = document.querySelector('.nav-fab');
+      if (fab) fab.click();
+    }
+  } : null;
 }
 
 // ==========================================================================

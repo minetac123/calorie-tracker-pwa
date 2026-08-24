@@ -4471,6 +4471,22 @@ input, textarea, select, button {
 .coach-bubble.has-photo { padding: 5px; }
 .ses-chat-photo { display: block; max-width: 180px; border-radius: 11px; }
 
+/* Brífink nahoře na nástěnce */
+.daily-brief {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 0 14px;
+  padding: 13px 15px;
+  background: var(--bg-card);
+  border: 0.5px solid var(--sep);
+  border-radius: var(--r-md);
+}
+.daily-brief.tappable { cursor: pointer; }
+.daily-brief.tappable:active { transform: scale(0.995); }
+.db-text { flex: 1; min-width: 0; }
+.db-main { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.25; }
+.db-sub { font-size: 13px; color: var(--text-3); margin-top: 3px; line-height: 1.35; }
+.db-go { flex-shrink: 0; font-size: 20px; color: var(--text-3); line-height: 1; }
+
 /* Fotky čekající na analýzu */
 .pending-photos {
   margin: 0 0 14px;
