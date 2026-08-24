@@ -2971,6 +2971,7 @@ async function syncToCloud() {
       coachMemories: appState.coachMemories,
       coachMemoryEnabled: appState.coachMemoryEnabled,
       coachLog: appState.coachLog,
+      coachSummaries: appState.coachSummaries,
       // The whole plan layer used to live only in this browser's localStorage —
       // clear site data or pick up another device and the plan, every logged
       // weight and the entire training history were simply gone.
@@ -3053,6 +3054,13 @@ function mergePlanFromCloud(cloud) {
     );
     merged.sort((a, b) => (a.ts || 0) - (b.ts || 0));
     appState.coachLog = merged.slice(-COACH_LOG_CAP);
+  }
+
+  if (Array.isArray(cloud.coachSummaries) && cloud.coachSummaries.length) {
+    const seen = new Set(getCoachSummaries().map((x) => x.id));
+    const merged = getCoachSummaries().concat(cloud.coachSummaries.filter((x) => x && !seen.has(x.id)));
+    merged.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    appState.coachSummaries = merged.slice(-26);
   }
 
   appState.workoutLogs = mergeByKey(appState.workoutLogs, cloud.workoutLogs);
@@ -3209,6 +3217,12 @@ function catchUpAfterOffline() {
   flushPendingPhotos();
 }
 
+// Deliberately late and silent: it is housekeeping, not something the user is
+// waiting for, and it must never compete with painting the app.
+function scheduleWeeklySummary() {
+  setTimeout(() => { maybeMakeWeeklySummary(); }, 8000);
+}
+
 function initConnectivity() {
   // Neither 'online' nor 'visibilitychange' fires on a cold start, so without
   // this a parked photo would sit there until the user happened to background
@@ -3237,6 +3251,7 @@ function init() {
   initLeftoverHandlers();
   initWakeLock();
   initConnectivity();
+  scheduleWeeklySummary();
 
   // Calendar "go back to today" button
   const backToTodayBtn = document.getElementById('btn-back-to-today');
@@ -6145,6 +6160,9 @@ function buildCoachPayload(message, opts = {}) {
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
     coachLog: buildCoachLogPayload(),
+    coachSummaries: coachMemoryOn()
+      ? getCoachSummaries().slice(-8).map((x) => ({ from: x.from, to: x.to, text: x.text }))
+      : [],
     today: getTodayDateString(),
     nowTime: (() => {
       const n = new Date();
@@ -8856,6 +8874,161 @@ async function pingSessionCoach(trigger) {
       if (!isSessionChatOpen()) showToast('Kouč něco poslal');
     }
   } catch (e) { /* a missed nudge is not worth bothering the user about */ }
+}
+
+// ==========================================================================
+// TÝDENNÍ SHRNUTÍ — paměť, která se zhušťuje místo aby se jen ořezávala
+// ==========================================================================
+// The chat log is a rolling window: once it fills, the oldest conversations
+// fall off and are gone. That means the coach knows the last few weeks in
+// detail and everything before that not at all. Once a week it writes a short
+// summary of the period, which becomes durable memory — so what stays is the
+// trajectory, not a thousand raw lines.
+//
+// Every number below is computed here. The model only writes the prose around
+// them, so it can never invent a PR that did not happen.
+
+const SUMMARY_EVERY_DAYS = 7;
+
+function getCoachSummaries() {
+  if (!Array.isArray(appState.coachSummaries)) appState.coachSummaries = [];
+  return appState.coachSummaries;
+}
+
+function datesBack(fromDate, n) {
+  const out = [];
+  const base = new Date(fromDate + 'T12:00:00Z');
+  for (let i = 0; i < n; i++) {
+    out.push(new Date(base.getTime() - i * 86400000).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+// Deterministic facts for the last `n` days. This is the part the model is
+// forbidden from touching.
+function buildPeriodStats(n) {
+  const today = getTodayDateString();
+  const dates = datesBack(today, n);
+  const goals = appState.goals || {};
+
+  let kcalSum = 0, protSum = 0, loggedDays = 0;
+  dates.forEach((d) => {
+    const items = appState.logs[d];
+    if (!Array.isArray(items) || !items.length) return;
+    loggedDays++;
+    items.forEach((i) => {
+      kcalSum += Number(i.calories) || 0;
+      protSum += Number(i.protein) || 0;
+    });
+  });
+
+  let planned = 0, done = 0;
+  const plan = appState.workoutPlan;
+  if (plan && plan.days) {
+    dates.forEach((d) => {
+      const key = PLAN_DAY_KEYS[(new Date(d + 'T12:00:00Z').getUTCDay() + 6) % 7];
+      const day = plan.days[key];
+      if (!day || day.rest || !day.exercises || !day.exercises.length) return;
+      planned++;
+      const log = appState.workoutLogs[d];
+      const ids = (log && Array.isArray(log.done)) ? log.done : [];
+      if (ids.length >= Math.ceil(day.exercises.length / 2)) done++;
+    });
+  }
+
+  // Lifts that actually moved inside the window.
+  const oldest = dates[dates.length - 1];
+  const lifts = [];
+  const logs = getExerciseLogs();
+  Object.keys(logs).forEach((k) => {
+    const ex = logs[k];
+    const inRange = (ex.sessions || []).filter((x) => x.date >= oldest);
+    if (inRange.length < 2) return;
+    const first = sessionTopSet(inRange[0]);
+    const last = sessionTopSet(inRange[inRange.length - 1]);
+    if (!first || !last) return;
+    const delta = Math.round((last.w - first.w) * 10) / 10;
+    lifts.push({ name: ex.name || k, from: first.w, to: last.w, delta, sessions: inRange.length });
+  });
+  lifts.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  const wl = (appState.weightLogs || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const inRangeW = wl.filter((x) => x.date >= oldest);
+  const weight = inRangeW.length >= 2
+    ? { from: inRangeW[0].weight, to: inRangeW[inRangeW.length - 1].weight,
+        delta: Math.round((inRangeW[inRangeW.length - 1].weight - inRangeW[0].weight) * 10) / 10 }
+    : null;
+
+  return {
+    from: oldest, to: today, days: n,
+    loggedDays,
+    avgKcal: loggedDays ? Math.round(kcalSum / loggedDays) : null,
+    avgProtein: loggedDays ? Math.round(protSum / loggedDays) : null,
+    goalKcal: Number(goals.calories) || null,
+    goalProtein: Number(goals.protein) || null,
+    workouts: { planned, done },
+    lifts: lifts.slice(0, 5),
+    weight
+  };
+}
+
+function lastSummaryAgeDays() {
+  const list = getCoachSummaries();
+  if (!list.length) return Infinity;
+  const last = list[list.length - 1];
+  const d = Math.round((Date.now() - (last.createdAt || 0)) / 86400000);
+  return isNaN(d) ? Infinity : d;
+}
+
+// Enough has to have happened that a summary is worth the call.
+function summaryWorthMaking(st) {
+  return st.loggedDays >= 3 || st.workouts.done >= 2 || st.lifts.length >= 2;
+}
+
+async function maybeMakeWeeklySummary() {
+  if (!coachMemoryOn()) return;
+  if (navigator.onLine === false) return;
+  if (lastSummaryAgeDays() < SUMMARY_EVERY_DAYS) return;
+
+  const stats = buildPeriodStats(SUMMARY_EVERY_DAYS);
+  if (!summaryWorthMaking(stats)) return;
+
+  try {
+    const payload = buildCoachPayload('(týdenní shrnutí)', { mode: 'summary', history: [] });
+    payload.periodStats = stats;
+    const data = await callCoachAPI(payload);
+    const text = data && data.reply && String(data.reply).trim();
+    if (!text || /^\[?nic\]?$/i.test(text)) return;
+
+    getCoachSummaries().push({
+      id: 'sum_' + Date.now().toString(36),
+      from: stats.from, to: stats.to,
+      text: text.slice(0, 600),
+      stats,
+      createdAt: Date.now()
+    });
+    // A season of summaries is plenty of long-term memory.
+    if (appState.coachSummaries.length > 26) {
+      appState.coachSummaries = appState.coachSummaries.slice(-26);
+    }
+    // Now that the period is condensed, the raw lines from before it can go.
+    trimLogBeforeSummaries();
+    saveState();
+    console.log('Týdenní shrnutí uloženo:', text.slice(0, 80));
+  } catch (e) {
+    /* no summary this time; it will be retried tomorrow */
+  }
+}
+
+// Raw turns older than the newest summary are redundant — the summary carries
+// what mattered. Keep a tail so recent context still reads naturally.
+function trimLogBeforeSummaries() {
+  const list = getCoachSummaries();
+  if (!list.length) return;
+  const cutoff = list[list.length - 1].createdAt - 3 * 86400000;
+  const log = getCoachLog();
+  const kept = log.filter((m) => (m.ts || 0) >= cutoff);
+  if (kept.length >= 40) appState.coachLog = kept;
 }
 
 // ==========================================================================

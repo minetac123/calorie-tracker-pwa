@@ -65,6 +65,62 @@ function fmtTodayLine(food, workoutStatus) {
   return bits.join(' · ');
 }
 
+// The numbers come from the client, already computed. The model's job is to
+// write the sentence around them — never to produce a figure of its own.
+function fmtPeriodStats(st) {
+  if (!st) return '';
+  const l = [];
+  l.push(`Období: ${st.from} až ${st.to} (${st.days} dní)`);
+  if (st.workouts) l.push(`Tréninky: odcvičeno ${st.workouts.done} z ${st.workouts.planned} naplánovaných`);
+  if (st.avgKcal != null) {
+    l.push(`Kalorie: průměr ${st.avgKcal} kcal/den při cíli ${st.goalKcal || '?'} (zapsáno ${st.loggedDays} z ${st.days} dní)`);
+  }
+  if (st.avgProtein != null) l.push(`Bílkoviny: průměr ${st.avgProtein} g/den při cíli ${st.goalProtein || '?'} g`);
+  if (st.weight) {
+    const dir = st.weight.delta > 0 ? '+' : '';
+    l.push(`Váha: ${st.weight.from} → ${st.weight.to} kg (${dir}${st.weight.delta})`);
+  }
+  if (Array.isArray(st.lifts) && st.lifts.length) {
+    l.push('Cviky, které se hnuly:');
+    st.lifts.forEach((x) => {
+      const dir = x.delta > 0 ? `+${x.delta}` : String(x.delta);
+      l.push(`  • ${x.name}: ${x.from} → ${x.to} kg (${dir} kg, ${x.sessions} tréninků)`);
+    });
+  }
+  return l.join('\n');
+}
+
+function fmtSummaries(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  return list.map((s) => `[${s.from} → ${s.to}] ${s.text}`).join('\n');
+}
+
+function summaryPrompt(ctx) {
+  return `Jsi AI kouč a píšeš si POZNÁMKU PRO SEBE — shrnutí posledního týdne uživatele.
+Tuhle poznámku uvidíš i za půl roku, až už tenhle týden nebude v historii chatu.
+Uživatel ji nečte, takže nemusíš být milý ani motivační. Buď věcný.
+
+=== ČÍSLA ZA TENHLE TÝDEN (spočítala appka, jsou pravdivá) ===
+${fmtPeriodStats(ctx.periodStats)}
+
+=== O ČEM JSTE SI PSALI ===
+${ctx.coachLog}
+
+=== CO UŽ VÍŠ Z DŘÍVĚJŠKA ===
+${ctx.memBlock}
+
+NAPIŠ:
+- 2 až 4 věty, max 400 znaků, česky
+- co se za ten týden reálně stalo: tréninky, váhy, jídlo, váha
+- co ho trápilo nebo co říkal, že mu nejde — tohle je nejcennější, čísla si dopočítám
+- jestli něco drží, nebo se naopak rozjíždí
+- POUŽÍVEJ JEN ČÍSLA VÝŠ. Ani jedno další si nevymýšlej
+- žádné rady do budoucna, tohle je zápis toho, co bylo
+- žádné oslovení, žádný pozdrav, prostě poznámka
+
+Když se za ten týden nestalo nic, co by stálo za zapamatování, odpověz PŘESNĚ: [nic]`;
+}
+
 function fmtCoachLog(log, recentN) {
   if (!Array.isArray(log) || !log.length) return 'Zatím jste spolu nemluvili.';
   const slice = log.slice(-recentN);
@@ -407,7 +463,10 @@ ${fmtProfile(ctx.profile)}
 === PAMĚŤ (trvalá fakta, PLATÍ VŽDY) ===
 ${ctx.memBlock}
 
-=== O ČEM JSTE UŽ MLUVILI (hlavní chat, jídla i tréninky) ===
+${ctx.summaries ? `=== JAK TO ŠLO PŘEDTÍM (tvoje týdenní poznámky) ===
+${ctx.summaries}
+
+` : ''}=== O ČEM JSTE UŽ MLUVILI (hlavní chat, jídla i tréninky) ===
 ${ctx.coachLog}
 Tohle je společná historie všech vašich chatů. Když se odvolá na dřívějšek,
 najdi si to tu. Když to tu není, zavolej search_history — sahá i dál do minulosti.
@@ -588,7 +647,13 @@ Když stačí obyčejný seznam voleb, použij radši blok "options" — je na t
 === VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
-=== O ČEM JSTE UŽ MLUVILI (hlavní chat, jídla i tréninky) ===
+${ctx.summaries ? `=== JAK TO ŠLO PŘEDTÍM (tvoje vlastní týdenní poznámky) ===
+${ctx.summaries}
+Tyhle poznámky sis psal sám vždycky po týdnu. Sahají dál než historie chatu —
+díky nim víš, jak se to celé vyvíjelo, ne jen posledních pár dní.
+Když mluví o delším období („zlepšuju se?", „jak mi to jde"), opři se o ně.
+
+` : ''}=== O ČEM JSTE UŽ MLUVILI (hlavní chat, jídla i tréninky) ===
 ${ctx.coachLog}
 Tohle je společná historie napříč VŠEMI chaty — i těmi u jídel a u tréninků.
 Když se odvolá na dřívějšek („jak jsem ti říkal", „minule"), koukni sem.
@@ -728,6 +793,7 @@ module.exports = async function handler(req, res) {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
       appSnapshot, focus, miniApps, session, sessionState, proactive, sessionHistory, coachLog,
+      coachSummaries, periodStats,
       foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
@@ -737,6 +803,7 @@ module.exports = async function handler(req, res) {
 
     const isOnboarding = mode === 'onboarding';
     const isWorkout = mode === 'workout';
+    const isSummary = mode === 'summary';
     const todayDate = (today && /^\d{4}-\d{2}-\d{2}$/.test(today)) ? today : null;
     const todayKey = dayKeyForDate(todayDate);
 
@@ -774,7 +841,9 @@ module.exports = async function handler(req, res) {
       focus: (focus && typeof focus === 'object') ? focus : null,
       miniApps: apps,
       session: (session && typeof session === 'object') ? session : null,
-      coachLog: fmtCoachLog(coachLog, 45),
+      coachLog: fmtCoachLog(coachLog, isSummary ? 120 : 45),
+      summaries: fmtSummaries(coachSummaries),
+      periodStats: periodStats || null,
       todayLine: fmtTodayLine(foodContext, workoutStatus),
       sessionExercises: (sess && sess.exercises.length) ? fmtSessionExercises(sess) : null,
       // Every word the user has said this workout, in full. The rolling history
@@ -790,7 +859,9 @@ module.exports = async function handler(req, res) {
       sessionHistory: Array.isArray(sessionHistory) ? sessionHistory.slice(0, 5) : []
     };
 
-    const systemInstruction = isOnboarding
+    const systemInstruction = isSummary
+      ? summaryPrompt(ctx)
+      : isOnboarding
       ? onboardingPrompt(ctx)
       : (isWorkout ? workoutPrompt(ctx) : coachPrompt(ctx));
 
@@ -821,7 +892,9 @@ module.exports = async function handler(req, res) {
     // During a workout the coach can restructure the session — but only when
     // the user actually asked. A proactive nudge fires on its own schedule, and
     // a spotter that silently deletes an exercise mid-set is not a feature.
-    const activeTools = isWorkout
+    const activeTools = isSummary
+      ? []
+      : isWorkout
       ? (ctx.canEditSession ? SESSION_TOOLS.concat([MEMORY_TOOL, HISTORY_TOOL]) : [])
       : isOnboarding
       ? TOOL_DECLARATIONS
