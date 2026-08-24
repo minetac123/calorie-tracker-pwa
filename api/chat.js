@@ -38,6 +38,57 @@ const FOOD_CATEGORIES = ['Snídaně', 'Dopolední svačina', 'Oběd', 'Odpoledn�
 // settings — so a constraint stated mid-workout ("tady jsou jen desítky a
 // patnáctky") lived only in the chat scrollback and was re-forgotten a few
 // messages later. This lets the coach keep it for good.
+// One shared conversation log across the main chat, meal chats and workouts.
+// Only a recent slice goes into the prompt; anything older is reachable through
+// search_history, which keeps the prompt small without losing the past.
+function fmtCoachLog(log, recentN) {
+  if (!Array.isArray(log) || !log.length) return 'Zatím jste spolu nemluvili.';
+  const slice = log.slice(-recentN);
+  let lastDay = '';
+  const lines = [];
+  slice.forEach((m) => {
+    if (!m || !m.text) return;
+    const d = new Date(m.ts || Date.now());
+    const day = d.toISOString().slice(0, 10);
+    if (day !== lastDay) { lines.push(`--- ${day} ---`); lastDay = day; }
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const who = m.role === 'user' ? 'ON' : 'TY';
+    lines.push(`[${hhmm} ${m.where || 'chat'}] ${who}: ${String(m.text).slice(0, 220)}`);
+  });
+  return lines.join('\n') || 'Zatím jste spolu nemluvili.';
+}
+
+function searchCoachLog(log, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q || !Array.isArray(log)) return [];
+  const words = q.split(/\s+/).filter((w) => w.length > 2);
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const nq = norm(q);
+  const nwords = words.map(norm);
+  return log
+    .filter((m) => {
+      const t = norm(m && m.text);
+      return t.includes(nq) || (nwords.length > 0 && nwords.every((w) => t.includes(w)));
+    })
+    .slice(-25)
+    .map((m) => {
+      const d = new Date(m.ts || Date.now());
+      return `${d.toISOString().slice(0, 10)} [${m.where || 'chat'}] ${m.role === 'user' ? 'ON' : 'TY'}: ${String(m.text).slice(0, 300)}`;
+    });
+}
+
+const HISTORY_TOOL = {
+  name: 'search_history',
+  description: 'Prohledá VŠECHNY vaše starší konverzace (hlavní chat, chaty u jídel i u tréninků), i ty, které nevidíš v kontextu. Volej, když si nejsi jistý, jestli jste něco už řešili, když se uživatel odvolává na dřívějšek („jak jsem ti říkal", „minule jsme se bavili"), nebo než mu poradíš něco, co už jednou odmítl.',
+  parameters: {
+    type: 'OBJECT',
+    properties: {
+      query: { type: 'STRING', description: 'Klíčová slova, např. "jednoručky váhy" nebo "koleno bolest"' }
+    },
+    required: ['query']
+  }
+};
+
 const MEMORY_TOOL = {
   name: 'remember_fact',
   description: 'Ulož si natrvalo fakt o uživateli nebo jeho posilovně, který má platit i příště. Volej VŽDY, když ti uživatel řekne nějaké omezení nebo trvalou informaci: jaké má k dispozici váhy a stroje, co ho bolí, co nejí, co nesnáší za cviky. Neukládej nálady ani jednorázové věci ("dnes jsem unavený").',
@@ -322,6 +373,11 @@ ${fmtProfile(ctx.profile)}
 
 === PAMĚŤ (trvalá fakta, PLATÍ VŽDY) ===
 ${ctx.memBlock}
+
+=== O ČEM JSTE UŽ MLUVILI (hlavní chat, jídla i tréninky) ===
+${ctx.coachLog}
+Tohle je společná historie všech vašich chatů. Když se odvolá na dřívějšek,
+najdi si to tu. Když to tu není, zavolej search_history — sahá i dál do minulosti.
 ${ctx.saidToday ? `
 === CO TI UŽIVATEL DNES NAPSAL (doslova, od začátku tréninku) ===
 Tohle je závazné. Když je tu omezení, drž se ho — i kdyby padlo před půl hodinou.
@@ -462,6 +518,13 @@ Když stačí obyčejný seznam voleb, použij radši blok "options" — je na t
 === VŠECHNA OSTATNÍ DATA Z APPKY ===
 ${fmtAppSnapshot(ctx.appSnapshot)}
 
+=== O ČEM JSTE UŽ MLUVILI (hlavní chat, jídla i tréninky) ===
+${ctx.coachLog}
+Tohle je společná historie napříč VŠEMI chaty — i těmi u jídel a u tréninků.
+Když se odvolá na dřívějšek („jak jsem ti říkal", „minule"), koukni sem.
+Když to tu nenajdeš, zavolej search_history, ta sahá dál do minulosti.
+Nikdy si nevymýšlej, že si na něco vzpomínáš — buď to tu je, nebo se zeptej.
+
 === PAMĚŤ (trvalá fakta, PLATÍ VŽDY) ===
 ${ctx.memBlock}
 Když ti uživatel řekne trvalé omezení nebo fakt o sobě — jaké má doma či v posilovně
@@ -594,7 +657,7 @@ module.exports = async function handler(req, res) {
     const {
       message, history, mode, image,
       profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
-      appSnapshot, focus, miniApps, session, sessionState, proactive, sessionHistory,
+      appSnapshot, focus, miniApps, session, sessionState, proactive, sessionHistory, coachLog,
       foodContext, workoutStatus, memories, today, nowTime
     } = req.body || {};
 
@@ -641,6 +704,7 @@ module.exports = async function handler(req, res) {
       focus: (focus && typeof focus === 'object') ? focus : null,
       miniApps: apps,
       session: (session && typeof session === 'object') ? session : null,
+      coachLog: fmtCoachLog(coachLog, 45),
       sessionExercises: (sess && sess.exercises.length) ? fmtSessionExercises(sess) : null,
       // Every word the user has said this workout, in full. The rolling history
       // window kept dropping constraints stated a few minutes earlier, and the
@@ -687,10 +751,11 @@ module.exports = async function handler(req, res) {
     // the user actually asked. A proactive nudge fires on its own schedule, and
     // a spotter that silently deletes an exercise mid-set is not a feature.
     const activeTools = isWorkout
-      ? (ctx.canEditSession ? SESSION_TOOLS.concat([MEMORY_TOOL]) : [])
+      ? (ctx.canEditSession ? SESSION_TOOLS.concat([MEMORY_TOOL, HISTORY_TOOL]) : [])
       : isOnboarding
       ? TOOL_DECLARATIONS
-      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS).concat([SEARCH_TOOL, MEMORY_TOOL]);
+      : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS)
+          .concat([SEARCH_TOOL, MEMORY_TOOL, HISTORY_TOOL]);
 
     const basePayload = {
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -801,6 +866,11 @@ module.exports = async function handler(req, res) {
           } else {
             result = { ok: false, error: 'Najednou lze navrhnout jen jednu změnu jídelního deníku.' };
           }
+        } else if (fc.name === 'search_history') {
+          const hits = searchCoachLog(coachLog, fc.args && fc.args.query);
+          result = hits.length
+            ? { ok: true, nalezeno: hits.length, zaznamy: hits }
+            : { ok: true, nalezeno: 0, note: 'Nic takového jste spolu neřešili. Neříkej, že si vzpomínáš — zeptej se.' };
         } else if (fc.name === 'remember_fact') {
           const fact = String((fc.args && fc.args.fact) || '').trim().slice(0, 200);
           const known = (Array.isArray(memories) ? memories : []).map((m) => String(m).toLowerCase());

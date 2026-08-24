@@ -2931,6 +2931,7 @@ async function syncToCloud() {
       coachChats: appState.coachChats,
       coachMemories: appState.coachMemories,
       coachMemoryEnabled: appState.coachMemoryEnabled,
+      coachLog: appState.coachLog,
       // The whole plan layer used to live only in this browser's localStorage —
       // clear site data or pick up another device and the plan, every logged
       // weight and the entire training history were simply gone.
@@ -3003,6 +3004,17 @@ function mergePlanFromCloud(cloud) {
     out.sort((a, b) => String((b && b.date) || '').localeCompare(String((a && a.date) || '')));
     return cap ? out.slice(0, cap) : out;
   };
+
+  // The chat log merges by timestamp so two devices interleave rather than one
+  // erasing the other's conversations.
+  if (Array.isArray(cloud.coachLog) && cloud.coachLog.length) {
+    const seen = new Set(getCoachLog().map((m) => m.ts + '|' + m.role + '|' + m.text));
+    const merged = getCoachLog().concat(
+      cloud.coachLog.filter((m) => m && !seen.has(m.ts + '|' + m.role + '|' + m.text))
+    );
+    merged.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    appState.coachLog = merged.slice(-COACH_LOG_CAP);
+  }
 
   appState.workoutLogs = mergeByKey(appState.workoutLogs, cloud.workoutLogs);
   appState.mealChecks = mergeByKey(appState.mealChecks, cloud.mealChecks);
@@ -4708,6 +4720,44 @@ function migrateCoachChats() {
   }
 }
 
+// ---- Společný deník všech chatů ----
+// Every surface the coach talks on used to keep its own scrollback and nothing
+// else: the main chat saved into coachChats, the meal chat lived and died with
+// its card, and the workout chat was thrown away when the workout ended. So the
+// coach could not remember Monday's conversation on Tuesday, let alone what you
+// told it in a meal chat while you were standing in the gym. This is one log
+// across all of them.
+const COACH_LOG_CAP = 400;   // kept locally
+const COACH_LOG_SEND = 250;  // handed to the model each request
+
+function getCoachLog() {
+  if (!Array.isArray(appState.coachLog)) appState.coachLog = [];
+  return appState.coachLog;
+}
+
+function logCoachTurn(where, role, text) {
+  if (!coachMemoryOn()) return;            // memory off means memory off
+  const clean = String(text || '').trim();
+  if (!clean) return;
+  if (/^\[?nic\]?$/i.test(clean)) return;  // the coach's "stay silent" sentinel
+  if (/^\(trénink běží/.test(clean)) return; // internal ping, not a real message
+
+  const log = getCoachLog();
+  const last = log[log.length - 1];
+  if (last && last.role === role && last.text === clean && Date.now() - last.ts < 60000) return;
+
+  log.push({ ts: Date.now(), where, role, text: clean.slice(0, 500) });
+  if (log.length > COACH_LOG_CAP) appState.coachLog = log.slice(-COACH_LOG_CAP);
+}
+
+// What actually travels to the model: recent turns, trimmed.
+function buildCoachLogPayload() {
+  if (!coachMemoryOn()) return [];
+  return getCoachLog().slice(-COACH_LOG_SEND).map((m) => ({
+    ts: m.ts, where: m.where, role: m.role, text: String(m.text).slice(0, 300)
+  }));
+}
+
 // ---- Manual memories (facts the user wants the coach to always know) ----
 function getCoachMemories() {
   if (!Array.isArray(appState.coachMemories)) appState.coachMemories = [];
@@ -5075,6 +5125,7 @@ async function sendCoachMessage() {
   appendCoachBubble(message, 'user', false, image);
   const storedText = image ? (message ? message + ' 📷' : '📷 (fotka)') : message;
   chat.messages.push({ role: 'user', text: storedText });
+  logCoachTurn('chat', 'user', storedText);
   chat.updatedAt = Date.now();
   if (isFirstMessage) {
     chat.title = (storedText || 'Fotka').slice(0, 40);
@@ -5124,6 +5175,7 @@ async function sendCoachMessage() {
         setTimeout(() => appendCoachBubble(b, 'assistant', true), i * 500);
       });
       chat.messages.push({ role: 'assistant', text: parts.join('\n') });
+      logCoachTurn('chat', 'assistant', parts.join(' '));
       chat.updatedAt = Date.now();
       if (chat.messages.length > 200) chat.messages = chat.messages.slice(-200);
       if (memOn) saveState();
@@ -5386,6 +5438,7 @@ function renderCoachActionCard(action) {
     appendCoachBubble(noteText, 'assistant', false);
     if (activeCoachChat) {
       activeCoachChat.messages.push({ role: 'assistant', text: noteText });
+      logCoachTurn('chat', 'assistant', noteText);
       activeCoachChat.updatedAt = Date.now();
       if (coachMemoryOn()) saveState();
     }
@@ -6031,6 +6084,7 @@ function buildCoachPayload(message, opts = {}) {
     foodContext: buildFoodContext(),
     workoutStatus: buildWorkoutStatus(),
     memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
+    coachLog: buildCoachLogPayload(),
     today: getTodayDateString(),
     nowTime: (() => {
       const n = new Date();
@@ -7303,6 +7357,7 @@ function untickMealFromChat() {
 
 function appendMealChatBubble(text, role) {
   if (!mealChat) return;
+  logCoachTurn('jídlo', role, text);
   mealChat.messages.push({ role, text });
   renderMealChatMessages();
 }
@@ -8657,6 +8712,7 @@ function sessionContextForCoach() {
 function appendSessionMessage(text, role, thumb) {
   const s = getSession_();
   if (!s) return;
+  logCoachTurn('trénink', role, text);
   s.messages.push({ role, text, ts: Date.now(), thumb: thumb || undefined });
   if (s.messages.length > 60) s.messages = s.messages.slice(-60);
   saveState();
