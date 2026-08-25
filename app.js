@@ -3446,6 +3446,21 @@ function init() {
         .catch((err) => console.error('Registrace Service Workeru selhala:', err));
     });
   }
+
+  requestPersistentStorage();
+}
+
+// Asks the browser not to silently clear this origin's storage under disk
+// pressure. This does not raise the quota — there is no API for that, it is
+// tied to actual free disk space — but "persisted" storage is exempt from the
+// browser's automatic eviction of least-recently-used origins, which is the
+// realistic way data gets lost long before any real limit is hit.
+async function requestPersistentStorage() {
+  try {
+    if (!navigator.storage || !navigator.storage.persist) return;
+    const already = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+    if (!already) await navigator.storage.persist();
+  } catch (e) { /* not fatal — the app works the same either way */ }
 }
 
 // ==========================================================================
