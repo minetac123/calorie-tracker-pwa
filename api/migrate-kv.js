@@ -41,7 +41,12 @@ module.exports = async function handler(req, res) {
 
   if (CRON_SECRET) {
     const auth = req.headers.authorization || '';
-    if (auth.replace(/^Bearer\s+/, '').trim() !== CRON_SECRET) {
+    // Also accept ?secret=... — this endpoint is temporary and gets deleted
+    // once the migration has run, and a query param is the only way to
+    // authenticate it from a tool that can only fetch a URL, no headers.
+    const fromQuery = (req.query && req.query.secret) ? String(req.query.secret).trim() : '';
+    const fromHeader = auth.replace(/^Bearer\s+/, '').trim();
+    if (fromHeader !== CRON_SECRET && fromQuery !== CRON_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
