@@ -493,8 +493,14 @@ function applyTool(name, args, state) {
       if (!p.weightKg) missing.push('váha');
       if (!p.goal) missing.push('cíl');
       if (p.trainingDaysPerWeek == null) missing.push('počet tréninků týdně');
-      if (!p.equipment) missing.push('vybavení');
-      if (!p.experience) missing.push('zkušenost');
+      // Someone who has said they will not train has nothing to answer about
+      // gym equipment or training experience — asking anyway is the kind of
+      // dead-end questioning that makes onboarding feel like a form.
+      const willTrain = num(p.trainingDaysPerWeek, -1) !== 0;
+      if (willTrain) {
+        if (!p.equipment) missing.push('vybavení');
+        if (!p.experience) missing.push('zkušenost');
+      }
       return {
         ok: true,
         profile: p,
