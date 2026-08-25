@@ -12,13 +12,14 @@ const { detectSignals } = require('./_lib/signals');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
-const CRON_SECRET = process.env.CRON_SECRET || '';
+// See api/migrate-kv.js for why this trims both sides.
+const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
 
 module.exports = async function handler(req, res) {
   // Accept the Vercel cron invocation (Authorization: Bearer <CRON_SECRET>)
   if (CRON_SECRET) {
     const auth = req.headers.authorization || '';
-    if (auth !== `Bearer ${CRON_SECRET}`) {
+    if (auth.replace(/^Bearer\s+/, '').trim() !== CRON_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }

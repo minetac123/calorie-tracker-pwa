@@ -10,7 +10,12 @@
 const { list } = require('@vercel/blob');
 const { kvPut, kvGet, kvDel, getRedis } = require('./_lib/store');
 
-const CRON_SECRET = process.env.CRON_SECRET || '';
+// Trimmed at both ends: a mobile paste into the Vercel dashboard can pick up
+// a trailing newline that is otherwise invisible and unfixable from the UI,
+// and the same could happen to whatever a caller sends back. Comparing
+// trimmed values makes the check tolerant of that without weakening it —
+// the secret's actual content still has to match exactly.
+const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
 
 module.exports = async function handler(req, res) {
   // No-secret diagnostic: just "is Redis configured", nothing sensitive.
@@ -36,7 +41,7 @@ module.exports = async function handler(req, res) {
 
   if (CRON_SECRET) {
     const auth = req.headers.authorization || '';
-    if (auth !== `Bearer ${CRON_SECRET}`) {
+    if (auth.replace(/^Bearer\s+/, '').trim() !== CRON_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
