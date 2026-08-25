@@ -1,8 +1,7 @@
 // Telegram Mini App backend: load and execute a pending food action.
 // GET  ?chatId=<id> — return the pending action for the mini app to display
 // POST {chatId, action} — execute the (possibly edited) action and notify user
-const { put } = require('@vercel/blob');
-const { blobGet } = require('./_lib/blob');
+const { kvGet, kvPut } = require('./_lib/store');
 const { getPendingAction, clearPendingAction, findUserByChatId, sendMessage } = require('./_lib/telegram');
 
 function getFoodCategory(item) {
@@ -131,7 +130,7 @@ module.exports = async function handler(req, res) {
     const entry = await findUserByChatId(chatId);
     if (!entry) return res.status(404).json({ error: 'User not linked' });
 
-    const userData = await blobGet(`data/${entry.username}.json`);
+    const userData = await kvGet(`data/${entry.username}.json`);
     if (!userData) {
       return res.status(404).json({ error: 'User data not found' });
     }
@@ -143,7 +142,7 @@ module.exports = async function handler(req, res) {
     chat.updatedAt = Date.now();
 
     await Promise.all([
-      put(`data/${entry.username}.json`, JSON.stringify(userData), { access: 'public', addRandomSuffix: false, cacheControlMaxAge: 0 }),
+      kvPut(`data/${entry.username}.json`, userData),
       clearPendingAction(chatId)
     ]);
 

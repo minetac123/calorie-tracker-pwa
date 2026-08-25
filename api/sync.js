@@ -1,5 +1,5 @@
-const { put } = require('@vercel/blob');
-const { blobGet, BASE_URL } = require('./_lib/blob');
+const { kvGet, kvPut } = require('./_lib/store');
+const { extractUsername } = require('./_lib/auth');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -7,23 +7,9 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Extract username from token (base64 encoded: "username_timestamp_random")
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Nepřihlášen' });
-  }
-
-  let username;
-  try {
-    const token = authHeader.split(' ')[1];
-    const decoded = Buffer.from(token, 'base64').toString('utf-8');
-    username = decoded.split('_')[0];
-  } catch (e) {
-    return res.status(401).json({ error: 'Neplatný token' });
-  }
-
+  const username = extractUsername(req.headers.authorization);
   if (!username) {
-    return res.status(401).json({ error: 'Neplatný token' });
+    return res.status(401).json({ error: 'Nepřihlášen' });
   }
 
   const blobPath = `data/${username}.json`;
@@ -37,18 +23,14 @@ module.exports = async function handler(req, res) {
         return res.status(400).json({ error: 'Žádná data k uložení' });
       }
 
-      await put(blobPath, JSON.stringify(appData), {
-        access: 'public',
-        addRandomSuffix: false,
-        cacheControlMaxAge: 0
-      });
+      await kvPut(blobPath, appData);
 
       return res.status(200).json({ success: true, message: 'Data uložena' });
     }
 
     // LOAD data from cloud
     if (req.method === 'GET') {
-      const appData = await blobGet(blobPath);
+      const appData = await kvGet(blobPath);
       return res.status(200).json({ success: true, appData: appData || null });
     }
 

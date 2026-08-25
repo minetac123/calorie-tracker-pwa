@@ -1,4 +1,4 @@
-const { blobGet } = require('./_lib/blob');
+const { kvGet } = require('./_lib/store');
 const crypto = require('crypto');
 
 function hashPassword(password) {
@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
     const blobPath = `users/${safeUsername}.json`;
 
     // Find user blob
-    const userData = await blobGet(blobPath);
+    const userData = await kvGet(blobPath);
     if (!userData) {
       return res.status(401).json({ error: 'Uživatel neexistuje' });
     }
@@ -46,7 +46,7 @@ module.exports = async function handler(req, res) {
     const newToken = generateToken(safeUsername);
 
     // Try to load user's saved app data
-    const appData = await blobGet(`data/${safeUsername}.json`);
+    const appData = await kvGet(`data/${safeUsername}.json`);
 
     return res.status(200).json({
       success: true,

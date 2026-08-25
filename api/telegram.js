@@ -1,8 +1,7 @@
 // Telegram webhook: receives updates and runs them through the same AI coach
 // as the in-app chat. Telegram messages appear as a dedicated "Telegram" chat
 // in the in-app coach chat list after the next cloud sync.
-const { put } = require('@vercel/blob');
-const { blobGet } = require('./_lib/blob');
+const { kvGet, kvPut } = require('./_lib/store');
 const { buildSystemInstruction } = require('./_lib/coach');
 const {
   tgPost,
@@ -108,15 +107,11 @@ function buildFoodContext(userData) {
 // ---- User data Blob helpers ----
 
 async function loadUserData(username) {
-  return blobGet(`data/${username}.json`);
+  return kvGet(`data/${username}.json`);
 }
 
 async function saveUserData(username, data) {
-  await put(`data/${username}.json`, JSON.stringify(data), {
-    access: 'public',
-    addRandomSuffix: false,
-    cacheControlMaxAge: 0
-  });
+  await kvPut(`data/${username}.json`, data);
 }
 
 // Returns (or creates) the dedicated "Telegram" entry in coachChats.

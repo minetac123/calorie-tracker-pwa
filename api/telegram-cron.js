@@ -6,7 +6,7 @@
 // whether or not anything happened is noise, and noise gets muted. Now the data
 // is checked for something actually worth saying, and when nothing scores, the
 // user hears nothing at all — which is most days, by design.
-const { blobGet } = require('./_lib/blob');
+const { kvGet } = require('./_lib/store');
 const { getTelegramIndex, sendMessage } = require('./_lib/telegram');
 const { detectSignals } = require('./_lib/signals');
 
@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
   for (const { username, chatId } of index) {
     try {
       // Load user data
-      const userData = await blobGet(`data/${username}.json`);
+      const userData = await kvGet(`data/${username}.json`);
       if (!userData) continue;
 
       const signals = detectSignals(userData, today);

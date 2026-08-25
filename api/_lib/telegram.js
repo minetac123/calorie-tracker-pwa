@@ -1,5 +1,5 @@
-// Telegram Bot API helpers and Vercel Blob storage for the Telegram integration.
-const { blobGet, blobPut, blobDel } = require('./blob');
+// Telegram Bot API helpers and key-value storage for the Telegram integration.
+const { kvGet, kvPut, kvDel } = require('./store');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || '';
@@ -31,7 +31,7 @@ async function setWebhook(url) {
 const INDEX_PATH = 'telegram/index.json';
 
 async function getTelegramIndex() {
-  return (await blobGet(INDEX_PATH)) || [];
+  return (await kvGet(INDEX_PATH)) || [];
 }
 
 async function findUserByChatId(chatId) {
@@ -43,12 +43,12 @@ async function linkUser(username, chatId) {
   const idx = await getTelegramIndex();
   const filtered = idx.filter((e) => e.username !== username && String(e.chatId) !== String(chatId));
   filtered.push({ username, chatId: String(chatId) });
-  await blobPut(INDEX_PATH, filtered);
+  await kvPut(INDEX_PATH, filtered);
 }
 
 async function unlinkUser(username) {
   const idx = await getTelegramIndex();
-  await blobPut(INDEX_PATH, idx.filter((e) => e.username !== username));
+  await kvPut(INDEX_PATH, idx.filter((e) => e.username !== username));
 }
 
 // --- One-time link codes (6-digit): stored as {code: {username, expiry}} ---
@@ -56,22 +56,22 @@ async function unlinkUser(username) {
 const CODES_PATH = 'telegram/codes.json';
 
 async function saveLinkCode(username, code) {
-  const codes = (await blobGet(CODES_PATH)) || {};
+  const codes = (await kvGet(CODES_PATH)) || {};
   // Remove existing code for this user and expired codes
   const now = Date.now();
   Object.keys(codes).forEach((k) => {
     if (!codes[k] || codes[k].expiry < now || codes[k].username === username) delete codes[k];
   });
   codes[code] = { username, expiry: now + 15 * 60 * 1000 };
-  await blobPut(CODES_PATH, codes);
+  await kvPut(CODES_PATH, codes);
 }
 
 async function consumeLinkCode(code) {
-  const codes = (await blobGet(CODES_PATH)) || {};
+  const codes = (await kvGet(CODES_PATH)) || {};
   const entry = codes[code];
   if (!entry || entry.expiry < Date.now()) return null;
   delete codes[code];
-  await blobPut(CODES_PATH, codes);
+  await kvPut(CODES_PATH, codes);
   return entry.username;
 }
 
@@ -80,15 +80,15 @@ async function consumeLinkCode(code) {
 const PENDING_PATH = (chatId) => `telegram/pending/${chatId}.json`;
 
 async function savePendingAction(chatId, action) {
-  await blobPut(PENDING_PATH(chatId), action);
+  await kvPut(PENDING_PATH(chatId), action);
 }
 
 async function getPendingAction(chatId) {
-  return blobGet(PENDING_PATH(chatId));
+  return kvGet(PENDING_PATH(chatId));
 }
 
 async function clearPendingAction(chatId) {
-  await blobDel(PENDING_PATH(chatId));
+  await kvDel(PENDING_PATH(chatId));
 }
 
 module.exports = {
