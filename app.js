@@ -37,8 +37,57 @@ window.copyMoveActionType = 'copy';
 // ==========================================================================
 // STORAGE FUNCTIONS
 // ==========================================================================
+// Storage filling up must never stop the app from recording what someone ate or
+// lifted. If the write fails, free the most expendable things and try again —
+// and if even that fails, keep running rather than throwing into every caller.
+function pruneForSpace(round) {
+  if (round === 1) {
+    // Queued images and parked photos are the heaviest and the least precious.
+    if (Array.isArray(appState.pendingPhotos)) {
+      appState.pendingPhotos.forEach((x) => { if (x) delete x.dataUrl; });
+    }
+    if (Array.isArray(appState.coachQueue)) {
+      appState.coachQueue.forEach((x) => { if (x) delete x.image; });
+    }
+    if (Array.isArray(appState.coachLog) && appState.coachLog.length > 120) {
+      appState.coachLog = appState.coachLog.slice(-120);
+    }
+    return true;
+  }
+  if (round === 2) {
+    // Thumbnails inside the workout chat.
+    const ses = appState.activeSession;
+    if (ses && Array.isArray(ses.messages)) ses.messages.forEach((m) => { if (m) delete m.thumb; });
+    appState.pendingPhotos = [];
+    appState.coachQueue = [];
+    return true;
+  }
+  if (round === 3) {
+    // Oldest food history. Keep the last 60 days — the cloud copy has the rest.
+    const keys = Object.keys(appState.logs || {}).sort();
+    if (keys.length > 60) {
+      keys.slice(0, keys.length - 60).forEach((k) => { delete appState.logs[k]; });
+      return true;
+    }
+  }
+  return false;
+}
+
 function saveState(skipCloudSync = false) {
-  localStorage.setItem('fitai_state', JSON.stringify(appState));
+  let saved = false;
+  for (let round = 0; round <= 3 && !saved; round++) {
+    try {
+      if (round > 0 && !pruneForSpace(round)) continue;
+      localStorage.setItem('fitai_state', JSON.stringify(appState));
+      saved = true;
+      if (round > 0) {
+        console.warn(`Úložiště bylo plné, uvolněno v kole ${round}`);
+        showToast('Úložiště bylo plné, uklidil jsem starší fotky');
+      }
+    } catch (e) {
+      if (round === 3) console.error('Stav se nepodařilo uložit ani po úklidu:', e);
+    }
+  }
   if (!skipCloudSync) {
     const session = getSession();
     if (session) {
@@ -3226,6 +3275,38 @@ function scheduleWeeklySummary() {
   setTimeout(() => { maybeMakeWeeklySummary(); }, 8000);
 }
 
+// Photos saved by an older build still sit inline in localStorage, which is
+// exactly the pressure this change removes. Move them across once, then drop
+// any blob nothing points at any more.
+async function migrateMediaToIdb() {
+  try {
+    let moved = 0;
+    for (const x of getPendingPhotos()) {
+      if (!x.dataUrl) continue;
+      const key = x.blobKey || ('ph_' + x.id);
+      await mediaPut(key, x.dataUrl);
+      x.blobKey = key;
+      delete x.dataUrl;
+      moved++;
+    }
+    for (const x of getCoachQueue()) {
+      if (!x.image) continue;
+      const key = x.blobKey || ('q_' + x.id);
+      await mediaPut(key, x.image);
+      x.blobKey = key;
+      delete x.image;
+      moved++;
+    }
+    if (moved) {
+      saveState();
+      console.log(`Přesunuto ${moved} obrázků z localStorage do IndexedDB`);
+    }
+    await mediaSweep();
+  } catch (e) {
+    /* the inline copies still work, so a failed migration is not fatal */
+  }
+}
+
 function initConnectivity() {
   // Neither 'online' nor 'visibilitychange' fires on a cold start, so without
   // this a parked photo would sit there until the user happened to background
@@ -3255,6 +3336,7 @@ function init() {
   initWakeLock();
   initConnectivity();
   scheduleWeeklySummary();
+  setTimeout(migrateMediaToIdb, 2500);
 
   // Calendar "go back to today" button
   const backToTodayBtn = document.getElementById('btn-back-to-today');
@@ -9336,19 +9418,74 @@ function offlineCoachAnswer(question) {
   return null;
 }
 
+// ---- Úložiště pro obrázky (IndexedDB) ----
+// Base64 fotky v localStorage byly slepá ulička: 20 zpráv ve frontě po ~200 kB
+// plus čekající fotky se snadno vešly do 5 MB stropu, a jakmile se strop dotkl,
+// saveState() vyhodilo QuotaExceededError — takže appka přestala ukládat úplně
+// všechno, i zapsané jídlo. IndexedDB má řádově vyšší kvótu a obrázky patří
+// sem; v localStorage zůstávají jen metadata o pár desítkách bajtů.
+
+const MEDIA_DB = 'fitai-media';
+const MEDIA_STORE = 'blobs';
+let mediaDbPromise = null;
+
+function mediaDb() {
+  if (mediaDbPromise) return mediaDbPromise;
+  mediaDbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error('IndexedDB není k dispozici'));
+    const req = indexedDB.open(MEDIA_DB, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(MEDIA_STORE)) db.createObjectStore(MEDIA_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('IndexedDB se neotevřela'));
+  }).catch((e) => { mediaDbPromise = null; throw e; });
+  return mediaDbPromise;
+}
+
+function mediaOp(mode, fn) {
+  return mediaDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(MEDIA_STORE, mode);
+    const req = fn(tx.objectStore(MEDIA_STORE));
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('transakce přerušena'));
+    if (req) req.onsuccess = () => resolve(req.result);
+    else tx.oncomplete = () => resolve();
+  }));
+}
+
+function mediaPut(key, dataUrl) { return mediaOp('readwrite', (st) => st.put(dataUrl, key)); }
+function mediaGet(key) { return mediaOp('readonly', (st) => st.get(key)); }
+function mediaDel(key) { return mediaOp('readwrite', (st) => st.delete(key)); }
+function mediaKeys() { return mediaOp('readonly', (st) => st.getAllKeys()); }
+
+// Anything the app no longer references is dead weight.
+async function mediaSweep() {
+  try {
+    const keys = await mediaKeys();
+    const alive = new Set();
+    getPendingPhotos().forEach((x) => x.blobKey && alive.add(x.blobKey));
+    getCoachQueue().forEach((x) => x.blobKey && alive.add(x.blobKey));
+    await Promise.all(keys.filter((k) => !alive.has(k)).map((k) => mediaDel(k)));
+  } catch (e) { /* sweeping is opportunistic */ }
+}
+
 // ---- Fotky čekající na analýzu ----
 // Reading a plate of food genuinely needs a vision model, and that will not run
 // inside an iOS PWA. What it must never do is lose the photo: the meal is eaten
 // and unrepeatable. So an offline shot is parked here, analysed automatically
 // the moment there is signal, and then waits — with results ready — for one tap.
 
-const PENDING_PHOTO_CAP = 8; // base64 JPEGs are heavy; keep the quota safe
+// With the image bytes in IndexedDB rather than localStorage, a bigger backlog
+// is no longer a risk to the rest of the app's data.
+const PENDING_PHOTO_CAP = 20;
 
 function getPendingPhotos() {
   if (!Array.isArray(appState.pendingPhotos)) appState.pendingPhotos = [];
   // Drop entries that can never be rendered or analysed. One null in here used
   // to crash the whole dashboard banner on paint.
-  const clean = appState.pendingPhotos.filter((x) => x && x.id && x.dataUrl);
+  const clean = appState.pendingPhotos.filter((x) => x && x.id && (x.dataUrl || x.blobKey));
   if (clean.length !== appState.pendingPhotos.length) appState.pendingPhotos = clean;
   return appState.pendingPhotos;
 }
@@ -9357,30 +9494,42 @@ function addPendingPhoto(dataUrl, category) {
   if (!dataUrl) return 0;
   const list = getPendingPhotos();
   if (list.length >= PENDING_PHOTO_CAP) {
+    const gone = list.shift();
+    if (gone && gone.blobKey) mediaDel(gone.blobKey).catch(() => {});
     showToast(`Čeká už ${PENDING_PHOTO_CAP} fotek, nejstarší jsem zahodil`);
-    list.shift();
   }
-  list.push({
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    dataUrl,
-    category: category || null,
-    date: getActiveDateString(),
-    ts: Date.now(),
-    result: null
-  });
-  try {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const blobKey = 'ph_' + id;
+  const entry = { id, blobKey, category: category || null,
+                  date: getActiveDateString(), ts: Date.now(), result: null };
+  list.push(entry);
+  saveState();
+
+  // The bytes go to IndexedDB. If that fails the metadata would point at
+  // nothing, so the entry is rolled back rather than left as a dead thumbnail.
+  mediaPut(blobKey, dataUrl).then(() => renderPendingPhotoBanner()).catch((e) => {
+    console.error('Fotku se nepodařilo uložit:', e);
+    appState.pendingPhotos = getPendingPhotos().filter((x) => x.id !== id);
     saveState();
-  } catch (e) {
-    // Quota blown — drop this one rather than wedging the whole app.
-    list.pop();
-    console.error('Pending photo storage failed:', e);
-    return 0;
-  }
+    renderPendingPhotoBanner();
+    showToast('Fotku se nepodařilo uložit');
+  });
   renderPendingPhotoBanner();
   return list.length;
 }
 
+// Reads the image back for one entry. Older entries still carry an inline
+// dataUrl from before the move to IndexedDB, so both shapes are accepted.
+async function pendingPhotoData(item) {
+  if (!item) return null;
+  if (item.dataUrl) return item.dataUrl;
+  if (!item.blobKey) return null;
+  try { return await mediaGet(item.blobKey); } catch (e) { return null; }
+}
+
 function removePendingPhoto(id) {
+  const gone = getPendingPhotos().find((x) => x.id === id);
+  if (gone && gone.blobKey) mediaDel(gone.blobKey).catch(() => {});
   appState.pendingPhotos = getPendingPhotos().filter((x) => x.id !== id);
   saveState();
   renderPendingPhotoBanner();
@@ -9397,9 +9546,11 @@ async function flushPendingPhotos() {
   let done = 0;
   try {
     for (const item of waiting) {
+      const src = await pendingPhotoData(item);
+      if (!src) { removePendingPhoto(item.id); continue; } // bytes are gone
       let data;
       try {
-        data = await callGeminiAPI(null, item.dataUrl);
+        data = await callGeminiAPI(null, src);
       } catch (e) {
         break; // still no usable connection — the rest keeps waiting
       }
@@ -9450,11 +9601,19 @@ function renderPendingPhotoBanner() {
     <div class="pp-list">
       ${list.map((x) => `
         <div class="pp-item ${x.result ? 'ready' : ''}" data-pp="${x.id}">
-          <img src="${x.dataUrl}" alt="fotka jídla">
+          <img alt="fotka jídla" data-pp-img="${x.id}"${x.dataUrl ? ` src="${x.dataUrl}"` : ''}>
           <span class="pp-badge">${x.result ? '✓' : '⏳'}</span>
           <button class="pp-x" data-pp-del="${x.id}" type="button" aria-label="Zahodit">×</button>
         </div>`).join('')}
     </div>`;
+
+  // Thumbnails live in IndexedDB now, so they arrive a tick after the layout.
+  list.forEach((x) => {
+    if (x.dataUrl || !x.blobKey) return;
+    const img = el.querySelector(`[data-pp-img="${x.id}"]`);
+    if (!img) return;
+    mediaGet(x.blobKey).then((d) => { if (d) img.src = d; }).catch(() => {});
+  });
 
   el.querySelectorAll('[data-pp]').forEach((node) => {
     node.addEventListener('click', (e) => {
@@ -9465,8 +9624,12 @@ function renderPendingPhotoBanner() {
         showToast('Ještě nemám signál, jakmile ho chytnu, rozeberu ji');
         return;
       }
-      removePendingPhoto(item.id);
-      if (typeof window.flsResumePending === 'function') window.flsResumePending(item);
+      pendingPhotoData(item).then((src) => {
+        removePendingPhoto(item.id);
+        if (typeof window.flsResumePending === 'function') {
+          window.flsResumePending(Object.assign({}, item, { dataUrl: src }));
+        }
+      });
     });
   });
   el.querySelectorAll('[data-pp-del]').forEach((btn) => {
@@ -9481,21 +9644,26 @@ function renderPendingPhotoBanner() {
 
 function getCoachQueue() {
   if (!Array.isArray(appState.coachQueue)) appState.coachQueue = [];
-  const clean = appState.coachQueue.filter((x) => x && (x.text || x.image));
+  const clean = appState.coachQueue.filter((x) => x && (x.text || x.image || x.blobKey));
   if (clean.length !== appState.coachQueue.length) appState.coachQueue = clean;
   return appState.coachQueue;
 }
 
 function queueCoachMessage(where, text, image) {
   const q = getCoachQueue();
-  q.push({
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    where, text: String(text || '').slice(0, 2000), image: image || null, ts: Date.now()
-  });
-  // Photos are heavy; keep the backlog from eating the storage quota.
-  if (q.length > 20) appState.coachQueue = q.slice(-20);
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const entry = { id, where, text: String(text || '').slice(0, 2000), ts: Date.now() };
+  if (image) {
+    entry.blobKey = 'q_' + id;
+    mediaPut(entry.blobKey, image).catch((e) => console.error('Fotka do fronty selhala:', e));
+  }
+  q.push(entry);
+  if (q.length > 20) {
+    q.slice(0, q.length - 20).forEach((x) => { if (x.blobKey) mediaDel(x.blobKey).catch(() => {}); });
+    appState.coachQueue = q.slice(-20);
+  }
   saveState();
-  return q.length;
+  return getCoachQueue().length;
 }
 
 let flushingQueue = false;
@@ -9512,7 +9680,9 @@ async function flushCoachQueue() {
         mode: item.where === 'trénink' ? 'workout' : 'coach',
         history: []
       });
-      if (item.image) payload.image = item.image;
+      let img = item.image || null;
+      if (!img && item.blobKey) { try { img = await mediaGet(item.blobKey); } catch (e) { img = null; } }
+      if (img) payload.image = img;
       const s = getSession_();
       if (item.where === 'trénink' && s) {
         payload.session = sessionContextForCoach();
@@ -9524,6 +9694,7 @@ async function flushCoachQueue() {
       } catch (e) {
         break; // still no connection — leave the rest queued
       }
+      if (item.blobKey) mediaDel(item.blobKey).catch(() => {});
       appState.coachQueue = getCoachQueue().slice(1);
       if (data && data.newMemories) applyNewMemories(data.newMemories);
       if (data && data.sessionActions) applySessionActions(data.sessionActions);
