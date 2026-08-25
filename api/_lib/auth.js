@@ -6,7 +6,14 @@ function extractUsername(authHeader) {
   try {
     const token = authHeader.split(' ')[1];
     const decoded = Buffer.from(token, 'base64').toString('utf-8');
-    return decoded.split('_')[0] || null;
+    // Format is "username_timestamp_random". A bare split('_')[0] truncated
+    // any username that itself contains an underscore (register.js explicitly
+    // allows them) at the first one, silently authenticating as the wrong
+    // person. Timestamp and random are always the last two segments, so
+    // dropping exactly those two reconstructs the real username instead.
+    const parts = decoded.split('_');
+    if (parts.length < 3) return null;
+    return parts.slice(0, -2).join('_') || null;
   } catch (e) {
     return null;
   }

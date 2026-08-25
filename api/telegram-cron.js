@@ -6,19 +6,20 @@
 // whether or not anything happened is noise, and noise gets muted. Now the data
 // is checked for something actually worth saying, and when nothing scores, the
 // user hears nothing at all — which is most days, by design.
-const { blobGet } = require('./_lib/blob');
+const { kvGet } = require('./_lib/store');
 const { getTelegramIndex, sendMessage } = require('./_lib/telegram');
 const { detectSignals } = require('./_lib/signals');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
-const CRON_SECRET = process.env.CRON_SECRET || '';
+// See api/migrate-kv.js for why this trims both sides.
+const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
 
 module.exports = async function handler(req, res) {
   // Accept the Vercel cron invocation (Authorization: Bearer <CRON_SECRET>)
   if (CRON_SECRET) {
     const auth = req.headers.authorization || '';
-    if (auth !== `Bearer ${CRON_SECRET}`) {
+    if (auth.replace(/^Bearer\s+/, '').trim() !== CRON_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
@@ -41,7 +42,7 @@ module.exports = async function handler(req, res) {
   for (const { username, chatId } of index) {
     try {
       // Load user data
-      const userData = await blobGet(`data/${username}.json`);
+      const userData = await kvGet(`data/${username}.json`);
       if (!userData) continue;
 
       const signals = detectSignals(userData, today);
