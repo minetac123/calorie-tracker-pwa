@@ -5,16 +5,19 @@ function fmtFood(food) {
   if (!food) return 'Žádný kontext o jídle nebyl poskytnut.';
   const lines = [];
   if (food.date) lines.push(`Datum: ${food.date}`);
+  // Anything missing prints as "?" rather than "undefined": the model reads this
+  // as the user's actual goal and will repeat it back verbatim if we let it.
+  const v = (x) => (Number.isFinite(Number(x)) ? Number(x) : '?');
   if (food.goals) {
-    lines.push(`Denní cíle: ${food.goals.calories} kcal, B ${food.goals.protein} g, S ${food.goals.carbs} g, T ${food.goals.fat} g`);
+    lines.push(`Denní cíle: ${v(food.goals.calories)} kcal, B ${v(food.goals.protein)} g, S ${v(food.goals.carbs)} g, T ${v(food.goals.fat)} g`);
   }
   if (food.totals) {
-    lines.push(`Snězeno dnes: ${food.totals.calories} kcal, B ${food.totals.protein} g, S ${food.totals.carbs} g, T ${food.totals.fat} g`);
+    lines.push(`Snězeno dnes: ${v(food.totals.calories)} kcal, B ${v(food.totals.protein)} g, S ${v(food.totals.carbs)} g, T ${v(food.totals.fat)} g`);
   }
   if (Array.isArray(food.items) && food.items.length) {
     lines.push('Jídla dnes (s id pro úpravy/mazání):');
-    food.items.forEach((it) => {
-      lines.push(`  • [id:${it.id}] ${it.name} (${it.amount || ''}) [${it.category || ''}] – ${it.calories} kcal, B ${it.protein} g, S ${it.carbs} g, T ${it.fat} g`);
+    food.items.filter(Boolean).forEach((it) => {
+      lines.push(`  • [id:${it.id || '?'}] ${it.name || 'jídlo'} (${it.amount || ''}) [${it.category || ''}] – ${v(it.calories)} kcal, B ${v(it.protein)} g, S ${v(it.carbs)} g, T ${v(it.fat)} g`);
     });
   } else {
     lines.push('Dnes zatím nebylo zapsáno žádné jídlo.');

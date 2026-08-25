@@ -23,8 +23,14 @@ function daysBetween(a, b) {
 }
 
 function topSet(session) {
-  if (!session || !Array.isArray(session.sets) || !session.sets.length) return null;
-  return session.sets.reduce((best, s) => (s.w > best.w ? s : best), session.sets[0]);
+  if (!session || !Array.isArray(session.sets)) return null;
+  // Entries can be null or missing their numbers when storage was written by an
+  // older build or half-corrupted. A set without a real weight is not a set —
+  // letting one through produced "nový osobák: 60 undefined kg" in a push.
+  const valid = session.sets.filter((s) =>
+    s && Number.isFinite(Number(s.w)) && Number(s.w) > 0);
+  if (!valid.length) return null;
+  return valid.reduce((best, s) => (Number(s.w) > Number(best.w) ? s : best), valid[0]);
 }
 
 function recentDates(today, n) {
@@ -105,7 +111,8 @@ function sigPersonalBest(d, today) {
 }
 
 function sigNoWeighIn(d, today) {
-  const wl = Array.isArray(d.weightLogs) ? d.weightLogs.slice() : [];
+  const wl = (Array.isArray(d.weightLogs) ? d.weightLogs : [])
+    .filter((x) => x && x.date != null && Number.isFinite(Number(x.weight)));
   if (!wl.length) return null;
   wl.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const last = wl[wl.length - 1];

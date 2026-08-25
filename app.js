@@ -157,6 +157,9 @@ function ensurePlanState() {
   if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
   if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
   if (appState.activeSession === undefined) appState.activeSession = null;
+  if (appState.activeSession && !sessionLooksUsable(appState.activeSession)) {
+    appState.activeSession = null;
+  }
   if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
 }
 
@@ -4801,6 +4804,8 @@ const COACH_LOG_SEND = 250;  // handed to the model each request
 
 function getCoachLog() {
   if (!Array.isArray(appState.coachLog)) appState.coachLog = [];
+  const clean = appState.coachLog.filter((m) => m && typeof m.text === 'string');
+  if (clean.length !== appState.coachLog.length) appState.coachLog = clean;
   return appState.coachLog;
 }
 
@@ -5661,6 +5666,10 @@ function toggleExerciseDone(exId, date) {
 
 function getMealChecks(date) {
   const d = date || getActiveDateString();
+  if (!appState.mealChecks || typeof appState.mealChecks !== 'object' ||
+      Array.isArray(appState.mealChecks)) {
+    appState.mealChecks = {};
+  }
   if (!Array.isArray(appState.mealChecks[d])) appState.mealChecks[d] = [];
   return appState.mealChecks[d];
 }
@@ -6855,6 +6864,9 @@ function openShoppingList() {
         if (!Array.isArray(appState.shoppingBought)) appState.shoppingBought = [];
   if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
   if (appState.activeSession === undefined) appState.activeSession = null;
+  if (appState.activeSession && !sessionLooksUsable(appState.activeSession)) {
+    appState.activeSession = null;
+  }
   if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
         const n = cb.getAttribute('data-name');
         const idx = appState.shoppingBought.indexOf(n);
@@ -7575,6 +7587,9 @@ function initMealChatHandlers() {
 function getMiniApps() {
   if (!Array.isArray(appState.miniApps)) appState.miniApps = [];
   if (appState.activeSession === undefined) appState.activeSession = null;
+  if (appState.activeSession && !sessionLooksUsable(appState.activeSession)) {
+    appState.activeSession = null;
+  }
   if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
   return appState.miniApps;
 }
@@ -7992,7 +8007,30 @@ function esc(v) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function getSession_() { return appState.activeSession || null; }
+// A session that survives from an older build, a half-written save, or partly
+// corrupted storage used to crash the app on boot: resume → render → forEach on
+// something that is not an array, and the user is stuck on a blank screen with
+// no way out but clearing site data. An unusable session is dropped instead.
+function sessionLooksUsable(s) {
+  return !!(s && typeof s === 'object'
+    && Array.isArray(s.exercises) && s.exercises.length
+    && s.exercises.every((e) => e && typeof e === 'object' && Array.isArray(e.sets))
+    && typeof s.startedAt === 'number');
+}
+
+function getSession_() {
+  const s = appState.activeSession;
+  if (!s) return null;
+  if (!sessionLooksUsable(s)) {
+    console.warn('Rozdělaný trénink byl poškozený, zahazuju ho');
+    appState.activeSession = null;
+    try { saveState(); } catch (e) { /* storage may be the thing that broke */ }
+    return null;
+  }
+  // idx can drift out of range if exercises were removed elsewhere.
+  if (!(s.idx >= 0) || s.idx >= s.exercises.length) s.idx = 0;
+  return s;
+}
 
 function hasActiveSession() {
   const s = getSession_();
@@ -8892,6 +8930,8 @@ const SUMMARY_EVERY_DAYS = 7;
 
 function getCoachSummaries() {
   if (!Array.isArray(appState.coachSummaries)) appState.coachSummaries = [];
+  const clean = appState.coachSummaries.filter((x) => x && x.text);
+  if (clean.length !== appState.coachSummaries.length) appState.coachSummaries = clean;
   return appState.coachSummaries;
 }
 
@@ -9039,19 +9079,22 @@ function trimLogBeforeSummaries() {
 // question you were about to type — what's left today, and what to do next.
 
 function briefTotals(date) {
-  const items = appState.logs[date] || [];
+  const raw = (appState.logs || {})[date];
+  const items = Array.isArray(raw) ? raw.filter(Boolean) : [];
   return items.reduce((a, i) => ({
-    kcal: a.kcal + (Number(i.calories) || 0),
-    protein: a.protein + (Number(i.protein) || 0)
+    kcal: a.kcal + (Number(i && i.calories) || 0),
+    protein: a.protein + (Number(i && i.protein) || 0)
   }), { kcal: 0, protein: 0 });
 }
 
 // The planned meal that best fits what's left, so the answer is "eat this",
 // not "you have 400 kcal left, figure it out".
 function briefSuggestMeal(dayKey, kcalLeft) {
-  const meals = getMealsForDay(dayKey) || [];
+  const raw = getMealsForDay(dayKey);
+  const meals = (Array.isArray(raw) ? raw : []).filter((m) => m && m.name);
   if (!meals.length) return null;
-  const eaten = getMealChecks(getTodayDateString());
+  const checks = getMealChecks(getTodayDateString());
+  const eaten = Array.isArray(checks) ? checks : [];
   const open = meals.filter((m) => !eaten.includes(m.id));
   if (!open.length) return null;
   // Closest fit that doesn't blow the remainder by more than a quarter.
@@ -9073,10 +9116,11 @@ function buildDailyBrief() {
   const left = goalKcal ? goalKcal - kcal : null;
 
   const w = getWorkoutForDay(dayKey);
-  const isTrainingDay = !!(w && !w.rest && w.exercises && w.exercises.length);
+  const exList = (w && Array.isArray(w.exercises) ? w.exercises : []).filter((e) => e && e.id);
+  const isTrainingDay = !!(w && !w.rest && exList.length);
   const log = getWorkoutLog(date);
-  const doneCount = isTrainingDay ? w.exercises.filter((e) => log.done.includes(e.id)).length : 0;
-  const workoutDone = isTrainingDay && doneCount >= w.exercises.length;
+  const doneCount = isTrainingDay ? exList.filter((e) => log.done.includes(e.id)).length : 0;
+  const workoutDone = isTrainingDay && doneCount >= exList.length;
   const sessionRunning = hasActiveSession();
 
   // Ordered by what actually matters at this moment, most urgent first.
@@ -9087,17 +9131,17 @@ function buildDailyBrief() {
 
   if (goalKcal && left != null && left < -100) {
     const over = Math.abs(left);
-    const tail = workoutDone ? `trénink máš 5/5, nic se neděje`
-      : isTrainingDay ? `dneska ještě máš ${w.title}` : 'zítra to vyrovnáš';
+    const tail = workoutDone ? `trénink máš hotový, nic se neděje`
+      : isTrainingDay ? `dneska ještě máš ${w.title || 'trénink'}` : 'zítra to vyrovnáš';
     return { text: `jsi ${over} kcal přes cíl`, sub: tail,
              action: isTrainingDay && !workoutDone ? 'workout' : null };
   }
 
   if (isTrainingDay && !workoutDone && hour >= 6) {
-    const rest = w.exercises.length - doneCount;
+    const rest = exList.length - doneCount;
     return {
-      text: doneCount ? `zbývá ${rest} z ${w.exercises.length} cviků` : `dnes ${w.title}`,
-      sub: doneCount ? 'dokonči to' : `${w.exercises.length} cviků · ťukni a jedem`,
+      text: doneCount ? `zbývá ${rest} z ${exList.length} cviků` : `dnes ${w.title || 'trénink'}`,
+      sub: doneCount ? 'dokonči to' : `${exList.length} cviků · ťukni a jedem`,
       action: 'workout'
     };
   }
@@ -9302,6 +9346,10 @@ const PENDING_PHOTO_CAP = 8; // base64 JPEGs are heavy; keep the quota safe
 
 function getPendingPhotos() {
   if (!Array.isArray(appState.pendingPhotos)) appState.pendingPhotos = [];
+  // Drop entries that can never be rendered or analysed. One null in here used
+  // to crash the whole dashboard banner on paint.
+  const clean = appState.pendingPhotos.filter((x) => x && x.id && x.dataUrl);
+  if (clean.length !== appState.pendingPhotos.length) appState.pendingPhotos = clean;
   return appState.pendingPhotos;
 }
 
@@ -9433,6 +9481,8 @@ function renderPendingPhotoBanner() {
 
 function getCoachQueue() {
   if (!Array.isArray(appState.coachQueue)) appState.coachQueue = [];
+  const clean = appState.coachQueue.filter((x) => x && (x.text || x.image));
+  if (clean.length !== appState.coachQueue.length) appState.coachQueue = clean;
   return appState.coachQueue;
 }
 
