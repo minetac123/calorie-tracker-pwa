@@ -68,31 +68,34 @@ function fmtTodayLine(food, workoutStatus) {
 // The numbers come from the client, already computed. The model's job is to
 // write the sentence around them — never to produce a figure of its own.
 function fmtPeriodStats(st) {
-  if (!st) return '';
+  if (!st || typeof st !== 'object') return '';
   const l = [];
-  l.push(`Období: ${st.from} až ${st.to} (${st.days} dní)`);
+  if (st.from && st.to) l.push(`Období: ${st.from} až ${st.to} (${st.days || '?'} dní)`);
   if (st.workouts) l.push(`Tréninky: odcvičeno ${st.workouts.done} z ${st.workouts.planned} naplánovaných`);
   if (st.avgKcal != null) {
     l.push(`Kalorie: průměr ${st.avgKcal} kcal/den při cíli ${st.goalKcal || '?'} (zapsáno ${st.loggedDays} z ${st.days} dní)`);
   }
   if (st.avgProtein != null) l.push(`Bílkoviny: průměr ${st.avgProtein} g/den při cíli ${st.goalProtein || '?'} g`);
-  if (st.weight) {
+  if (st.weight && Number.isFinite(Number(st.weight.delta))) {
     const dir = st.weight.delta > 0 ? '+' : '';
     l.push(`Váha: ${st.weight.from} → ${st.weight.to} kg (${dir}${st.weight.delta})`);
   }
-  if (Array.isArray(st.lifts) && st.lifts.length) {
+  const lifts = (Array.isArray(st.lifts) ? st.lifts : [])
+    .filter((x) => x && x.name && Number.isFinite(Number(x.delta)));
+  if (lifts.length) {
     l.push('Cviky, které se hnuly:');
-    st.lifts.forEach((x) => {
+    lifts.forEach((x) => {
       const dir = x.delta > 0 ? `+${x.delta}` : String(x.delta);
-      l.push(`  • ${x.name}: ${x.from} → ${x.to} kg (${dir} kg, ${x.sessions} tréninků)`);
+      l.push(`  • ${x.name}: ${x.from} → ${x.to} kg (${dir} kg, ${x.sessions || '?'} tréninků)`);
     });
   }
   return l.join('\n');
 }
 
 function fmtSummaries(list) {
-  if (!Array.isArray(list) || !list.length) return null;
-  return list.map((s) => `[${s.from} → ${s.to}] ${s.text}`).join('\n');
+  const ok = (Array.isArray(list) ? list : []).filter((s) => s && s.text);
+  if (!ok.length) return null;
+  return ok.map((s) => `[${s.from || '?'} → ${s.to || '?'}] ${s.text}`).join('\n');
 }
 
 function summaryPrompt(ctx) {
@@ -128,8 +131,11 @@ function fmtCoachLog(log, recentN) {
   const lines = [];
   slice.forEach((m) => {
     if (!m || !m.text) return;
-    const d = new Date(m.ts || Date.now());
-    const day = d.toISOString().slice(0, 10);
+    // A junk timestamp used to throw straight out of toISOString and take the
+    // whole request with it.
+    const ts = Number(m.ts);
+    const d = new Date(Number.isFinite(ts) && ts > 0 ? ts : Date.now());
+    const day = (isNaN(d) ? new Date() : d).toISOString().slice(0, 10);
     if (day !== lastDay) { lines.push(`--- ${day} ---`); lastDay = day; }
     const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     const who = m.role === 'user' ? 'ON' : 'TY';

@@ -205,11 +205,22 @@ function applySessionTool(name, args, s, actions) {
     return { ok: true, id: ex.id, note: `Cvik "${ex.name}" přidán ${atEnd ? 'na konec' : 'hned za aktuální'}.` };
   }
 
-  // Everything below addresses an existing exercise.
-  const ref = a.exerciseId != null ? a.exerciseId : null;
-  let i = ref == null ? s.idx : findExercise(s, ref);
-  if (name === 'log_session_set' && ref == null) i = s.idx;
-  if (i < 0 || i >= s.exercises.length) {
+  // Everything below addresses an existing exercise. Only log_session_set may
+  // fall back to whatever the user is standing on — for the rest, an id that
+  // does not resolve must fail loudly. Silently editing the current exercise
+  // because the model sent null would rename the wrong lift.
+  const ref = a.exerciseId;
+  const canDefault = name === 'log_session_set';
+  let i;
+  if (ref === undefined || ref === null || ref === '') {
+    if (!canDefault) {
+      return { ok: false, error: 'Musíš uvést exerciseId. Vyber z tohohle seznamu.', cviky: exerciseList(s) };
+    }
+    i = s.idx;
+  } else {
+    i = findExercise(s, ref);
+  }
+  if (!(i >= 0) || i >= s.exercises.length) {
     return { ok: false, error: 'Takový cvik v tréninku není.', cviky: exerciseList(s) };
   }
   const ex = s.exercises[i];
@@ -278,7 +289,17 @@ function applySessionTool(name, args, s, actions) {
     return { ok: true, note: `Zapsáno k "${ex.name}": ${w} kg × ${r} (${ex.sets.length}. série).` };
   }
 
+  if (name !== 'edit_logged_set' && name !== 'delete_logged_set') {
+    return { ok: false, error: 'Neznámý nástroj: ' + name };
+  }
+
   // edit_logged_set / delete_logged_set
+  if (a.setNumber == null || !Number.isFinite(Number(a.setNumber))) {
+    return {
+      ok: false,
+      error: `Musíš uvést setNumber (pořadí série od 1). U cviku "${ex.name}" jich je ${ex.sets.length}.`
+    };
+  }
   const idx = Math.round(num(a.setNumber, 0)) - 1;
   if (idx < 0 || idx >= ex.sets.length) {
     return {

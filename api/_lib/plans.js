@@ -800,21 +800,26 @@ function fmtProfile(p) {
 
 function fmtTargets(t) {
   if (!t) return 'Cíle ještě nejsou spočítané.';
-  return `${t.calories} kcal · B ${t.protein} g · S ${t.carbs} g · T ${t.fat} g`;
+  const v = (x) => (Number.isFinite(Number(x)) ? Number(x) : '?');
+  return `${v(t.calories)} kcal · B ${v(t.protein)} g · S ${v(t.carbs)} g · T ${v(t.fat)} g`;
 }
 
 function fmtWorkoutPlan(plan, todayKey) {
   if (!plan || !plan.days) return 'Tréninkový plán zatím neexistuje.';
-  const l = [`Split: ${plan.split}`];
+  const l = plan.split ? [`Split: ${plan.split}`] : [];
   DAY_KEYS.forEach((k) => {
     const d = plan.days[k];
     if (!d) return;
     const mark = k === todayKey ? ' ← DNES' : '';
-    if (d.rest) {
+    const list = Array.isArray(d.exercises) ? d.exercises : [];
+    if (d.rest || !list.length) {
       l.push(`${DAY_CZ[k]}: volno${mark}`);
     } else {
-      const ex = d.exercises.map((e) => `${e.name} ${e.sets}×${e.reps}`).join(', ');
-      l.push(`${DAY_CZ[k]}: ${d.title}${mark} — ${ex}`);
+      const ex = list
+        .filter((e) => e && e.name)
+        .map((e) => `${e.name} ${e.sets || '?'}×${e.reps || '?'}`)
+        .join(', ');
+      l.push(`${DAY_CZ[k]}: ${d.title || 'Trénink'}${mark} — ${ex}`);
     }
   });
   return l.join('\n');
