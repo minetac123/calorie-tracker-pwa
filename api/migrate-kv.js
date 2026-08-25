@@ -8,11 +8,32 @@
 // than a new secret, since this is exactly the same kind of "not for public
 // traffic" endpoint.
 const { list } = require('@vercel/blob');
-const { kvPut } = require('./_lib/store');
+const { kvPut, kvGet, kvDel, getRedis } = require('./_lib/store');
 
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
 module.exports = async function handler(req, res) {
+  // No-secret diagnostic: just "is Redis configured", nothing sensitive.
+  // Lets a human check whether the Storage integration is connected without
+  // needing CRON_SECRET in hand for a yes/no answer.
+  if (req.query && req.query.ping === '1') {
+    const configured = !!getRedis();
+    let roundtrip = null;
+    if (configured) {
+      const key = '_ping/' + Date.now();
+      try {
+        await kvPut(key, { ok: true });
+        const back = await kvGet(key);
+        roundtrip = !!(back && back.ok === true);
+      } catch (e) {
+        roundtrip = false;
+      } finally {
+        kvDel(key).catch(() => {});
+      }
+    }
+    return res.status(200).json({ redisConfigured: configured, roundtrip });
+  }
+
   if (CRON_SECRET) {
     const auth = req.headers.authorization || '';
     if (auth !== `Bearer ${CRON_SECRET}`) {
