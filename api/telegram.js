@@ -134,7 +134,7 @@ function getTelegramChat(userData) {
 
 // ---- Gemini call (mirrors api/chat.js logic, text-only) ----
 
-async function callCoach(message, history, foodContext, memories, imagePart) {
+async function callCoach(message, history, foodContext, memories, mediaPart) {
   const today = getTodayStr();
   const memBlock = (Array.isArray(memories) && memories.length)
     ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
@@ -152,7 +152,7 @@ async function callCoach(message, history, foodContext, memories, imagePart) {
     });
   }
   const userParts = [{ text: message }];
-  if (imagePart) userParts.push({ inlineData: imagePart });
+  if (mediaPart) userParts.push({ inlineData: mediaPart });
   contents.push({ role: 'user', parts: userParts });
 
   const modelChain = [...new Set([COACH_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite'])];
@@ -408,7 +408,8 @@ module.exports = async function handler(req, res) {
   // ---- Regular message ----
   const msg = update.message;
   const hasPhoto = Array.isArray(msg && msg.photo) && msg.photo.length > 0;
-  if (!msg || (!msg.text && !hasPhoto)) return res.status(200).end();
+  const hasVoice = !!(msg && msg.voice && msg.voice.file_id);
+  if (!msg || (!msg.text && !hasPhoto && !hasVoice)) return res.status(200).end();
 
   const chatId = String(msg.chat.id);
   const text = (msg.text || msg.caption || '').trim();
@@ -449,7 +450,7 @@ module.exports = async function handler(req, res) {
   // the in-app history reads naturally. ----
 
   if (text === '/pomoc' || text === '/help') {
-    const reply = 'umim tohle:\n/dnes — kolik jsi dneska snedl a kolik zbyva\n/vaha 82.4 — zapise vahu\n\njinak mi proste pis nebo posli fotku jidla, zapisu ti to sam';
+    const reply = 'umim tohle:\n/dnes — kolik jsi dneska snedl a kolik zbyva\n/vaha 82.4 — zapise vahu\n\njinak mi proste pis, posli fotku jidla nebo mi to naklikej hlasovkou, zapisu ti to sam';
     const tgChat = getTelegramChat(userData);
     tgChat.messages.push({ role: 'user', text, ts: Date.now() });
     tgChat.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
@@ -499,12 +500,14 @@ module.exports = async function handler(req, res) {
 
   // ---- Everything else goes to the AI coach ----
 
-  let imagePart = null;
+  let mediaPart = null;
   if (hasPhoto) {
     const best = msg.photo[msg.photo.length - 1]; // Telegram lists sizes smallest-first
-    imagePart = await getFileAsInlinePart(best.file_id);
+    mediaPart = await getFileAsInlinePart(best.file_id);
+  } else if (hasVoice) {
+    mediaPart = await getFileAsInlinePart(msg.voice.file_id, msg.voice.mime_type);
   }
-  const effectiveText = text || (hasPhoto ? '(uživatel poslal fotku jídla)' : '');
+  const effectiveText = text || (hasPhoto ? '(uživatel poslal fotku jídla)' : hasVoice ? '(uživatel poslal hlasovku)' : '');
 
   const tgChat = getTelegramChat(userData);
   tgChat.messages.push({ role: 'user', text: effectiveText, ts: Date.now() });
@@ -514,7 +517,7 @@ module.exports = async function handler(req, res) {
     ? userData.coachMemories.map((m) => m.text || String(m)).filter(Boolean)
     : [];
 
-  const rawReply = await callCoach(effectiveText, tgChat.messages.slice(0, -1).slice(-20), foodContext, memories, imagePart);
+  const rawReply = await callCoach(effectiveText, tgChat.messages.slice(0, -1).slice(-20), foodContext, memories, mediaPart);
 
   if (!rawReply) {
     await sendMessage(chatId, 'AI je ted vytizena, zkus to za chvili');

@@ -38,9 +38,12 @@ async function setMyCommands() {
   });
 }
 
-// Downloads a Telegram-hosted file (e.g. a food photo) and returns it as a
-// Gemini-ready inline part, or null if anything about the fetch fails.
-async function getFileAsInlinePart(fileId) {
+// Downloads a Telegram-hosted file (a food photo or a voice note) and
+// returns it as a Gemini-ready inline part, or null if anything about the
+// fetch fails. `hintMime` is used when Telegram already told us the mime
+// type (voice messages carry one); otherwise it's guessed from the
+// extension in file_path, which is all we get for photos.
+async function getFileAsInlinePart(fileId, hintMime) {
   try {
     const infoResp = await fetch(`${TG_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
     const info = await infoResp.json().catch(() => ({}));
@@ -51,8 +54,13 @@ async function getFileAsInlinePart(fileId) {
     if (!fileResp.ok) return null;
     const buf = Buffer.from(await fileResp.arrayBuffer());
 
-    const ext = (filePath.split('.').pop() || 'jpg').toLowerCase();
-    const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    let mimeType = hintMime;
+    if (!mimeType) {
+      const ext = (filePath.split('.').pop() || 'jpg').toLowerCase();
+      const byExt = { png: 'image/png', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        oga: 'audio/ogg', ogg: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav' };
+      mimeType = byExt[ext] || 'image/jpeg';
+    }
     return { mimeType, data: buf.toString('base64') };
   } catch (e) {
     return null;
