@@ -12,7 +12,8 @@ const {
   consumeLinkCode,
   savePendingAction,
   getPendingAction,
-  clearPendingAction
+  clearPendingAction,
+  getFileAsInlinePart
 } = require('./_lib/telegram');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
@@ -133,7 +134,7 @@ function getTelegramChat(userData) {
 
 // ---- Gemini call (mirrors api/chat.js logic, text-only) ----
 
-async function callCoach(message, history, foodContext, memories) {
+async function callCoach(message, history, foodContext, memories, imagePart) {
   const today = getTodayStr();
   const memBlock = (Array.isArray(memories) && memories.length)
     ? memories.map((m) => `- ${String(m).trim()}`).join('\n')
@@ -150,7 +151,9 @@ async function callCoach(message, history, foodContext, memories) {
       contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] });
     });
   }
-  contents.push({ role: 'user', parts: [{ text: message }] });
+  const userParts = [{ text: message }];
+  if (imagePart) userParts.push({ inlineData: imagePart });
+  contents.push({ role: 'user', parts: userParts });
 
   const modelChain = [...new Set([COACH_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash-lite'])];
   const deadline = Date.now() + 20000;
@@ -404,10 +407,11 @@ module.exports = async function handler(req, res) {
 
   // ---- Regular message ----
   const msg = update.message;
-  if (!msg || !msg.text) return res.status(200).end();
+  const hasPhoto = Array.isArray(msg && msg.photo) && msg.photo.length > 0;
+  if (!msg || (!msg.text && !hasPhoto)) return res.status(200).end();
 
   const chatId = String(msg.chat.id);
-  const text = msg.text.trim();
+  const text = (msg.text || msg.caption || '').trim();
 
   // /start <code> — link this Telegram chat to a FitAI account
   if (text === '/start' || text.startsWith('/start ')) {
@@ -438,17 +442,79 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
 
+  const foodContext = buildFoodContext(userData);
+
+  // ---- Deterministic commands: no AI round trip, so they're instant and
+  // never hallucinate a number. Still logged into the Telegram chat tab so
+  // the in-app history reads naturally. ----
+
+  if (text === '/pomoc' || text === '/help') {
+    const reply = 'umim tohle:\n/dnes — kolik jsi dneska snedl a kolik zbyva\n/vaha 82.4 — zapise vahu\n\njinak mi proste pis nebo posli fotku jidla, zapisu ti to sam';
+    const tgChat = getTelegramChat(userData);
+    tgChat.messages.push({ role: 'user', text, ts: Date.now() });
+    tgChat.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
+    tgChat.updatedAt = Date.now();
+    await saveUserData(username, userData);
+    await sendMessage(chatId, reply);
+    return res.status(200).end();
+  }
+
+  if (text === '/dnes' || text === '/today') {
+    const t = foodContext.totals;
+    const g = foodContext.goals || {};
+    const left = Math.round((Number(g.calories) || 0) - t.calories);
+    const reply = `dnes: ${t.calories}/${Number(g.calories) || '?'} kcal (zbyva ${left})\nB ${t.protein}/${Number(g.protein) || '?'} g · S ${t.carbs}/${Number(g.carbs) || '?'} g · T ${t.fat}/${Number(g.fat) || '?'} g`;
+    const tgChat = getTelegramChat(userData);
+    tgChat.messages.push({ role: 'user', text, ts: Date.now() });
+    tgChat.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
+    tgChat.updatedAt = Date.now();
+    await saveUserData(username, userData);
+    await sendMessage(chatId, reply);
+    return res.status(200).end();
+  }
+
+  if (/^\/vaha\b/i.test(text)) {
+    const m = /^\/vaha\s+(\d{1,3}(?:[.,]\d{1,2})?)\s*$/i.exec(text);
+    const w = m ? parseFloat(m[1].replace(',', '.')) : NaN;
+    const tgChat = getTelegramChat(userData);
+    tgChat.messages.push({ role: 'user', text, ts: Date.now() });
+    let reply;
+    if (!Number.isFinite(w) || w <= 0 || w > 400) {
+      reply = 'napis to jako /vaha 82.4';
+    } else {
+      const today = getTodayStr();
+      if (!Array.isArray(userData.weightLogs)) userData.weightLogs = [];
+      userData.weightLogs = userData.weightLogs.filter((l) => l.date !== today);
+      userData.weightLogs.push({ date: today, weight: w });
+      userData.weightLogs.sort((a, b) => b.date.localeCompare(a.date));
+      userData.weight = w;
+      reply = `zapsano: ${w} kg`;
+    }
+    tgChat.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
+    tgChat.updatedAt = Date.now();
+    await saveUserData(username, userData);
+    await sendMessage(chatId, reply);
+    return res.status(200).end();
+  }
+
+  // ---- Everything else goes to the AI coach ----
+
+  let imagePart = null;
+  if (hasPhoto) {
+    const best = msg.photo[msg.photo.length - 1]; // Telegram lists sizes smallest-first
+    imagePart = await getFileAsInlinePart(best.file_id);
+  }
+  const effectiveText = text || (hasPhoto ? '(uživatel poslal fotku jídla)' : '');
+
   const tgChat = getTelegramChat(userData);
-  tgChat.messages.push({ role: 'user', text, ts: Date.now() });
+  tgChat.messages.push({ role: 'user', text: effectiveText, ts: Date.now() });
   tgChat.updatedAt = Date.now();
 
-  const foodContext = buildFoodContext(userData);
   const memories = Array.isArray(userData.coachMemories)
     ? userData.coachMemories.map((m) => m.text || String(m)).filter(Boolean)
     : [];
 
-
-  const rawReply = await callCoach(text, tgChat.messages.slice(0, -1).slice(-20), foodContext, memories);
+  const rawReply = await callCoach(effectiveText, tgChat.messages.slice(0, -1).slice(-20), foodContext, memories, imagePart);
 
   if (!rawReply) {
     await sendMessage(chatId, 'AI je ted vytizena, zkus to za chvili');

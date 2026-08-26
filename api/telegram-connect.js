@@ -6,6 +6,7 @@ const { extractUsername } = require('./_lib/auth');
 const {
   TELEGRAM_BOT_USERNAME,
   setWebhook,
+  setMyCommands,
   getTelegramIndex,
   unlinkUser,
   saveLinkCode
@@ -30,6 +31,7 @@ module.exports = async function handler(req, res) {
     if (webhookUrl && webhookUrl.startsWith('https://')) {
       setWebhook(webhookUrl).catch((e) => console.error('setWebhook error:', e));
     }
+    setMyCommands().catch((e) => console.error('setMyCommands error:', e));
 
     return res.status(200).json({ code, botUsername: TELEGRAM_BOT_USERNAME });
   }

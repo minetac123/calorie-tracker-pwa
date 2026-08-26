@@ -26,6 +26,39 @@ async function setWebhook(url) {
   return tgPost('setWebhook', { url, allowed_updates: ['message', 'callback_query'] });
 }
 
+// Registers the "/" command menu shown in Telegram's chat UI. Safe to call
+// repeatedly — it just overwrites whatever was there before.
+async function setMyCommands() {
+  return tgPost('setMyCommands', {
+    commands: [
+      { command: 'dnes', description: 'Kolik jsi dneska snědl a kolik zbývá' },
+      { command: 'vaha', description: 'Zapíše váhu, např. /vaha 82.4' },
+      { command: 'pomoc', description: 'Co všechno umím' }
+    ]
+  });
+}
+
+// Downloads a Telegram-hosted file (e.g. a food photo) and returns it as a
+// Gemini-ready inline part, or null if anything about the fetch fails.
+async function getFileAsInlinePart(fileId) {
+  try {
+    const infoResp = await fetch(`${TG_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    const info = await infoResp.json().catch(() => ({}));
+    const filePath = info && info.result && info.result.file_path;
+    if (!filePath) return null;
+
+    const fileResp = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`);
+    if (!fileResp.ok) return null;
+    const buf = Buffer.from(await fileResp.arrayBuffer());
+
+    const ext = (filePath.split('.').pop() || 'jpg').toLowerCase();
+    const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    return { mimeType, data: buf.toString('base64') };
+  } catch (e) {
+    return null;
+  }
+}
+
 // --- Telegram user index: [{username, chatId}] ---
 
 const INDEX_PATH = 'telegram/index.json';
@@ -98,6 +131,8 @@ module.exports = {
   sendMessage,
   answerCallbackQuery,
   setWebhook,
+  setMyCommands,
+  getFileAsInlinePart,
   getTelegramIndex,
   findUserByChatId,
   linkUser,
