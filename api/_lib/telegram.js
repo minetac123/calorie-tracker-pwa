@@ -33,6 +33,7 @@ async function setMyCommands() {
     commands: [
       { command: 'dnes', description: 'Kolik jsi dneska snědl a kolik zbývá' },
       { command: 'vaha', description: 'Zapíše váhu, např. /vaha 82.4' },
+      { command: 'verze', description: 'Jaká verze appky a kouče běží' },
       { command: 'pomoc', description: 'Co všechno umím' }
     ]
   });

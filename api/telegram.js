@@ -3,6 +3,7 @@
 // in the in-app coach chat list after the next cloud sync.
 const { kvGet, kvPut } = require('./_lib/store');
 const { buildSystemInstruction } = require('./_lib/coach');
+const { APP_VERSION, CACHE_VERSION } = require('./_lib/version');
 const {
   tgPost,
   sendMessage,
@@ -141,7 +142,7 @@ async function callCoach(message, history, foodContext, memories, mediaPart) {
     : 'Žádná uložená fakta.';
 
   const systemInstruction = buildSystemInstruction({
-    memBlock, foodContext, todayDate: today, viewDate: today, nowTime: getNowTimeStr()
+    memBlock, foodContext, todayDate: today, viewDate: today, nowTime: getNowTimeStr(), coachModel: COACH_MODEL
   });
 
   const contents = [];
@@ -450,7 +451,18 @@ module.exports = async function handler(req, res) {
   // the in-app history reads naturally. ----
 
   if (text === '/pomoc' || text === '/help') {
-    const reply = 'umim tohle:\n/dnes — kolik jsi dneska snedl a kolik zbyva\n/vaha 82.4 — zapise vahu\n\njinak mi proste pis, posli fotku jidla nebo mi to naklikej hlasovkou, zapisu ti to sam';
+    const reply = 'umim tohle:\n/dnes — kolik jsi dneska snedl a kolik zbyva\n/vaha 82.4 — zapise vahu\n/verze — jaka verze appky a kouce bezi\n\njinak mi proste pis, posli fotku jidla nebo mi to naklikej hlasovkou, zapisu ti to sam';
+    const tgChat = getTelegramChat(userData);
+    tgChat.messages.push({ role: 'user', text, ts: Date.now() });
+    tgChat.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
+    tgChat.updatedAt = Date.now();
+    await saveUserData(username, userData);
+    await sendMessage(chatId, reply);
+    return res.status(200).end();
+  }
+
+  if (text === '/verze' || text === '/version') {
+    const reply = `appka: FitAI ${APP_VERSION} (cache ${CACHE_VERSION})\nja: kouč na ${COACH_MODEL}`;
     const tgChat = getTelegramChat(userData);
     tgChat.messages.push({ role: 'user', text, ts: Date.now() });
     tgChat.messages.push({ role: 'assistant', text: reply, ts: Date.now() });
