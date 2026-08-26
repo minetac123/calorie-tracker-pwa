@@ -1,6 +1,53 @@
 const { kvGet, kvPut } = require('./_lib/store');
 const { extractUsername } = require('./_lib/auth');
 
+// The Telegram bot is a second writer to this same document — it adds food
+// via [[ACTION]], weight via /vaha, and its own chat messages, all straight
+// to the cloud copy. If a device pushes its full local snapshot as a blind
+// overwrite, anything Telegram wrote after that device's last pull is gone —
+// silently, because the device has no idea it was ever there. So on every
+// push, the three fields Telegram actually touches get merged against
+// whatever is already stored instead of replaced outright. Everything else
+// keeps the simple "client wins" behavior, since only this device writes it.
+function mergeLogsByDate(existing, incoming) {
+  const out = Object.assign({}, incoming || {});
+  const ex = existing || {};
+  Object.keys(ex).forEach((date) => {
+    const exItems = Array.isArray(ex[date]) ? ex[date] : [];
+    const inItems = Array.isArray(out[date]) ? out[date] : [];
+    const seen = new Set(inItems.filter(Boolean).map((i) => i.id).filter(Boolean));
+    out[date] = inItems.concat(exItems.filter((i) => i && i.id && !seen.has(i.id)));
+  });
+  return out;
+}
+
+function mergeWeightLogs(existing, incoming) {
+  const byDate = new Map();
+  // Incoming (this device's copy) is applied second so it wins when both
+  // sides logged the same date — the more common case is the device editing
+  // today's entry after having already pulled it.
+  (Array.isArray(existing) ? existing : []).forEach((l) => { if (l && l.date) byDate.set(l.date, l); });
+  (Array.isArray(incoming) ? incoming : []).forEach((l) => { if (l && l.date) byDate.set(l.date, l); });
+  return Array.from(byDate.values()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+function mergeCoachChats(existing, incoming) {
+  const out = (Array.isArray(incoming) ? incoming : []).map((c) => Object.assign({}, c));
+  const byId = new Map(out.filter((c) => c && c.id).map((c) => [c.id, c]));
+  (Array.isArray(existing) ? existing : []).forEach((exChat) => {
+    if (!exChat || !exChat.id) return;
+    const inChat = byId.get(exChat.id);
+    if (!inChat) { out.push(exChat); return; }
+    const seen = new Set((inChat.messages || []).map((m) => m && `${m.ts}|${m.role}|${m.text}`));
+    const newMsgs = (exChat.messages || []).filter((m) => m && !seen.has(`${m.ts}|${m.role}|${m.text}`));
+    if (newMsgs.length) {
+      inChat.messages = (inChat.messages || []).concat(newMsgs).sort((a, b) => (a.ts || 0) - (b.ts || 0));
+      if ((exChat.updatedAt || 0) > (inChat.updatedAt || 0)) inChat.updatedAt = exChat.updatedAt;
+    }
+  });
+  return out;
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -21,6 +68,17 @@ module.exports = async function handler(req, res) {
 
       if (!appData) {
         return res.status(400).json({ error: 'Žádná data k uložení' });
+      }
+
+      const existing = await kvGet(blobPath);
+      if (existing) {
+        appData.logs = mergeLogsByDate(existing.logs, appData.logs);
+        appData.weightLogs = mergeWeightLogs(existing.weightLogs, appData.weightLogs);
+        appData.coachChats = mergeCoachChats(existing.coachChats, appData.coachChats);
+        // Keep the scalar "current weight" pointed at whichever entry ended
+        // up newest after the merge, so a /vaha logged on another surface
+        // isn't shadowed by this device's older value.
+        if (appData.weightLogs.length) appData.weight = appData.weightLogs[0].weight;
       }
 
       await kvPut(blobPath, appData);

@@ -3069,7 +3069,7 @@ let syncPending = false;
 function flushPendingSync() {
   if (!syncPending) return;
   if (!getSession() || isLocalDev()) return;
-  syncToCloud();
+  return syncToCloud();
 }
 
 // Folds the cloud's plan layer into the local one. Date-keyed and id-keyed
@@ -3132,7 +3132,8 @@ function mergePlanFromCloud(cloud) {
   if (cloudAt > localAt) appState.planSavedAt = cloudAt;
 }
 
-async function syncFromCloud() {
+async function syncFromCloud(opts) {
+  const silent = !!(opts && opts.silent);
   const session = getSession();
   if (!session) return;
   if (isLocalDev()) return; // localhost nemá API — jen lokální stav
@@ -3184,7 +3185,7 @@ async function syncFromCloud() {
       }
       // Refresh the memory settings panel if it's on screen.
       if (typeof renderCoachMemorySettings === 'function') renderCoachMemorySettings();
-      showToast('☁️ Data synchronizována z cloudu');
+      if (!silent) showToast('☁️ Data synchronizována z cloudu');
     }
   } catch (err) {
     console.error('Cloud load error:', err);
@@ -3263,10 +3264,16 @@ function initWakeLock() {
 // Catching up on offline work must NOT hang off initWakeLock: that function
 // bails out early on any browser without the Wake Lock API, which used to take
 // every connectivity listener down with it. It is also its own concern.
-function catchUpAfterOffline() {
-  flushPendingSync();
+//
+// This also used to be push-only, so a food logged via Telegram (or any
+// other device) while this tab sat backgrounded would never show up here —
+// syncFromCloud only ever ran once, on cold start. Any pending local change
+// gets flushed first so the pull below sees a merged, not stale, cloud copy.
+async function catchUpAfterOffline() {
+  await flushPendingSync();
   flushCoachQueue();
   flushPendingPhotos();
+  syncFromCloud({ silent: true });
 }
 
 // Deliberately late and silent: it is housekeeping, not something the user is
