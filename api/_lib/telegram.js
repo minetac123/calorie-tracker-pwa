@@ -26,6 +26,48 @@ async function setWebhook(url) {
   return tgPost('setWebhook', { url, allowed_updates: ['message', 'callback_query'] });
 }
 
+// Registers the "/" command menu shown in Telegram's chat UI. Safe to call
+// repeatedly — it just overwrites whatever was there before.
+async function setMyCommands() {
+  return tgPost('setMyCommands', {
+    commands: [
+      { command: 'dnes', description: 'Kolik jsi dneska snědl a kolik zbývá' },
+      { command: 'vaha', description: 'Zapíše váhu, např. /vaha 82.4' },
+      { command: 'verze', description: 'Jaká verze appky a kouče běží' },
+      { command: 'pomoc', description: 'Co všechno umím' }
+    ]
+  });
+}
+
+// Downloads a Telegram-hosted file (a food photo or a voice note) and
+// returns it as a Gemini-ready inline part, or null if anything about the
+// fetch fails. `hintMime` is used when Telegram already told us the mime
+// type (voice messages carry one); otherwise it's guessed from the
+// extension in file_path, which is all we get for photos.
+async function getFileAsInlinePart(fileId, hintMime) {
+  try {
+    const infoResp = await fetch(`${TG_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    const info = await infoResp.json().catch(() => ({}));
+    const filePath = info && info.result && info.result.file_path;
+    if (!filePath) return null;
+
+    const fileResp = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${filePath}`);
+    if (!fileResp.ok) return null;
+    const buf = Buffer.from(await fileResp.arrayBuffer());
+
+    let mimeType = hintMime;
+    if (!mimeType) {
+      const ext = (filePath.split('.').pop() || 'jpg').toLowerCase();
+      const byExt = { png: 'image/png', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        oga: 'audio/ogg', ogg: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav' };
+      mimeType = byExt[ext] || 'image/jpeg';
+    }
+    return { mimeType, data: buf.toString('base64') };
+  } catch (e) {
+    return null;
+  }
+}
+
 // --- Telegram user index: [{username, chatId}] ---
 
 const INDEX_PATH = 'telegram/index.json';
@@ -98,6 +140,8 @@ module.exports = {
   sendMessage,
   answerCallbackQuery,
   setWebhook,
+  setMyCommands,
+  getFileAsInlinePart,
   getTelegramIndex,
   findUserByChatId,
   linkUser,

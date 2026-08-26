@@ -117,7 +117,7 @@ const SESSION_TOOLS = [
   },
   {
     name: 'log_session_set',
-    description: 'Zapíše uživateli sérii do probíhajícího tréninku. Použij, když ti nadiktuje, co udělal, místo aby to naťukal.',
+    description: 'Zapíše uživateli sérii do probíhajícího tréninku. Použij JEN když ti řekne, co už reálně udělal (minulý čas: "dal jsem", "udělal jsem", "hotovo", "šlo to"). NIKDY když se teprve domlouváte, co zkusí příště, nebo když jen odsouhlasí tvůj návrh váhy na další sérii — to je plán, ne odvedená práce, a zapíše se to sám naťukáním po sérii.',
     parameters: {
       type: 'OBJECT',
       properties: {
