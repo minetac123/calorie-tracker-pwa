@@ -103,7 +103,31 @@ function buildFoodContext(userData) {
   totals.carbs = Math.round(totals.carbs * 10) / 10;
   totals.fat = Math.round(totals.fat * 10) / 10;
 
-  return { date: today, goals, totals, items, weight: userData && userData.weight };
+  // Mirrors buildFoodContext in app.js: recent days so "to samé co včera"
+  // resolves against real entries instead of being guessed.
+  const allLogs = (userData && userData.logs) || {};
+  const recentDays = [];
+  const base = new Date(today + 'T12:00:00Z');
+  for (let back = 1; back <= 7; back++) {
+    const d = new Date(base.getTime() - back * 86400000).toISOString().slice(0, 10);
+    const dayItems = allLogs[d] || [];
+    if (!dayItems.length) continue;
+    recentDays.push({
+      date: d,
+      items: dayItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        amount: i.amount,
+        category: CATEGORY_NAMES[getFoodCategory(i)] || getFoodCategory(i),
+        calories: i.calories,
+        protein: i.protein,
+        carbs: i.carbs,
+        fat: i.fat
+      }))
+    });
+  }
+
+  return { date: today, goals, totals, items, recentDays, weight: userData && userData.weight };
 }
 
 // ---- User data Blob helpers ----

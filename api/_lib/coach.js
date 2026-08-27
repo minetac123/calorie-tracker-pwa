@@ -25,6 +25,22 @@ function fmtFood(food) {
     lines.push('Dnes zatím nebylo zapsáno žádné jídlo.');
   }
   if (food.weight != null) lines.push(`Aktuální váha: ${food.weight} kg`);
+
+  // Previous days, so a reference back ("to samé co včera") resolves against
+  // what was actually logged. Without it the model has nothing to look up and
+  // fills in a plausible-looking amount of its own.
+  if (Array.isArray(food.recentDays) && food.recentDays.length) {
+    lines.push('');
+    lines.push('PŘEDCHOZÍ DNY (skutečně zapsaná jídla — tady dohledávej „to samé co včera"):');
+    food.recentDays.forEach((day) => {
+      if (!day || !Array.isArray(day.items) || !day.items.length) return;
+      lines.push(`  ${day.date}:`);
+      day.items.filter(Boolean).forEach((it) => {
+        lines.push(`    • [id:${it.id || '?'}] ${it.name || 'jídlo'} (${it.amount || ''}) [${it.category || ''}] – ${v(it.calories)} kcal, B ${v(it.protein)} g, S ${v(it.carbs)} g, T ${v(it.fat)} g`);
+      });
+    });
+  }
+
   return lines.join('\n');
 }
 
@@ -90,6 +106,14 @@ NIKDY NEPŘIDÁVEJ [[ACTION]] BLOK, když:
 - Uživatel popisuje, co jedl, ale neříká „zapiš" ani jiný imperativ
 - Jsi v roli rádce — pak POUZE poraď, ale NEpřidávej akci
 Pokud máš pochybnost, NEPŘIDÁVEJ blok. Raději mlčí ruka než šáhne tam, kam nikdo nepozval.
+ODVOLÁVKA NA DŘÍVĚJŠÍ JÍDLO — NEHÁDEJ MNOŽSTVÍ:
+Když uživatel řekne „to samé co včera", „stejné množství jak vždycky", „jako minule"
+apod., NAJDI si to v sekci PŘEDCHOZÍ DNY výš a použij PŘESNĚ to množství a makra,
+co tam jsou zapsaná. Nevymýšlej si vlastní odhad — uživatel ti právě řekl, že to
+množství už zná, a číslo, které si vycucáš z prstu, mu rozbije deník.
+Když to v předchozích dnech NENÍ (nezapsané, nebo je to dál než týden zpátky), řekni
+na rovinu, že to tam nevidíš, a zeptej se na množství. Neodhaduj mlčky.
+
 VÝJIMKA — FOTKA JÍDLA: když uživatel pošle fotku jídla (zpráva bude označená jako
 "(uživatel poslal fotku jídla)" nebo podobně), je to SAMO O SOBĚ žádost o zápis —
 imperativ nepotřebuješ. Popiš stručně, co vidíš, odhadni porci a makra, a rovnou
