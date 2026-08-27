@@ -626,8 +626,12 @@ ${fmtWorkoutPlan(ctx.workoutPlan, ctx.todayKey)}
 ${fmtMealPlan(ctx.mealPlan, ctx.todayKey)}
 ${ctx.lockedMeals.length ? `\nZAMČENÁ JÍDLA (uživatel si je uzamkl — NIKDY je neměň ani nepřegeneruj): ${ctx.lockedMeals.join(', ')}` : ''}
 
-=== DNEŠNÍ PROGRESS (co fakt snědl) ===
+=== DNEŠNÍ PROGRESS (co fakt snědl) + PŘEDCHOZÍ DNY ===
 ${fmtFood(ctx.foodContext)}
+
+Když se odvolá na dřívější jídlo („to samé co včera", „jako minule"), vezmi množství
+i makra PŘESNĚ z PŘEDCHOZÍCH DNŮ výš. Nikdy si je nevymýšlej — když to tam není,
+řekni to a zeptej se.
 
 === DNEŠNÍ TRÉNINK ===
 ${ctx.workoutStatus}

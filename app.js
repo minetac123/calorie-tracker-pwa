@@ -5268,11 +5268,36 @@ function buildFoodContext() {
   totals.carbs = Math.round(totals.carbs * 10) / 10;
   totals.fat = Math.round(totals.fat * 10) / 10;
 
+  // Recent days, so "to samé co včera" can be looked up instead of guessed.
+  // Without this the coach only ever saw the active date and invented an
+  // amount for anything the user referred back to.
+  const recentDays = [];
+  const base = new Date(date + 'T12:00:00Z');
+  for (let back = 1; back <= 7; back++) {
+    const d = new Date(base.getTime() - back * 86400000).toISOString().slice(0, 10);
+    const dayItems = appState.logs[d] || [];
+    if (!dayItems.length) continue;
+    recentDays.push({
+      date: d,
+      items: dayItems.map(i => ({
+        id: i.id,
+        name: i.name,
+        amount: i.amount,
+        category: getCategoryName(getFoodCategory(i)),
+        calories: i.calories,
+        protein: i.protein,
+        carbs: i.carbs,
+        fat: i.fat
+      }))
+    });
+  }
+
   return {
     date,
     goals: appState.goals,
     totals,
     items,
+    recentDays,
     weight: appState.weight
   };
 }
