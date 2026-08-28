@@ -21,8 +21,11 @@ const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY ||
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
 
 // Stable production URL for the Telegram Mini App. Vercel sets
-// VERCEL_PROJECT_PRODUCTION_URL (no scheme), or fall back to hardcoded domain.
-const APP_DOMAIN = process.env.VERCEL_PROJECT_PRODUCTION_URL || 'project-8rjn0.vercel.app';
+// VERCEL_PROJECT_PRODUCTION_URL (no scheme) on its own; APP_DOMAIN is the
+// escape hatch for anyone hosting this somewhere else. Without either, the
+// "Upravit" button on the confirmation card is simply left out rather than
+// pointed at somebody else's deployment.
+const APP_DOMAIN = process.env.APP_DOMAIN || process.env.VERCEL_PROJECT_PRODUCTION_URL || '';
 
 // ---- Food context helpers (mirrors app.js client-side logic) ----
 
@@ -571,8 +574,10 @@ module.exports = async function handler(req, res) {
   if (action) {
     await savePendingAction(chatId, action);
     const desc = describeAction(action);
-    // For add/edit actions offer an "Edit in mini app" button; delete just needs confirm/cancel
-    const canEdit = action.type === 'add' || action.type === 'edit';
+    // For add/edit actions offer an "Edit in mini app" button; delete just needs confirm/cancel.
+    // Needs a known domain to point the mini app at — without one the button is
+    // dropped and confirm/cancel still work.
+    const canEdit = (action.type === 'add' || action.type === 'edit') && !!APP_DOMAIN;
     const buttons = canEdit
       ? [[
           { text: 'Jo', callback_data: 'tg_confirm' },
