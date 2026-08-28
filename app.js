@@ -210,6 +210,30 @@ function ensurePlanState() {
     appState.activeSession = null;
   }
   if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
+  if (appState.calorieMode === undefined) appState.calorieMode = null;
+  expireCalorieMode();
+}
+
+// A temporary calorie mode has to end on its own — the user is on holiday, not
+// watching for a prompt to switch back, and a "temporary" boost that silently
+// became the new normal is exactly the failure this feature exists to avoid.
+// Called on load and again whenever the dashboard renders, so it also fires on
+// an app that was left open across midnight.
+function expireCalorieMode() {
+  const mode = appState.calorieMode;
+  if (!mode || !mode.until) return false;
+  if (getTodayDateString() <= mode.until) return false;
+
+  if (mode.baseTargets && Number(mode.baseTargets.calories)) {
+    appState.goals = {
+      calories: Math.round(mode.baseTargets.calories),
+      protein: Math.round(mode.baseTargets.protein),
+      carbs: Math.round(mode.baseTargets.carbs),
+      fat: Math.round(mode.baseTargets.fat)
+    };
+  }
+  appState.calorieMode = null;
+  return true;
 }
 
 // ==========================================================================
@@ -552,6 +576,8 @@ function showToast(message) {
 // UI RENDERING - DASHBOARD
 // ==========================================================================
 function renderDashboard() {
+  // Catches an app left open across the day the mode ends.
+  if (expireCalorieMode()) saveState();
   renderDailyBrief();
   renderPendingPhotoBanner();
   updateCalendarRow();
@@ -3029,6 +3055,7 @@ async function syncToCloud() {
       // weight and the entire training history were simply gone.
       profile: appState.profile,
       targets: appState.targets,
+      calorieMode: appState.calorieMode,
       workoutPlan: appState.workoutPlan,
       mealPlan: appState.mealPlan,
       workoutLogs: appState.workoutLogs,
@@ -3125,6 +3152,7 @@ function mergePlanFromCloud(cloud) {
   const localAt = Number(appState.planSavedAt) || 0;
   const takeCloud = (localValue) => !localValue || cloudAt > localAt;
 
+  if (cloud.calorieMode !== undefined && cloudAt > localAt) appState.calorieMode = cloud.calorieMode;
   if (cloud.workoutPlan && takeCloud(appState.workoutPlan)) appState.workoutPlan = cloud.workoutPlan;
   if (cloud.mealPlan && takeCloud(appState.mealPlan)) appState.mealPlan = cloud.mealPlan;
   if (cloud.profile && takeCloud(appState.profile)) appState.profile = cloud.profile;
@@ -6259,6 +6287,13 @@ function applyCoachPlanUpdate(data) {
     };
     changed = true;
   }
+  // A temporary mode arrives alongside targets. `null` is meaningful here —
+  // it's how clear_calorie_mode says the mode ended — so only `undefined`
+  // (the tool was never called) leaves the current one alone.
+  if (data.calorieMode !== undefined) {
+    appState.calorieMode = data.calorieMode || null;
+    changed = true;
+  }
   if (data.workoutPlan) { appState.workoutPlan = data.workoutPlan; changed = true; }
   if (data.exerciseLogs && typeof data.exerciseLogs === 'object') {
     appState.exerciseLogs = data.exerciseLogs;
@@ -6286,6 +6321,7 @@ function buildCoachPayload(message, opts = {}) {
     history: opts.history || [],
     profile: appState.profile || {},
     targets: appState.goals || null,
+    calorieMode: appState.calorieMode || null,
     workoutPlan: appState.workoutPlan || null,
     mealPlan: appState.mealPlan || null,
     lockedMeals: getMealLocks(),
@@ -9258,6 +9294,20 @@ function buildDailyBrief() {
     return { text: 'trénink běží', sub: 'ťukni a vrať se k němu', action: 'session' };
   }
 
+  // While a temporary mode runs, "over the goal" is the wrong story to lead
+  // with — the raised number IS the goal right now.
+  const mode = appState.calorieMode;
+  if (mode && mode.until && date <= mode.until) {
+    const daysLeft = Math.max(0, Math.round(
+      (new Date(mode.until + 'T12:00:00Z') - new Date(date + 'T12:00:00Z')) / 86400000));
+    const tail = daysLeft === 0 ? 'dneska naposled' : `ještě ${daysLeft} ${daysLeft === 1 ? 'den' : daysLeft < 5 ? 'dny' : 'dní'}`;
+    return {
+      text: mode.label.toLowerCase(),
+      sub: goalKcal ? `cíl ${goalKcal} kcal · ${tail}` : tail,
+      action: null
+    };
+  }
+
   if (goalKcal && left != null && left < -100) {
     const over = Math.abs(left);
     const tail = workoutDone ? `trénink máš hotový, nic se neděje`
@@ -9311,6 +9361,94 @@ function buildDailyBrief() {
   return null;
 }
 
+// --- AI overview -----------------------------------------------------------
+// The deterministic brief above is fast, offline and never wrong, but it can
+// only ever say one of a handful of prewritten lines. This asks the coach for
+// a read on the actual day. It is strictly an enhancement: the card renders
+// without it, and any failure just leaves the local line in place.
+//
+// Cached per (day, state fingerprint) so it costs one call per meaningful
+// change, not one per render — renderDashboard fires on every food entry.
+
+const AI_OVERVIEW_TTL = 30 * 60 * 1000;
+
+// What the overview is *about*. If none of this moved, a re-fetch would only
+// reword the same facts, so the cached line stands.
+function aiOverviewFingerprint() {
+  const date = getTodayDateString();
+  const t = briefTotals(date);
+  const goals = appState.goals || {};
+  const log = getWorkoutLog(date);
+  const mode = appState.calorieMode;
+  return [
+    date,
+    Math.round(t.kcal / 100),          // ~100 kcal granularity
+    Math.round((t.protein || 0) / 10),
+    Number(goals.calories) || 0,
+    (log.done || []).length,
+    hasActiveSession() ? 1 : 0,
+    new Date().getHours() < 12 ? 'am' : new Date().getHours() < 18 ? 'pm' : 'eve',
+    mode ? mode.label + '|' + mode.until : ''
+  ].join('~');
+}
+
+function getFreshAiOverview() {
+  const c = appState.aiOverview;
+  if (!c || !c.text) return null;
+  if (c.fingerprint !== aiOverviewFingerprint()) return null;
+  if (Date.now() - (c.ts || 0) > AI_OVERVIEW_TTL) return null;
+  return c;
+}
+
+let aiOverviewInFlight = false;
+
+async function maybeFetchAiOverview() {
+  if (aiOverviewInFlight) return;
+  if (getFreshAiOverview()) return;
+  const session = getSession();
+  if (!session || !session.token) return;
+  if (isLocalDev()) return;
+  if (!navigator.onLine) return;
+
+  const fingerprint = aiOverviewFingerprint();
+  aiOverviewInFlight = true;
+  try {
+    const resp = await fetch('/api/overview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.token}` },
+      body: JSON.stringify({
+        foodContext: buildFoodContext(),
+        workoutStatus: buildWorkoutStatus(),
+        targets: appState.goals || null,
+        calorieMode: appState.calorieMode || null,
+        memories: coachMemoryOn() ? getCoachMemories().map((m) => m.text) : [],
+        today: getTodayDateString(),
+        nowTime: (() => {
+          const n = new Date();
+          return `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
+        })()
+      })
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data || !data.success || !data.text) return;
+
+    appState.aiOverview = {
+      text: String(data.text).slice(0, 80),
+      sub: String(data.sub || '').slice(0, 90),
+      action: data.action || null,
+      fingerprint,
+      ts: Date.now()
+    };
+    saveState();
+    renderDailyBrief();
+  } catch (e) {
+    /* the local brief is already on screen — a failed overview changes nothing */
+  } finally {
+    aiOverviewInFlight = false;
+  }
+}
+
 function renderDailyBrief() {
   const el = document.getElementById('daily-brief');
   if (!el) return;
@@ -9321,16 +9459,24 @@ function renderDailyBrief() {
   }
   let b = null;
   try { b = buildDailyBrief(); } catch (e) { b = null; }
+
+  // The AI overview replaces the deterministic line once it has been fetched,
+  // but never blocks on it: the card paints instantly from local data, and the
+  // model's take swaps in when (and only if) it arrives.
+  const ai = getFreshAiOverview();
+  if (ai) b = { text: ai.text, sub: ai.sub, action: ai.action || (b && b.action) || null };
   if (!b) { el.style.display = 'none'; return; }
 
   el.style.display = 'flex';
-  el.className = 'daily-brief' + (b.action ? ' tappable' : '');
+  el.className = 'daily-brief' + (b.action ? ' tappable' : '') + (ai ? ' db-ai' : '');
   el.innerHTML = `
     <div class="db-text">
       <div class="db-main">${esc(b.text)}</div>
       <div class="db-sub">${esc(b.sub)}</div>
     </div>
     ${b.action ? '<span class="db-go" aria-hidden="true">›</span>' : ''}`;
+
+  maybeFetchAiOverview();
 
   // switchScreen lives inside another closure, so navigate the way a person
   // would: by pressing the same buttons.

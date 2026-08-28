@@ -336,6 +336,26 @@ const TOOL_DECLARATIONS = [
     }
   },
   {
+    name: 'set_calorie_mode',
+    description: 'Dočasně zvedne (nebo sníží) denní kalorie na určitý počet dní — dovolená, svátky, nemoc, závod, chřipka, cestování. Na rozdíl od set_targets se to samo vrátí zpátky, až to období skončí, takže se uživateli nerozbijí dlouhodobé cíle. Použij, když uživatel řekne, že je nebo bude v takové situaci ("jedu na tejden na dovolenou", "od pátku jsou Vánoce"). Když neuvede počet dní, zeptej se — nehádej.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        label: { type: 'STRING', description: 'Krátký název režimu, jak ho uvidí uživatel v appce, např. "Dovolená" nebo "Vánoce"' },
+        days: { type: 'INTEGER', description: 'Na kolik dní od dneška režim platí (1-60)' },
+        calories: { type: 'INTEGER', description: 'Nové denní kalorie po dobu režimu. Když neuvedeš, použije se caloriesDelta.' },
+        caloriesDelta: { type: 'INTEGER', description: 'O kolik kcal změnit oproti současnému cíli (kladné = přidat, záporné = ubrat). Použij, když uživatel řekne "přidej mi 500 kcal".' },
+        reason: { type: 'STRING', description: 'Krátké vysvětlení, proč se cíl mění' }
+      },
+      required: ['label', 'days']
+    }
+  },
+  {
+    name: 'clear_calorie_mode',
+    description: 'Zruší běžící dočasný kalorický režim a vrátí cíle na původní hodnoty ještě před koncem období. Použij, když uživatel řekne, že je zpátky ("už jsem doma", "dovolená skončila dřív", "zruš ten režim").',
+    parameters: { type: 'OBJECT', properties: {} }
+  },
+  {
     name: 'set_workout_plan',
     description: 'Nastav kompletní týdenní tréninkový split (všech 7 dní). Netréninkové dny označ rest:true. Použij při prvním vygenerování plánu nebo při velké přestavbě.',
     parameters: {
@@ -464,6 +484,7 @@ function emptyPlanState() {
   return {
     profile: {},
     targets: null,
+    calorieMode: null,
     workoutPlan: null,
     mealPlan: null
   };
@@ -534,6 +555,62 @@ function applyTool(name, args, state) {
       }
       state.targets = t;
       return { ok: true, targets: t, reason: a.reason || null };
+    }
+
+    // A holiday is not a new goal — it is a pause. set_targets would overwrite
+    // the long-term numbers and nobody would remember what they used to be, so
+    // this keeps a snapshot of the pre-mode targets and an end date; the client
+    // restores them on its own once that date passes.
+    case 'set_calorie_mode': {
+      const cur = state.targets
+        || (state.profile && state.profile.weightKg ? computeTargets(state.profile) : null)
+        || { calories: 2000, protein: 130, carbs: 220, fat: 65 };
+
+      const days = clamp(Math.round(num(a.days, 0)), 1, 60);
+      if (!days) return { ok: false, error: 'Řekni, na kolik dní režim platí (1-60).' };
+
+      const baseKcal = num(cur.calories, 2000);
+      let kcal;
+      if (a.calories != null) kcal = Math.round(num(a.calories, baseKcal));
+      else if (a.caloriesDelta != null) kcal = baseKcal + Math.round(num(a.caloriesDelta, 0));
+      else return { ok: false, error: 'Uveď buď calories, nebo caloriesDelta.' };
+
+      kcal = clamp(kcal, 800, 8000);
+
+      // Macros scale with the calorie change, except protein: on a holiday the
+      // protein floor is the one thing worth holding, and scaling it down with
+      // the surplus would be the opposite of the point.
+      const ratio = baseKcal > 0 ? kcal / baseKcal : 1;
+      const t = {
+        calories: kcal,
+        protein: Math.round(num(cur.protein, 130)),
+        carbs: Math.round(num(cur.carbs, 220) * ratio),
+        fat: Math.round(num(cur.fat, 65) * ratio)
+      };
+
+      const until = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+      state.targets = t;
+      state.calorieMode = {
+        label: String(a.label || 'Režim').slice(0, 40),
+        reason: a.reason ? String(a.reason).slice(0, 140) : null,
+        until,
+        days,
+        baseTargets: {
+          calories: Math.round(baseKcal),
+          protein: Math.round(num(cur.protein, 130)),
+          carbs: Math.round(num(cur.carbs, 220)),
+          fat: Math.round(num(cur.fat, 65))
+        }
+      };
+      return { ok: true, targets: t, mode: state.calorieMode, note: `Režim "${state.calorieMode.label}" běží do ${until} (${days} dní), cíl ${kcal} kcal.` };
+    }
+
+    case 'clear_calorie_mode': {
+      const mode = state.calorieMode;
+      if (!mode) return { ok: false, error: 'Žádný dočasný režim zrovna neběží.' };
+      state.targets = mode.baseTargets || state.targets;
+      state.calorieMode = null;
+      return { ok: true, targets: state.targets, cleared: true, note: `Režim "${mode.label}" zrušen, cíle zpátky na ${state.targets.calories} kcal.` };
     }
 
     case 'set_workout_plan': {
