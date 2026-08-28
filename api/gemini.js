@@ -1,10 +1,16 @@
 // Gemini proxy for the food-analysis flow. Keeps the API key server-side
-// (set GEMINI_API_KEY in Vercel) so it never ships in the client bundle.
-// The client builds the full generateContent payload and posts it here; we
-// just attach the key and forward to Google, returning Google's response.
+// (set GEMINI_API_KEY or COACH_API_KEY in Vercel) so it never ships in the
+// client bundle. The client builds the full generateContent payload and posts
+// it here; we just attach the key and forward to Google, returning Google's
+// response.
+//
+// Accepts either variable, same as every other endpoint. Running the whole app
+// off a single key is the normal case; requiring GEMINI_API_KEY specifically
+// here meant setting only COACH_API_KEY silently broke photo analysis while
+// everything else kept working.
 const { extractUsername } = require('./_lib/auth');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.COACH_API_KEY || '';
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 // Models the client may explicitly ask for via `__model`. Kept as an allowlist
@@ -32,7 +38,7 @@ module.exports = async function handler(req, res) {
   }
 
   if (!GEMINI_API_KEY) {
-    return res.status(500).json({ error: { message: 'AI není nakonfigurováno (chybí GEMINI_API_KEY).' } });
+    return res.status(500).json({ error: { message: 'AI není nakonfigurováno (chybí GEMINI_API_KEY / COACH_API_KEY).' } });
   }
 
   const payload = req.body;
