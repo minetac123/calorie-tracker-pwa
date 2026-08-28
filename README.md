@@ -101,21 +101,28 @@ api/                serverless funkce
 Data jsou uložená jako JSON dokumenty v Redisu (`data/<uživatel>.json`),
 lokálně v `localStorage` a fotky v IndexedDB.
 
-## Bezpečnost — čti, než to nasadíš pro víc lidí
+## Bezpečnost
 
-Appka vznikla jako osobní projekt pro pár lidí a autentizace tomu odpovídá.
-Než ji dáš někomu dalšímu, věz o tomhle:
+- **Session tokeny jsou podepsané** HMAC-SHA256. Payload je čitelný, ale bez
+  platného podpisu server token odmítne, a podpis nejde vyrobit bez serverového
+  tajemství. Platnost půl roku.
+- **Hesla jedou na scrypt** s náhodnou solí pro každého uživatele. Účty založené
+  za starého SHA-256 hashování se převedou samy při prvním přihlášení, uživatel
+  o tom neví.
+- **Telegram mini app ověřuje `initData`** podepsaná botím tokenem. Chat ID se
+  bere odtud, ne z URL.
+- Přihlašování nerozlišuje „účet neexistuje" a „špatné heslo", ať se nedá
+  zjistit, která jména jsou zabraná.
 
-- **Session tokeny nejsou podepsané.** Token je jen
-  `base64("jméno_časové-razítko_náhoda")` a server z něj bere uživatelské jméno
-  bez ověření. Kdo zná cizí uživatelské jméno, umí si token vyrobit a číst i psát
-  cizí data. Pro veřejné nasazení je potřeba podepsané tokeny (JWT) nebo
-  serverové session.
-- **Hesla jsou hashovaná SHA-256 se statickou solí**, bez per-user salt a bez
-  key stretchingu. Na produkci patří bcrypt, scrypt nebo argon2.
-- **Data uživatele nejsou šifrovaná** v úložišti.
+Podepisovací tajemství se vezme z `AUTH_SECRET`, a když není nastavené,
+vygeneruje se náhodné a uloží do Redisu. Nemusíš tedy nic nastavovat, aby to
+bylo bezpečné — ale když chceš tajemství rotovat, stačí `AUTH_SECRET` nastavit
+(všichni se pak jednou znovu přihlásí).
 
-Beru to jako otevřený úkol, ne jako hotový stav. Pull requesty vítány.
+Co zůstává otevřené a pull requesty vítány:
+
+- data uživatelů nejsou v úložišti šifrovaná
+- není omezený počet pokusů o přihlášení (rate limiting)
 
 ## Přispívání
 

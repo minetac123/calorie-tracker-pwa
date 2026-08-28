@@ -12,7 +12,9 @@ const { detectSignals } = require('./_lib/signals');
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
-// See api/migrate-kv.js for why this trims both sides.
+// Trimmed because a mobile paste into the Vercel dashboard can pick up a
+// trailing newline that is invisible and unfixable from the UI. The secret's
+// actual content still has to match exactly.
 const CRON_SECRET = (process.env.CRON_SECRET || '').trim();
 
 module.exports = async function handler(req, res) {

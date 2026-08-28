@@ -26,7 +26,7 @@ module.exports = async function handler(req, res) {
   }
 
   // Require a logged-in session so the proxy can't be used anonymously.
-  const username = extractUsername(req.headers.authorization);
+  const username = await extractUsername(req.headers.authorization);
   if (!username) {
     return res.status(401).json({ error: { message: 'Nepřihlášen' } });
   }

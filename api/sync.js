@@ -54,7 +54,7 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const username = extractUsername(req.headers.authorization);
+  const username = await extractUsername(req.headers.authorization);
   if (!username) {
     return res.status(401).json({ error: 'Nepřihlášen' });
   }

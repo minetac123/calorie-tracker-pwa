@@ -1,16 +1,5 @@
 const { kvGet, kvPut } = require('./_lib/store');
-const crypto = require('crypto');
-
-// Simple SHA-256 hash
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password + '_fitai_salt_2026').digest('hex');
-}
-
-// Generate session token
-function generateToken(username) {
-  const payload = username + '_' + Date.now() + '_' + Math.random().toString(36).substr(2);
-  return Buffer.from(payload).toString('base64');
-}
+const { generateToken, hashPassword } = require('./_lib/auth');
 
 module.exports = async function handler(req, res) {
   // CORS
@@ -34,11 +23,17 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Jméno musí mít 3–30 znaků' });
     }
 
-    if (password.length < 4) {
-      return res.status(400).json({ error: 'Heslo musí mít alespoň 4 znaky' });
+    // Čtyři znaky nechrání vůbec nic — takové heslo se uhodne hrubou silou
+    // rychleji, než se stihne dopsat. Osm je pořád mírné minimum.
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Heslo musí mít alespoň 8 znaků' });
     }
 
     const safeUsername = username.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (safeUsername.length < 3) {
+      return res.status(400).json({ error: 'Jméno smí mít jen písmena, číslice, _ a -' });
+    }
+
     const blobPath = `users/${safeUsername}.json`;
 
     // Check if user already exists
@@ -47,14 +42,16 @@ module.exports = async function handler(req, res) {
       return res.status(409).json({ error: 'Uživatel už existuje' });
     }
 
-    const hashedPassword = hashPassword(password);
-    const token = generateToken(safeUsername);
+    const hashedPassword = await hashPassword(password);
+    const token = await generateToken(safeUsername);
 
     const userData = {
       username: safeUsername,
       password: hashedPassword,
-      token: token,
       createdAt: new Date().toISOString()
+      // Token se sem záměrně neukládá: je podepsaný, takže ho server ověří sám,
+      // a držet ho navíc v databázi by znamenalo jen další místo, odkud může
+      // uniknout.
     };
 
     await kvPut(blobPath, userData);
