@@ -11,6 +11,7 @@ node_modules/
 # Interní pracovní soubory agentů a lokální poznámky
 .agents/
 scratchpad/
+ORIGINAL_REQUEST.md
 
 # OS / editor
 .DS_Store
