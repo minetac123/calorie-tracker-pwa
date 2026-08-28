@@ -618,7 +618,17 @@ ${fmtProfile(ctx.profile)}
 
 === DENNÍ CÍLE ===
 ${fmtTargets(ctx.targets)}
-
+${ctx.calorieMode ? `
+>>> BĚŽÍ DOČASNÝ REŽIM: „${ctx.calorieMode.label}" do ${ctx.calorieMode.until}${ctx.calorieMode.reason ? ` (${ctx.calorieMode.reason})` : ''}
+Cíle výš jsou dočasně zvednuté kvůli tomuhle. Po ${ctx.calorieMode.until} se samy vrátí na
+${ctx.calorieMode.baseTargets ? ctx.calorieMode.baseTargets.calories + ' kcal' : 'původní hodnoty'} — appka to udělá sama, ty s tím nic dělat nemusíš.
+Neřeš s uživatelem, že „je přes cíl", když je v tomhle režimu a drží se nových čísel — o to jde.
+Když řekne, že je zpátky / skončilo to dřív, zavolej clear_calorie_mode.
+` : `
+Když uživatel řekne, že jede na dovolenou, blíží se svátky, je nemocný nebo cestuje,
+NABÍDNI mu dočasné zvednutí kalorií přes set_calorie_mode — samo se to po pár dnech
+vrátí zpátky, takže si tím nerozbije dlouhodobý cíl. Nevnucuj to, ale zmiň to.
+`}
 === TRÉNINKOVÝ PLÁN ===
 ${fmtWorkoutPlan(ctx.workoutPlan, ctx.todayKey)}
 
@@ -818,7 +828,7 @@ module.exports = async function handler(req, res) {
   try {
     const {
       message, history, mode, image,
-      profile, targets, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
+      profile, targets, calorieMode, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
       appSnapshot, focus, miniApps, session, sessionState, proactive, sessionHistory, coachLog,
       coachSummaries, periodStats,
       foodContext, workoutStatus, memories, today, nowTime
@@ -838,6 +848,7 @@ module.exports = async function handler(req, res) {
     const state = Object.assign(emptyPlanState(), {
       profile: profile || {},
       targets: targets || null,
+      calorieMode: calorieMode || null,
       workoutPlan: workoutPlan || null,
       mealPlan: mealPlan || null,
       exerciseLogs: (exerciseLogs && typeof exerciseLogs === 'object') ? exerciseLogs : {}
@@ -857,7 +868,7 @@ module.exports = async function handler(req, res) {
       : 'Žádná uložená fakta.';
 
     const ctx = {
-      profile: state.profile, targets: state.targets,
+      profile: state.profile, targets: state.targets, calorieMode: state.calorieMode,
       workoutPlan: state.workoutPlan, mealPlan: state.mealPlan,
       foodContext, memBlock, todayDate: todayDate || 'dnes', todayKey,
       nowTime: (typeof nowTime === 'string' && /^\d{1,2}:\d{2}$/.test(nowTime)) ? nowTime : null,
@@ -1201,6 +1212,7 @@ module.exports = async function handler(req, res) {
       newMemories: newMemories.length ? newMemories : undefined,
       profile: state.profile,
       targets: state.targets,
+      calorieMode: state.calorieMode !== undefined ? state.calorieMode : undefined,
       exerciseLogs: state.exerciseLogs,
       miniApps: appsChanged ? apps : undefined,
       newMiniAppId: lastAppId || undefined,
