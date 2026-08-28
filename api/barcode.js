@@ -1,3 +1,6 @@
+// See the note in api/search.js — Open Food Facts wants a contact in the UA.
+const OFF_USER_AGENT = `FitAI Calorie Tracker - Web - Version 1.0 (${process.env.OFF_CONTACT || 'https://github.com/minetac123/calorie-tracker-pwa'})`;
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -18,7 +21,7 @@ module.exports = async function handler(req, res) {
     
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'FitAICalorieTracker - Web - Version 1.0 (behrikadam@gmail.com)'
+        'User-Agent': OFF_USER_AGENT
       }
     });
 

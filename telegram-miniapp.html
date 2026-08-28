@@ -59,15 +59,16 @@
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg) { tg.ready(); tg.expand(); }
 
-    const params = new URLSearchParams(location.search);
-    const chatId = params.get('chatId');
+    // Podepsaná data od Telegramu. Backend si z nich sám ověří, kdo jsme —
+    // chatId z URL už neposíláme, protože se dal jednoduše podvrhnout.
+    const initData = (tg && tg.initData) || '';
 
     let actionData = null;
 
     async function init() {
-      if (!chatId) return showError('Chybí chatId — otevři přes Telegram bota');
+      if (!initData) return showError('Otevři tuhle stránku přes Telegram bota');
       try {
-        const resp = await fetch(`/api/telegram-miniapp?chatId=${encodeURIComponent(chatId)}`);
+        const resp = await fetch(`/api/telegram-miniapp?initData=${encodeURIComponent(initData)}`);
         const data = await resp.json();
         if (!resp.ok || !data.action) return showError('Akce nenalezena nebo vypršela');
         actionData = data.action;
@@ -234,7 +235,7 @@
           const resp = await fetch('/api/telegram-miniapp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chatId, action })
+            body: JSON.stringify({ initData, action })
           });
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || 'Chyba');

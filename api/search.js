@@ -1,3 +1,8 @@
+// Open Food Facts asks callers to identify themselves with a contact address
+// in the User-Agent, so anyone running their own copy should put their own
+// there via OFF_CONTACT rather than inherit whoever wrote this.
+const OFF_USER_AGENT = `FitAI Calorie Tracker - Web - Version 1.0 (${process.env.OFF_CONTACT || 'https://github.com/minetac123/calorie-tracker-pwa'})`;
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -24,7 +29,7 @@ module.exports = async function handler(req, res) {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'FitAICalorieTracker - Web - Version 1.0 (behrikadam@gmail.com)'
+        'User-Agent': OFF_USER_AGENT
       }
     });
     

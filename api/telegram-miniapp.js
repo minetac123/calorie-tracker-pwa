@@ -2,7 +2,7 @@
 // GET  ?chatId=<id> — return the pending action for the mini app to display
 // POST {chatId, action} — execute the (possibly edited) action and notify user
 const { kvGet, kvPut } = require('./_lib/store');
-const { getPendingAction, clearPendingAction, findUserByChatId, sendMessage } = require('./_lib/telegram');
+const { getPendingAction, clearPendingAction, findUserByChatId, sendMessage, verifyInitData } = require('./_lib/telegram');
 
 function getFoodCategory(item) {
   if (item.category) return item.category;
@@ -109,11 +109,17 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const chatId = req.method === 'GET'
-    ? (req.query && req.query.chatId)
-    : (req.body && req.body.chatId);
+  // Chat ID se bere VÝHRADNĚ z initData podepsaných Telegramem. Dřív se četl
+  // z URL a věřilo se mu — kdo si tipl cizí číslo, dostal se k cizím datům.
+  const initData = req.method === 'GET'
+    ? (req.query && req.query.initData)
+    : (req.body && req.body.initData);
 
-  if (!chatId) return res.status(400).json({ error: 'chatId required' });
+  const verified = verifyInitData(initData);
+  if (!verified) {
+    return res.status(401).json({ error: 'Neplatné nebo chybějící initData — otevři mini appku přes Telegram bota' });
+  }
+  const chatId = verified.chatId;
 
   // Return the pending action for the mini app to display/edit
   if (req.method === 'GET') {

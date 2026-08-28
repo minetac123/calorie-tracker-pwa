@@ -1,0 +1,20 @@
+node_modules/
+
+# Secrets — never commit these. Copy .env.example to .env.local and fill it in.
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel/
+
+# Interní pracovní soubory agentů a lokální poznámky
+.agents/
+scratchpad/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

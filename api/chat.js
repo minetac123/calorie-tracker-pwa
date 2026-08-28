@@ -819,7 +819,7 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metoda není povolena' });
 
-  const username = extractUsername(req.headers.authorization);
+  const username = await extractUsername(req.headers.authorization);
   if (!username) return res.status(401).json({ error: 'Nepřihlášen' });
   if (!COACH_API_KEY) {
     return res.status(500).json({ error: 'AI Kouč není nakonfigurován (chybí COACH_API_KEY / GEMINI_API_KEY).' });

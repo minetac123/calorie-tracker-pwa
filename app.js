@@ -3031,6 +3031,27 @@ function isLocalDev() {
   return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 }
 
+// Server odmítl token. Od chvíle, kdy jsou tokeny podepsané, se to stane
+// každému, kdo měl uloženou starou (nepodepsanou) přihlášku — jednorázově,
+// při prvním spuštění po aktualizaci.
+//
+// Data se ZÁMĚRNĚ nemažou: leží v localStorage, patří uživateli a po
+// opětovném přihlášení se prostě zase nahrají. doLogout() by je smazal, proto
+// se tu nepoužívá.
+let expiredSessionHandled = false;
+function handleExpiredSession() {
+  if (expiredSessionHandled) return;
+  expiredSessionHandled = true;
+
+  clearSession();
+  document.querySelectorAll('.app-screen').forEach((s) => s.classList.remove('active'));
+  const login = document.getElementById('screen-login');
+  if (login) login.classList.add('active');
+  const nav = document.querySelector('.bottom-nav');
+  if (nav) nav.style.display = 'none';
+  showToast('Přihlaš se prosím znovu — kvůli bezpečnosti');
+}
+
 async function syncToCloud() {
   const session = getSession();
   if (!session) return;
@@ -3076,6 +3097,7 @@ async function syncToCloud() {
       },
       body: JSON.stringify(dataToSync)
     });
+    if (resp.status === 401) { handleExpiredSession(); return; }
     if (!resp.ok) throw new Error('sync HTTP ' + resp.status);
     appState.planSavedAt = dataToSync.planSavedAt;
     syncPending = false;
@@ -3170,6 +3192,7 @@ async function syncFromCloud(opts) {
     const resp = await fetch('/api/sync', {
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
+    if (resp.status === 401) { handleExpiredSession(); return; }
     const data = await resp.json();
 
     if (data.success && data.appData) {

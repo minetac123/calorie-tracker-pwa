@@ -1,14 +1,5 @@
-const { kvGet } = require('./_lib/store');
-const crypto = require('crypto');
-
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password + '_fitai_salt_2026').digest('hex');
-}
-
-function generateToken(username) {
-  const payload = username + '_' + Date.now() + '_' + Math.random().toString(36).substr(2);
-  return Buffer.from(payload).toString('base64');
-}
+const { kvGet, kvPut } = require('./_lib/store');
+const { generateToken, verifyPassword, hashPassword } = require('./_lib/auth');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -30,22 +21,34 @@ module.exports = async function handler(req, res) {
     const safeUsername = username.toLowerCase().replace(/[^a-z0-9_-]/g, '');
     const blobPath = `users/${safeUsername}.json`;
 
-    // Find user blob
     const userData = await kvGet(blobPath);
+
+    // Stejná hláška pro neexistující účet i pro špatné heslo. Rozlišovat je
+    // znamená prozradit, která jména jsou zabraná — a jméno je půlka toho, co
+    // útočník k útoku na účet potřebuje.
     if (!userData) {
-      return res.status(401).json({ error: 'Uživatel neexistuje' });
+      return res.status(401).json({ error: 'Špatné jméno nebo heslo' });
     }
 
-    // Verify password
-    const hashedPassword = hashPassword(password);
-    if (userData.password !== hashedPassword) {
-      return res.status(401).json({ error: 'Špatné heslo' });
+    const check = await verifyPassword(password, userData.password);
+    if (!check.ok) {
+      return res.status(401).json({ error: 'Špatné jméno nebo heslo' });
     }
 
-    // Generate new token
-    const newToken = generateToken(safeUsername);
+    // Účet založený za starého hashování se při prvním úspěšném přihlášení
+    // tiše převede na scrypt. Uživatel o tom neví a nic dělat nemusí.
+    if (check.needsUpgrade) {
+      try {
+        userData.password = await hashPassword(password);
+        await kvPut(blobPath, userData);
+      } catch (e) {
+        // Přihlášení kvůli tomu nepadá — otisk se převede příště.
+        console.error('Nepodařilo se převést heslo na scrypt:', e.message);
+      }
+    }
 
-    // Try to load user's saved app data
+    const newToken = await generateToken(safeUsername);
+
     const appData = await kvGet(`data/${safeUsername}.json`);
 
     return res.status(200).json({

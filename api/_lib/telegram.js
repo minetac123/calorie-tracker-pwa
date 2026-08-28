@@ -1,4 +1,5 @@
 // Telegram Bot API helpers and key-value storage for the Telegram integration.
+const crypto = require('crypto');
 const { kvGet, kvPut, kvDel } = require('./store');
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
@@ -63,6 +64,54 @@ async function getFileAsInlinePart(fileId, hintMime) {
       mimeType = byExt[ext] || 'image/jpeg';
     }
     return { mimeType, data: buf.toString('base64') };
+  } catch (e) {
+    return null;
+  }
+}
+
+// --- Ověření Telegram Mini App initData ---
+//
+// Mini app dřív posílala chatId jako parametr v URL a backend mu prostě věřil.
+// Chat ID je ale jen číslo — kdo si tipne cizí, přečte a přepíše cizí data.
+//
+// Telegram proto každé mini appce předává `initData` podepsaná botím tokenem.
+// Podpis umí ověřit jen ten, kdo token zná, takže z něj jde chatId bezpečně
+// odvodit. Postup je z oficiální dokumentace Telegramu.
+function verifyInitData(initData) {
+  if (!TELEGRAM_BOT_TOKEN || !initData) return null;
+
+  try {
+    const params = new URLSearchParams(String(initData));
+    const hash = params.get('hash');
+    if (!hash) return null;
+    params.delete('hash');
+
+    // Všechny ostatní dvojice seřazené podle klíče, spojené novým řádkem.
+    const dataCheckString = Array.from(params.entries())
+      .map(([k, v]) => `${k}=${v}`)
+      .sort()
+      .join('\n');
+
+    const secretKey = crypto.createHmac('sha256', 'WebAppData')
+      .update(TELEGRAM_BOT_TOKEN).digest();
+    const computed = crypto.createHmac('sha256', secretKey)
+      .update(dataCheckString).digest('hex');
+
+    const a = Buffer.from(computed, 'hex');
+    const b = Buffer.from(hash, 'hex');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+    // Stará initData se nepočítají — kdyby někomu unikla z historie prohlížeče,
+    // ať aspoň nejde použít napořád.
+    const authDate = Number(params.get('auth_date'));
+    if (!Number.isFinite(authDate)) return null;
+    if (Date.now() / 1000 - authDate > 24 * 60 * 60) return null;
+
+    const user = JSON.parse(params.get('user') || 'null');
+    if (!user || !user.id) return null;
+
+    // U soukromého chatu s botem je chat ID rovno ID uživatele.
+    return { chatId: String(user.id), user };
   } catch (e) {
     return null;
   }
@@ -142,6 +191,7 @@ module.exports = {
   setWebhook,
   setMyCommands,
   getFileAsInlinePart,
+  verifyInitData,
   getTelegramIndex,
   findUserByChatId,
   linkUser,
