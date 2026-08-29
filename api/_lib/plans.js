@@ -373,8 +373,20 @@ const TOOL_DECLARATIONS = [
     parameters: WORKOUT_DAY_SCHEMA
   },
   {
+    name: 'copy_workout_day',
+    description: 'Zkopíruj trénink z jednoho dne do druhého. Zdrojový den zůstane, cílový se přepíše. Použij, když uživatel chce ten samý trénink znovu — "dej mi včerejší trénink i na dnešek", "zopakuj pondělí ve středu". POZOR: tohle NENÍ swap_workout_days — ten dny prohodí a zdroj tím zmizí, což uživatel u "chci to samé znovu" nechce.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        from: { type: 'STRING', enum: DAY_KEYS, description: 'Den, ze kterého se kopíruje' },
+        to: { type: 'STRING', enum: DAY_KEYS, description: 'Den, který se přepíše' }
+      },
+      required: ['from', 'to']
+    }
+  },
+  {
     name: 'swap_workout_days',
-    description: 'Prohoď obsah dvou dnů v tréninkovém plánu. Použij když uživatel řekne "dnes nemám čas na nohy, přehoď to na zítra".',
+    description: 'PROHOĎ obsah dvou dnů v tréninkovém plánu — co bylo v A je v B a naopak. Použij když uživatel řekne "dnes nemám čas na nohy, přehoď to na zítra". Když chce ten samý trénink DVAKRÁT (a zdroj má zůstat), použij copy_workout_day.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -650,6 +662,36 @@ function applyTool(name, args, state) {
       return {
         ok: true, day: DAY_CZ[key], title: d.title, rest: d.rest,
         exercises: d.exercises.map((e) => `${e.name} ${e.sets}×${e.reps}`)
+      };
+    }
+
+    // Kopie, ne přesun: zdrojový den zůstává. Cviky se klonují včetně nových
+    // id, aby dva dny nesdílely tentýž objekt — jinak by úprava jednoho dne
+    // tiše přepsala i druhý, a odškrtnutí cviku v pondělí by ho odškrtlo i ve
+    // středu (workoutLogs se vedou podle id cviku).
+    case 'copy_workout_day': {
+      const from = normDayKey(a.from);
+      const to = normDayKey(a.to);
+      if (!from || !to) return { ok: false, error: 'Neplatné dny.' };
+      if (from === to) return { ok: false, error: 'Zdrojový a cílový den jsou stejné.' };
+      if (!state.workoutPlan) return { ok: false, error: 'Tréninkový plán zatím neexistuje.' };
+
+      const days = state.workoutPlan.days;
+      const src = days[from];
+      if (!src) return { ok: false, error: `Den ${DAY_CZ[from]} v plánu není.` };
+
+      days[to] = {
+        title: src.title,
+        rest: !!src.rest,
+        focus: src.focus || '',
+        exercises: (Array.isArray(src.exercises) ? src.exercises : []).map((e) => Object.assign({}, e, {
+          id: 'ex_' + Math.random().toString(36).slice(2, 9)
+        }))
+      };
+      state.workoutPlan.updatedAt = Date.now();
+      return {
+        ok: true,
+        note: `${DAY_CZ[from]} zkopírováno do ${DAY_CZ[to]} — "${days[to].title}", ${days[to].exercises.length} cviků. ${DAY_CZ[from]} zůstává beze změny.`
       };
     }
 
