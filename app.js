@@ -211,6 +211,15 @@ function ensurePlanState() {
   }
   if (!Array.isArray(appState.sessionHistory)) appState.sessionHistory = [];
   if (appState.calorieMode === undefined) appState.calorieMode = null;
+  // Collections written by the coach's newer tools. Anyone upgrading from an
+  // older build has none of these, so they are created empty rather than left
+  // undefined for every reader to guard against.
+  ['measurements', 'cardioLogs', 'sleepLogs', 'moodLogs', 'injuries'].forEach((k) => {
+    if (!Array.isArray(appState[k])) appState[k] = [];
+  });
+  ['dayNotes', 'steps'].forEach((k) => {
+    if (!appState[k] || typeof appState[k] !== 'object') appState[k] = {};
+  });
   expireCalorieMode();
 }
 
@@ -3084,6 +3093,13 @@ async function syncToCloud() {
       exerciseLogs: appState.exerciseLogs,
       sessionHistory: appState.sessionHistory,
       miniApps: appState.miniApps,
+      measurements: appState.measurements,
+      cardioLogs: appState.cardioLogs,
+      sleepLogs: appState.sleepLogs,
+      moodLogs: appState.moodLogs,
+      injuries: appState.injuries,
+      dayNotes: appState.dayNotes,
+      steps: appState.steps,
       planSavedAt: Date.now()
       // activeSession stays local on purpose — resuming a half-finished
       // workout on a different device would be nonsense.
@@ -3166,6 +3182,24 @@ function mergePlanFromCloud(cloud) {
 
   appState.workoutLogs = mergeByKey(appState.workoutLogs, cloud.workoutLogs);
   appState.mealChecks = mergeByKey(appState.mealChecks, cloud.mealChecks);
+  appState.dayNotes = mergeByKey(appState.dayNotes, cloud.dayNotes);
+  appState.steps = mergeByKey(appState.steps, cloud.steps);
+
+  // Date-stamped health logs merge by date so two devices interleave instead
+  // of one erasing the other's entries.
+  const mergeByDate = (localArr, cloudArr) => {
+    const byDate = new Map();
+    (Array.isArray(cloudArr) ? cloudArr : []).forEach((x) => { if (x && x.date) byDate.set(x.date, x); });
+    (Array.isArray(localArr) ? localArr : []).forEach((x) => { if (x && x.date) byDate.set(x.date, x); });
+    return Array.from(byDate.values()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  };
+  ['measurements', 'sleepLogs', 'moodLogs'].forEach((k) => {
+    if (Array.isArray(cloud[k])) appState[k] = mergeByDate(appState[k], cloud[k]);
+  });
+  // These carry their own ids and several can share one date, so they merge
+  // by id like sessionHistory rather than collapsing to one per day.
+  appState.cardioLogs = mergeById(appState.cardioLogs, cloud.cardioLogs, 400);
+  appState.injuries = mergeById(appState.injuries, cloud.injuries, 100);
   appState.exerciseLogs = mergeByKey(appState.exerciseLogs, cloud.exerciseLogs);
   appState.sessionHistory = mergeById(appState.sessionHistory, cloud.sessionHistory, 60);
   appState.miniApps = mergeById(appState.miniApps, cloud.miniApps, 20);
@@ -6327,12 +6361,73 @@ function applyCoachPlanUpdate(data) {
     changed = true;
   }
   if (data.mealPlan) { appState.mealPlan = data.mealPlan; changed = true; }
+
+  // Collections the newer tool modules write to. Date-keyed maps are merged
+  // key by key rather than replaced: the server only ever saw a 90-day window
+  // (see COACH_HISTORY_DAYS), so assigning its copy wholesale would delete
+  // everything older than that. Arrays come back whole and can be assigned.
+  const mergeDateMap = (localObj, incoming) => {
+    const out = Object.assign({}, localObj || {});
+    Object.keys(incoming || {}).forEach((k) => { out[k] = incoming[k]; });
+    return out;
+  };
+
+  if (data.logs && typeof data.logs === 'object') {
+    appState.logs = mergeDateMap(appState.logs, data.logs);
+    changed = true;
+  }
+  if (data.water && typeof data.water === 'object') {
+    appState.water = mergeDateMap(appState.water, data.water);
+    changed = true;
+  }
+  if (data.workoutLogs && typeof data.workoutLogs === 'object') {
+    appState.workoutLogs = mergeDateMap(appState.workoutLogs, data.workoutLogs);
+    changed = true;
+  }
+  if (data.dayNotes && typeof data.dayNotes === 'object') {
+    appState.dayNotes = mergeDateMap(appState.dayNotes, data.dayNotes);
+    changed = true;
+  }
+  if (data.steps && typeof data.steps === 'object') {
+    appState.steps = mergeDateMap(appState.steps, data.steps);
+    changed = true;
+  }
+
+  [
+    'weightLogs', 'measurements', 'cardioLogs', 'sleepLogs',
+    'moodLogs', 'injuries', 'favorites'
+  ].forEach((key) => {
+    if (Array.isArray(data[key])) { appState[key] = data[key]; changed = true; }
+  });
+
+  // Weight is shown from a scalar in several places, so keep it pointed at the
+  // newest entry after a tool has written one.
+  if (Array.isArray(data.weightLogs) && data.weightLogs.length) {
+    const newest = data.weightLogs[0];
+    if (newest && Number.isFinite(Number(newest.weight))) appState.weight = Number(newest.weight);
+  }
+
   if (changed) {
     saveState();
     renderDashboard();
     renderPlanScreen();
   }
   return changed;
+}
+
+// The coach's tools operate on real history — copying a day of food, spotting
+// patterns, computing a real TDEE. That needs more than the formatted summary
+// in foodContext, but sending the entire archive on every single message would
+// be a needless upload on mobile data, so it is capped to a window that covers
+// every tool we actually have.
+const COACH_HISTORY_DAYS = 90;
+
+function sliceRecentDays(obj, days) {
+  if (!obj || typeof obj !== 'object') return {};
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const out = {};
+  Object.keys(obj).forEach((date) => { if (date >= cutoff) out[date] = obj[date]; });
+  return out;
 }
 
 // Everything the coach needs to answer with full awareness of the app.
@@ -6345,6 +6440,20 @@ function buildCoachPayload(message, opts = {}) {
     profile: appState.profile || {},
     targets: appState.goals || null,
     calorieMode: appState.calorieMode || null,
+    // History the tools work over (see COACH_HISTORY_DAYS above).
+    logs: sliceRecentDays(appState.logs, COACH_HISTORY_DAYS),
+    water: sliceRecentDays(appState.water, COACH_HISTORY_DAYS),
+    workoutLogs: sliceRecentDays(appState.workoutLogs, COACH_HISTORY_DAYS),
+    dayNotes: sliceRecentDays(appState.dayNotes, COACH_HISTORY_DAYS),
+    steps: sliceRecentDays(appState.steps, COACH_HISTORY_DAYS),
+    weightLogs: appState.weightLogs || [],
+    measurements: appState.measurements || [],
+    cardioLogs: appState.cardioLogs || [],
+    sleepLogs: appState.sleepLogs || [],
+    moodLogs: appState.moodLogs || [],
+    injuries: appState.injuries || [],
+    favorites: appState.favorites || [],
+    coachMemories: getCoachMemories(),
     workoutPlan: appState.workoutPlan || null,
     mealPlan: appState.mealPlan || null,
     lockedMeals: getMealLocks(),
