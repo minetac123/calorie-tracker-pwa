@@ -12,6 +12,11 @@ jobs:
   build:
     runs-on: macos-latest
 
+    # Potřeba na vytvoření GitHub Release. Bez toho `gh release create` spadne
+    # na 403 až úplně na konci, po proběhlém buildu.
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,6 +38,23 @@ jobs:
           npm run build
           npx cap sync ios
 
+      # Verze appky má jediný zdroj pravdy: APP_VERSION v api/_lib/version.js.
+      # Odsud se plní MARKETING_VERSION (= CFBundleShortVersionString), proti
+      # kterému UpdateChecker porovnává tag releasu. Kdyby se rozešly, appka
+      # by buď hlásila aktualizaci pořád, nebo nikdy.
+      - name: Resolve app version
+        id: version
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(node -p "require('./api/_lib/version.js').APP_VERSION")
+          if [ -z "$APP_VERSION" ]; then
+            echo "APP_VERSION se nepodařilo přečíst z api/_lib/version.js"
+            exit 1
+          fi
+          echo "version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Verze pro tenhle build: $APP_VERSION"
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -51,6 +73,8 @@ jobs:
             -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -destination 'generic/platform=iOS' \
             archive \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -86,3 +110,36 @@ jobs:
           path: ${{ runner.temp }}/CalorieTracker-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
+
+      # Artifact výš je za přihlášením do GitHubu, takže z něj SideStore
+      # stahovat nemůže. Kontrola aktualizací v appce proto čte Releases —
+      # jejich přílohy mají veřejnou přímou URL.
+      #
+      # Když už tag existuje (push do main bez zvýšení APP_VERSION), jen se
+      # přepíše příloha. Vytvářet nový release na každý commit by znamenalo
+      # desítky releasů se stejnou verzí a uživatel by stejně žádnou
+      # aktualizaci nedostal — porovnává se verze, ne počet buildů.
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          IPA="$RUNNER_TEMP/CalorieTracker-unsigned.ipa"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG už existuje — přepisuju .ipa."
+            gh release upload "$TAG" "$IPA" --clobber
+          else
+            echo "Zakládám release $TAG."
+            gh release create "$TAG" "$IPA" \
+              --title "Calorie Tracker $VERSION" \
+              --notes "Nepodepsaná .ipa pro sideloading přes SideStore nebo Sideloadly.
+
+          Appka si tenhle release sama hlídá a nabídne aktualizaci."
+          fi
+
+          echo "Přímý odkaz na .ipa:"
+          gh release view "$TAG" --json assets \
+            --jq '.assets[] | select(.name | endswith(".ipa")) | .url'
