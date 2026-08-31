@@ -6400,6 +6400,14 @@ function applyCoachPlanUpdate(data) {
     if (Array.isArray(data[key])) { appState[key] = data[key]; changed = true; }
   });
 
+  // The prefs tools (forget_fact, update_fact…) mutate the full {id,text}
+  // list directly, unlike remember_fact's newMemories path below, which only
+  // ever appends. When they ran, the server's copy is the source of truth.
+  if (Array.isArray(data.coachMemories)) {
+    appState.coachMemories = data.coachMemories;
+    changed = true;
+  }
+
   // Weight is shown from a scalar in several places, so keep it pointed at the
   // newest entry after a tool has written one.
   if (Array.isArray(data.weightLogs) && data.weightLogs.length) {
