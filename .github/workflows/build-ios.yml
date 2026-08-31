@@ -16,10 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Capacitor 8 CLI odmítne cokoliv pod Node 22 ("requires NodeJS >=22.0.0")
+      # a build spadne až na `cap sync`, ne na instalaci — takže verzi nesnižuj.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       # `npm ci` vyžaduje package-lock.json v souladu s package.json. Když se
       # rozejdou, spadne to tady s jasnou hláškou místo záhadné chyby dál.
