@@ -22,6 +22,20 @@ const { MINIAPP_TOOLS, MINIAPP_TOOL_NAMES, applyMiniAppTool, fmtMiniApps } = req
 const {
   SESSION_TOOLS, SESSION_TOOL_NAMES, applySessionTool, normSessionState, fmtSessionExercises
 } = require('./_lib/session');
+const { STATS_TOOLS, STATS_TOOL_NAMES, applyStatsTool } = require('./_lib/tools_stats');
+const { FOODOPS_TOOLS, FOODOPS_TOOL_NAMES, applyFoodOpsTool } = require('./_lib/tools_food');
+const { WORKOUTOPS_TOOLS, WORKOUTOPS_TOOL_NAMES, applyWorkoutOpsTool } = require('./_lib/tools_workout');
+const { BODY_TOOLS, BODY_TOOL_NAMES, applyBodyTool } = require('./_lib/tools_body');
+const { PREFS_TOOLS, PREFS_TOOL_NAMES, applyPrefsTool } = require('./_lib/tools_prefs');
+
+// Tools that only ever read — a successful call here is not evidence the
+// model actually changed anything, so it must not suppress the "you claimed
+// a change but never called a tool" correction below (see CLAIMS_A_CHANGE).
+const READ_ONLY_TOOL_NAMES = new Set([
+  ...STATS_TOOL_NAMES,
+  'list_favorites', 'suggest_meal_for_remaining', 'find_protein_source',
+  'suggest_warmup_sets', 'get_measurements_trend', 'list_facts', 'get_profile_summary'
+]);
 
 const COACH_API_KEY = process.env.COACH_API_KEY || process.env.GEMINI_API_KEY || '';
 const COACH_MODEL = process.env.COACH_MODEL || 'gemini-2.5-flash';
@@ -834,7 +848,13 @@ module.exports = async function handler(req, res) {
       profile, targets, calorieMode, workoutPlan, mealPlan, lockedMeals, exerciseHistory, exerciseLogs,
       appSnapshot, focus, miniApps, session, sessionState, proactive, sessionHistory, coachLog,
       coachSummaries, periodStats,
-      foodContext, workoutStatus, memories, today, nowTime
+      foodContext, workoutStatus, memories, today, nowTime,
+      // History window for the 75 stats/food/workout/body/prefs tools (see
+      // COACH_HISTORY_DAYS in app.js — the client caps date-keyed maps to 90
+      // days before sending; arrays like weightLogs come whole).
+      logs, water, workoutLogs, dayNotes, steps,
+      weightLogs, measurements, cardioLogs, sleepLogs, moodLogs, injuries, favorites,
+      coachMemories
     } = req.body || {};
 
     if ((!message || !message.trim()) && !image) {
@@ -854,7 +874,25 @@ module.exports = async function handler(req, res) {
       calorieMode: calorieMode || null,
       workoutPlan: workoutPlan || null,
       mealPlan: mealPlan || null,
-      exerciseLogs: (exerciseLogs && typeof exerciseLogs === 'object') ? exerciseLogs : {}
+      exerciseLogs: (exerciseLogs && typeof exerciseLogs === 'object') ? exerciseLogs : {},
+      // Everything the 75 stats/food/workout/body/prefs tools read and write.
+      // `today` in particular matters: the server runs in UTC while the user
+      // is in Prague, so every tool that reasons about "today" or "yesterday"
+      // uses this string instead of computing its own from server time.
+      today: todayDate || new Date().toISOString().slice(0, 10),
+      logs: (logs && typeof logs === 'object') ? logs : {},
+      water: (water && typeof water === 'object') ? water : {},
+      workoutLogs: (workoutLogs && typeof workoutLogs === 'object') ? workoutLogs : {},
+      dayNotes: (dayNotes && typeof dayNotes === 'object') ? dayNotes : {},
+      steps: (steps && typeof steps === 'object') ? steps : {},
+      weightLogs: Array.isArray(weightLogs) ? weightLogs : [],
+      measurements: Array.isArray(measurements) ? measurements : [],
+      cardioLogs: Array.isArray(cardioLogs) ? cardioLogs : [],
+      sleepLogs: Array.isArray(sleepLogs) ? sleepLogs : [],
+      moodLogs: Array.isArray(moodLogs) ? moodLogs : [],
+      injuries: Array.isArray(injuries) ? injuries : [],
+      favorites: Array.isArray(favorites) ? favorites : [],
+      coachMemories: Array.isArray(coachMemories) ? coachMemories : []
     });
 
     // Mini apps live alongside the plan state and are mutated by their own tools.
@@ -940,6 +978,8 @@ module.exports = async function handler(req, res) {
       : isOnboarding
       ? TOOL_DECLARATIONS
       : TOOL_DECLARATIONS.concat(FOOD_TOOLS).concat(MINIAPP_TOOLS)
+          .concat(STATS_TOOLS).concat(FOODOPS_TOOLS).concat(WORKOUTOPS_TOOLS)
+          .concat(BODY_TOOLS).concat(PREFS_TOOLS)
           .concat([SEARCH_TOOL, MEMORY_TOOL, HISTORY_TOOL]);
 
     const basePayload = {
@@ -1067,6 +1107,18 @@ module.exports = async function handler(req, res) {
             result = { ok: false, error: 'Najednou si ukládej nanejvýš tři věci.' };
           } else {
             newMemories.push(fact);
+            // Also written straight into state.coachMemories, not just
+            // newMemories: the prefs tools (forget_fact, update_fact…) read
+            // and return that same array, and if one of them fires in the
+            // same turn as remember_fact, the response's coachMemories would
+            // otherwise be missing the fact just added here — the client
+            // applies newMemories first, then overwrites with the server's
+            // coachMemories, silently dropping it.
+            if (!Array.isArray(state.coachMemories)) state.coachMemories = [];
+            state.coachMemories.push({
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+              text: fact
+            });
             result = { ok: true, note: 'Uloženo do paměti natrvalo. Uživateli to zmiň jednou větou.' };
           }
         } else if (SESSION_TOOL_NAMES.has(fc.name)) {
@@ -1096,6 +1148,25 @@ module.exports = async function handler(req, res) {
               built.estimated = searchSources.length === 0;
             }
           }
+        } else if (
+          STATS_TOOL_NAMES.has(fc.name) || FOODOPS_TOOL_NAMES.has(fc.name) ||
+          WORKOUTOPS_TOOL_NAMES.has(fc.name) || BODY_TOOL_NAMES.has(fc.name) ||
+          PREFS_TOOL_NAMES.has(fc.name)
+        ) {
+          const apply = STATS_TOOL_NAMES.has(fc.name) ? applyStatsTool
+            : FOODOPS_TOOL_NAMES.has(fc.name) ? applyFoodOpsTool
+            : WORKOUTOPS_TOOL_NAMES.has(fc.name) ? applyWorkoutOpsTool
+            : BODY_TOOL_NAMES.has(fc.name) ? applyBodyTool
+            : applyPrefsTool;
+          try {
+            result = apply(fc.name, fc.args, state);
+          } catch (e) {
+            console.error(`Tool ${fc.name} threw:`, e.message);
+            result = { ok: false, error: 'Nástroj selhal: ' + e.message };
+          }
+          // Read-only tools (stats, list_facts, list_favorites…) never count as
+          // a change — see READ_ONLY_TOOL_NAMES for why that matters.
+          if (result && result.ok && !READ_ONLY_TOOL_NAMES.has(fc.name)) planChanged = true;
         } else {
           try {
             result = applyTool(fc.name, fc.args, state);
@@ -1221,6 +1292,24 @@ module.exports = async function handler(req, res) {
       newMiniAppId: lastAppId || undefined,
       workoutPlan: state.workoutPlan,
       mealPlan: state.mealPlan,
+      // The 75 stats/food/workout/body/prefs tools mutate collections that
+      // used to have no way back to the client at all. Only sent when
+      // something actually changed this turn — on an ordinary chat message
+      // with no tool calls these are identical to what the client already
+      // has, and skipping them keeps the common case light.
+      logs: planChanged ? state.logs : undefined,
+      water: planChanged ? state.water : undefined,
+      workoutLogs: planChanged ? state.workoutLogs : undefined,
+      dayNotes: planChanged ? state.dayNotes : undefined,
+      steps: planChanged ? state.steps : undefined,
+      weightLogs: planChanged ? state.weightLogs : undefined,
+      measurements: planChanged ? state.measurements : undefined,
+      cardioLogs: planChanged ? state.cardioLogs : undefined,
+      sleepLogs: planChanged ? state.sleepLogs : undefined,
+      moodLogs: planChanged ? state.moodLogs : undefined,
+      injuries: planChanged ? state.injuries : undefined,
+      favorites: planChanged ? state.favorites : undefined,
+      coachMemories: planChanged ? state.coachMemories : undefined,
     });
   } catch (error) {
     console.error('Coach error:', error);

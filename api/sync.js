@@ -6,9 +6,9 @@ const { extractUsername } = require('./_lib/auth');
 // to the cloud copy. If a device pushes its full local snapshot as a blind
 // overwrite, anything Telegram wrote after that device's last pull is gone —
 // silently, because the device has no idea it was ever there. So on every
-// push, the three fields Telegram actually touches get merged against
-// whatever is already stored instead of replaced outright. Everything else
-// keeps the simple "client wins" behavior, since only this device writes it.
+// push, every field a second writer can touch gets merged against whatever is
+// already stored instead of replaced outright. The plan layer keeps the simple
+// "client wins" behavior, since only the app itself writes it.
 function mergeLogsByDate(existing, incoming) {
   const out = Object.assign({}, incoming || {});
   const ex = existing || {};
@@ -21,7 +21,7 @@ function mergeLogsByDate(existing, incoming) {
   return out;
 }
 
-function mergeWeightLogs(existing, incoming) {
+function mergeDatedEntries(existing, incoming) {
   const byDate = new Map();
   // Incoming (this device's copy) is applied second so it wins when both
   // sides logged the same date — the more common case is the device editing
@@ -73,8 +73,26 @@ module.exports = async function handler(req, res) {
       const existing = await kvGet(blobPath);
       if (existing) {
         appData.logs = mergeLogsByDate(existing.logs, appData.logs);
-        appData.weightLogs = mergeWeightLogs(existing.weightLogs, appData.weightLogs);
+        appData.weightLogs = mergeDatedEntries(existing.weightLogs, appData.weightLogs);
         appData.coachChats = mergeCoachChats(existing.coachChats, appData.coachChats);
+
+        // Health logs the coach's tools write. Same reasoning as weightLogs:
+        // the Telegram bot and the app are both writers, so a blind overwrite
+        // would drop whatever the other one added since this device last read.
+        ['measurements', 'sleepLogs', 'moodLogs'].forEach((k) => {
+          appData[k] = mergeDatedEntries(existing[k], appData[k]);
+        });
+        ['cardioLogs', 'injuries'].forEach((k) => {
+          const out = Array.isArray(appData[k]) ? appData[k].slice() : [];
+          const seen = new Set(out.map((x) => x && x.id).filter(Boolean));
+          (Array.isArray(existing[k]) ? existing[k] : []).forEach((x) => {
+            if (x && x.id && !seen.has(x.id)) out.push(x);
+          });
+          appData[k] = out;
+        });
+        ['dayNotes', 'steps', 'water', 'workoutLogs'].forEach((k) => {
+          appData[k] = Object.assign({}, existing[k] || {}, appData[k] || {});
+        });
         // Keep the scalar "current weight" pointed at whichever entry ended
         // up newest after the merge, so a /vaha logged on another surface
         // isn't shadowed by this device's older value.

@@ -46,7 +46,7 @@ function computeTargets(profile) {
   const p = profile || {};
   const weightKg = num(p.weightKg, 70);
   const age = num(p.age, 25);
-  const goal = ['recomp', 'cut', 'bulk'].includes(p.goal) ? p.goal : 'recomp';
+  const goal = ['recomp', 'cut', 'bulk', 'maintain'].includes(p.goal) ? p.goal : 'recomp';
 
   const bmr = mifflinStJeor(p);
   const days = clamp(Math.round(num(p.trainingDaysPerWeek, 3)), 0, 7);
@@ -54,7 +54,11 @@ function computeTargets(profile) {
   const tdee = Math.round(bmr * factor);
 
   // Goal adjustment. Deliberately mild for recomp.
-  const adjust = { recomp: 0.92, cut: 0.82, bulk: 1.10 }[goal];
+  //
+  // `maintain` exists because there was previously no way to say "keep my
+  // weight where it is": recomp was the closest option and it carries an 8 %
+  // deficit, so anyone asking to maintain was quietly put into a cut.
+  const adjust = { recomp: 0.92, maintain: 1.0, cut: 0.82, bulk: 1.10 }[goal];
   let calories = Math.round(tdee * adjust);
 
   // Growth floor: an adolescent must never be pushed into an aggressive
@@ -66,7 +70,7 @@ function computeTargets(profile) {
   calories = Math.round(calories / 10) * 10;
 
   // Protein: higher when cutting (muscle retention), solid for recomp.
-  const proteinPerKg = { recomp: 2.0, cut: 2.2, bulk: 1.8 }[goal];
+  const proteinPerKg = { recomp: 2.0, maintain: 1.8, cut: 2.2, bulk: 1.8 }[goal];
   const protein = Math.round(weightKg * proteinPerKg);
 
   // Fat: never below 0.8 g/kg — hormone production, doubly important for teens.
@@ -301,7 +305,7 @@ const TOOL_DECLARATIONS = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        goal: { type: 'STRING', enum: ['recomp', 'cut', 'bulk'], description: 'recomp = zpevnit/víc svalů a míň tuku, cut = hubnutí, bulk = nabírání' },
+        goal: { type: 'STRING', enum: ['recomp', 'maintain', 'cut', 'bulk'], description: 'recomp = zpevnit/víc svalů a míň tuku, maintain = udržet váhu beze změny, cut = hubnutí, bulk = nabírání' },
         sex: { type: 'STRING', enum: ['male', 'female'] },
         age: { type: 'INTEGER' },
         heightCm: { type: 'NUMBER' },
@@ -905,7 +909,7 @@ function applyTool(name, args, state) {
 
 function fmtProfile(p) {
   if (!p || !Object.keys(p).length) return 'Profil ještě není vyplněný — uživatel je nový.';
-  const goalCz = { recomp: 'rekompozice (víc svalů, míň tuku)', cut: 'hubnutí', bulk: 'nabírání' };
+  const goalCz = { recomp: 'rekompozice (víc svalů, míň tuku)', maintain: 'udržení váhy', cut: 'hubnutí', bulk: 'nabírání' };
   const expCz = { beginner: 'začátečník', intermediate: 'pokročilý', advanced: 'zkušený' };
   const eqCz = { gym: 'posilovna', home: 'domácí vybavení', minimal: 'jen vlastní váha' };
   const l = [];
