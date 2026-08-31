@@ -1,10 +1,15 @@
-// Single source of truth for "what version are you" questions from the
-// Telegram coach. There's no build step that derives these automatically,
-// so they're kept in sync by hand with the two other places a human sees
-// a version number: the "Verze: X (Cache vN)" line in index.html, and
-// CACHE_NAME in sw.js. Bump all three together on a release that should
-// be visibly a new version.
-const APP_VERSION = '2.39.1';
-const CACHE_VERSION = 'v72';
+// Single source of truth for the app's version.
+//
+// APP_VERSION is load-bearing beyond the Telegram coach's "/verze": the iOS
+// workflow reads it into MARKETING_VERSION (= CFBundleShortVersionString) and
+// tags the GitHub Release with it, and the in-app update checker compares the
+// two. Bumping it is what makes an installed iOS app offer an update — and if
+// it drifts from the release tag, the app either nags forever or never.
+//
+// Three other places show a version to a human and are kept in sync by hand
+// (scripts/check-version-sync.js fails the build if they drift): the
+// "Verze: X (Cache vN)" line in index.html and CACHE_NAME in sw.js.
+const APP_VERSION = '2.39.2';
+const CACHE_VERSION = 'v73';
 
 module.exports = { APP_VERSION, CACHE_VERSION };

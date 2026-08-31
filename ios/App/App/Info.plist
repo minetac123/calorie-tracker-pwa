@@ -24,6 +24,17 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- POVINNÉ, jinak appka spadne. iOS proces okamžitě ukončí (SIGABRT) ve
+	     chvíli, kdy se sáhne na fotoaparát nebo galerii bez vysvětlení — ani
+	     neukáže dialog o povolení. Týká se to obojího, co appka používá:
+	     <input type="file" capture="environment"> i getUserMedia u čtečky
+	     čárových kódů. Na webu se nic takového nevyžaduje, proto se to
+	     projeví až v nativním buildu.
+	     Text se uživateli ukáže v systémovém dotazu na povolení. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Fotoaparát potřebujeme, abys mohl vyfotit jídlo k analýze a načíst čárový kód potraviny.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Přístup k fotkám potřebujeme, abys mohl vybrat už vyfocené jídlo z galerie.</string>
 	<!-- Bez tohohle seznamu vrací canOpenURL(_:) u cizích schémat vždy false,
 	     i když je appka nainstalovaná — kontrola aktualizací by pak vždycky
 	     spadla do fallbacku a otevřela GitHub v Safari místo SideStore. -->

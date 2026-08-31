@@ -46,6 +46,9 @@ jobs:
         id: version
         run: |
           set -euo pipefail
+          # Verze se drží ručně na třech místech. Když se rozejdou, appka by
+          # hlásila aktualizaci pořád nebo nikdy — radši shodit build tady.
+          node scripts/check-version-sync.js
           APP_VERSION=$(node -p "require('./api/_lib/version.js').APP_VERSION")
           if [ -z "$APP_VERSION" ]; then
             echo "APP_VERSION se nepodařilo přečíst z api/_lib/version.js"
