@@ -2985,8 +2985,9 @@ function initAuthHandlers() {
     spinner.style.display = 'inline-block';
 
     try {
-      // Localhost dev bypass — skip real API
-      if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      // Localhost dev bypass — skip real API. Goes through isLocalDev() so the
+      // native build (capacitor://localhost) is not mistaken for dev.
+      if (isLocalDev()) {
         setSession(username, 'dev-token');
         showAppAfterLogin();
         showToast(`Vítej, ${username}! 👋`);
@@ -2994,7 +2995,7 @@ function initAuthHandlers() {
       }
 
       const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
-      const resp = await fetch(endpoint, {
+      const resp = await fetch(apiUrl(endpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
@@ -3010,26 +3011,11 @@ function initAuthHandlers() {
       // Success! Save session
       setSession(data.username, data.token);
 
-      // If login returned cloud data, merge it
+      // Restore everything the cloud has, not just food and weight — see
+      // applyCloudState. login already returns the full snapshot, so this
+      // costs no extra round trip.
       if (data.appData) {
-        // Cloud data takes priority — merge logs
-        const cloudState = data.appData;
-        if (cloudState.goals) appState.goals = cloudState.goals;
-        // Never pull apiKey from cloud — it's a build secret (see loadState).
-        if (cloudState.logs) {
-          // Merge: keep all dates, cloud wins on conflicts
-          Object.keys(cloudState.logs).forEach(dateKey => {
-            appState.logs[dateKey] = cloudState.logs[dateKey];
-          });
-        }
-        if (cloudState.water) {
-          Object.keys(cloudState.water).forEach(dateKey => {
-            appState.water[dateKey] = cloudState.water[dateKey];
-          });
-        }
-        if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
-        if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
-        if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
+        applyCloudState(data.appData);
         saveState(true);
       }
 
@@ -3053,7 +3039,13 @@ function initAuthHandlers() {
   });
 }
 
+// Capacitor serves the bundled app from capacitor://localhost, so a bare
+// hostname check called that "local dev" and switched the whole app into the
+// offline no-API mode: login faked a session without ever contacting the
+// server, and both sync directions returned early. The native build is
+// production, so it has to be excluded explicitly.
 function isLocalDev() {
+  if (isNativeApp()) return false;
   return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 }
 
@@ -3233,6 +3225,39 @@ function mergePlanFromCloud(cloud) {
   if (cloudAt > localAt) appState.planSavedAt = cloudAt;
 }
 
+// Folds a cloud snapshot into local state. Shared by syncFromCloud and by
+// login, which used to carry its own shorter copy of this — it restored only
+// goals, logs, water and weight, so signing in on a fresh device (every
+// install of the iOS build is one) left the workout plan, meal plan, profile,
+// exercise history, favourites and coach chats behind. Keeping one
+// implementation is what stops the two from drifting apart again.
+function applyCloudState(cloudState) {
+  if (!cloudState) return;
+  if (cloudState.goals) appState.goals = cloudState.goals;
+  // Never pull apiKey from cloud — it's a build secret (see loadState).
+  if (cloudState.logs) {
+    Object.keys(cloudState.logs).forEach(dateKey => {
+      appState.logs[dateKey] = cloudState.logs[dateKey];
+    });
+  }
+  if (cloudState.water) {
+    Object.keys(cloudState.water).forEach(dateKey => {
+      appState.water[dateKey] = cloudState.water[dateKey];
+    });
+  }
+  if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
+  if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
+  if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
+  if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
+  if (Array.isArray(cloudState.coachHistory)) appState.coachHistory = cloudState.coachHistory;
+  if (Array.isArray(cloudState.coachChats)) appState.coachChats = cloudState.coachChats;
+  if (Array.isArray(cloudState.coachMemories)) appState.coachMemories = cloudState.coachMemories;
+  if (cloudState.coachMemoryEnabled !== undefined) appState.coachMemoryEnabled = cloudState.coachMemoryEnabled;
+
+  mergePlanFromCloud(cloudState);
+  migrateCoachChats();
+}
+
 async function syncFromCloud(opts) {
   const silent = !!(opts && opts.silent);
   const session = getSession();
@@ -3247,31 +3272,7 @@ async function syncFromCloud(opts) {
     const data = await resp.json();
 
     if (data.success && data.appData) {
-      const cloudState = data.appData;
-      if (cloudState.goals) appState.goals = cloudState.goals;
-      // Never pull apiKey from cloud — it's a build secret (see loadState).
-      if (cloudState.logs) {
-        Object.keys(cloudState.logs).forEach(dateKey => {
-          appState.logs[dateKey] = cloudState.logs[dateKey];
-        });
-      }
-      if (cloudState.water) {
-        Object.keys(cloudState.water).forEach(dateKey => {
-          appState.water[dateKey] = cloudState.water[dateKey];
-        });
-      }
-      if (cloudState.weight !== undefined) appState.weight = cloudState.weight;
-      if (cloudState.weightTarget !== undefined) appState.weightTarget = cloudState.weightTarget;
-      if (cloudState.weightLogs) appState.weightLogs = cloudState.weightLogs;
-      if (Array.isArray(cloudState.favorites)) appState.favorites = cloudState.favorites;
-      if (Array.isArray(cloudState.coachHistory)) appState.coachHistory = cloudState.coachHistory;
-      if (Array.isArray(cloudState.coachChats)) appState.coachChats = cloudState.coachChats;
-      if (Array.isArray(cloudState.coachMemories)) appState.coachMemories = cloudState.coachMemories;
-      if (cloudState.coachMemoryEnabled !== undefined) appState.coachMemoryEnabled = cloudState.coachMemoryEnabled;
-
-      mergePlanFromCloud(cloudState);
-      migrateCoachChats();
-
+      applyCloudState(data.appData);
       saveState(true);
       renderDashboard();
       refreshAllFavorites();
