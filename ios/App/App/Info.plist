@@ -24,6 +24,14 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Bez tohohle seznamu vrací canOpenURL(_:) u cizích schémat vždy false,
+	     i když je appka nainstalovaná — kontrola aktualizací by pak vždycky
+	     spadla do fallbacku a otevřela GitHub v Safari místo SideStore. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>sidestore</string>
+		<string>altstore</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
