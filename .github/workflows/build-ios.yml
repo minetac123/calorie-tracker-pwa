@@ -1,0 +1,86 @@
+name: Build unsigned iOS IPA
+
+# Vyrobí NEPODEPSANOU .ipa ke stažení jako artifact. Podepisuje se až lokálně
+# přes Sideloadly volným Apple ID — proto se tu code signing celý vypíná
+# (bez placeného Developer účtu není čím podepsat a build by spadl).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # `npm ci` vyžaduje package-lock.json v souladu s package.json. Když se
+      # rozejdou, spadne to tady s jasnou hláškou místo záhadné chyby dál.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets and sync to iOS
+        run: |
+          npm run build
+          npx cap sync ios
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      # Archivace bez podpisu. Tři vypínače dělají dohromady to, že Xcode
+      # nehledá certifikát ani provisioning profil:
+      #   CODE_SIGNING_ALLOWED=NO     — nepodepisuj vůbec
+      #   CODE_SIGNING_REQUIRED=NO    — a nestěžuj si, že podpis chybí
+      #   CODE_SIGN_IDENTITY=""       — žádná identita k použití
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM=""
+
+      # Nepodepsanou .ipa nejde vyrobit přes `xcodebuild -exportArchive` —
+      # ten trvá na podpisu. .ipa je ale jen ZIP se složkou Payload/, takže
+      # se .app zabalí ručně. Sideloadly takový balík podepíše samo.
+      - name: Package .app into unsigned .ipa
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find "$RUNNER_TEMP/App.xcarchive/Products/Applications" -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "V archivu není žádná .app — build se nepovedl."
+            exit 1
+          fi
+          echo "Balím: $APP_PATH"
+
+          WORK="$RUNNER_TEMP/ipa"
+          mkdir -p "$WORK/Payload"
+          cp -R "$APP_PATH" "$WORK/Payload/"
+
+          cd "$WORK"
+          zip -qry "$RUNNER_TEMP/CalorieTracker-unsigned.ipa" Payload
+          echo "Hotovo:"
+          ls -lh "$RUNNER_TEMP/CalorieTracker-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CalorieTracker-unsigned-ipa
+          path: ${{ runner.temp }}/CalorieTracker-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30

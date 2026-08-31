@@ -5,6 +5,23 @@
 // the backend proxy (/api/gemini, /api/chat) which holds GEMINI_API_KEY.
 const DEFAULT_API_KEY = "";
 
+// Where the backend lives.
+//
+// On the web the app is served from the same origin as its API, so a relative
+// path is right. Inside the iOS build the web assets are bundled into the app
+// and served from capacitor://localhost — a relative /api/... would resolve
+// against that scheme and hit nothing, so the native build has to be told the
+// real origin. Change this if you deploy the backend somewhere else.
+const NATIVE_API_ORIGIN = 'https://project-8rjn0.vercel.app';
+
+function isNativeApp() {
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+
+function apiUrl(path) {
+  return isNativeApp() ? NATIVE_API_ORIGIN + path : path;
+}
+
 let appState = {
   apiKey: DEFAULT_API_KEY,
   goals: {
@@ -1364,7 +1381,7 @@ async function checkTelegramStatus() {
   const session = getSession();
   if (!session) return;
   try {
-    const resp = await fetch('/api/telegram-connect', {
+    const resp = await fetch(apiUrl('/api/telegram-connect'), {
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
     const data = await resp.json();
@@ -1378,7 +1395,7 @@ async function connectTelegram() {
   const btn = document.getElementById('btn-tg-connect');
   if (btn) { btn.disabled = true; btn.textContent = 'Načítám...'; }
   try {
-    const resp = await fetch('/api/telegram-connect', {
+    const resp = await fetch(apiUrl('/api/telegram-connect'), {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
@@ -1408,7 +1425,7 @@ async function verifyTelegram() {
   const btn = document.getElementById('btn-tg-verify');
   if (btn) { btn.disabled = true; btn.textContent = 'Ověřuji...'; }
   try {
-    const resp = await fetch('/api/telegram-connect', {
+    const resp = await fetch(apiUrl('/api/telegram-connect'), {
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
     const data = await resp.json();
@@ -1429,7 +1446,7 @@ async function disconnectTelegram() {
   const session = getSession();
   if (!session) return;
   try {
-    await fetch('/api/telegram-connect', {
+    await fetch(apiUrl('/api/telegram-connect'), {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
@@ -2491,7 +2508,7 @@ Pokud rozpoznané jídlo odpovídá některému z těchto známých jídel uživ
 
   // Route through the backend proxy so the API key stays server-side.
   const session = getSession();
-  const response = await fetch('/api/gemini', {
+  const response = await fetch(apiUrl('/api/gemini'), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -3105,7 +3122,7 @@ async function syncToCloud() {
       // workout on a different device would be nonsense.
     };
 
-    const resp = await fetch('/api/sync', {
+    const resp = await fetch(apiUrl('/api/sync'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3223,7 +3240,7 @@ async function syncFromCloud(opts) {
   if (isLocalDev()) return; // localhost nemá API — jen lokální stav
 
   try {
-    const resp = await fetch('/api/sync', {
+    const resp = await fetch(apiUrl('/api/sync'), {
       headers: { 'Authorization': `Bearer ${session.token}` }
     });
     if (resp.status === 401) { handleExpiredSession(); return; }
@@ -6497,7 +6514,7 @@ async function callCoachAPI(payload) {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const resp = await fetch('/api/chat', {
+      const resp = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -6810,7 +6827,7 @@ Vrať POUZE validní JSON, žádný markdown:
     generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
   };
 
-  const resp = await fetch('/api/gemini', {
+  const resp = await fetch(apiUrl('/api/gemini'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.token}` },
     body: JSON.stringify(payload)
@@ -6864,7 +6881,7 @@ async function renderCorrectedPlate(photoBase64, verdict, meal) {
     generationConfig: { responseModalities: ['IMAGE'] }
   };
 
-  const resp = await fetch('/api/gemini', {
+  const resp = await fetch(apiUrl('/api/gemini'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.token}` },
     body: JSON.stringify(payload)
@@ -9553,7 +9570,7 @@ async function maybeFetchAiOverview() {
   const fingerprint = aiOverviewFingerprint();
   aiOverviewInFlight = true;
   try {
-    const resp = await fetch('/api/overview', {
+    const resp = await fetch(apiUrl('/api/overview'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.token}` },
       body: JSON.stringify({
