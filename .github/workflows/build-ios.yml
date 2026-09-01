@@ -38,6 +38,14 @@ jobs:
           npm run build
           npx cap sync ios
 
+      # `cap sync` staví packageClassList jen z nainstalovaných npm balíčků —
+      # naše vlastní pluginy (UpdateCheckerPlugin, LiveActivityPlugin, ...)
+      # žádný npm balíček nemají, takže by bez tohohle zůstaly v seznamu
+      # prázdné a appka by je na JS straně (Capacitor.Plugins.X) nikdy
+      # neviděla. Musí běžet AŽ PO cap sync, protože ten soubor přepisuje.
+      - name: Register local native plugins
+        run: node scripts/register-native-plugins.js
+
       # Verze appky má jediný zdroj pravdy: APP_VERSION v api/_lib/version.js.
       # Odsud se plní MARKETING_VERSION (= CFBundleShortVersionString), proti
       # kterému UpdateChecker porovnává tag releasu. Kdyby se rozešly, appka

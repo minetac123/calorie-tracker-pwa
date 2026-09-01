@@ -4,7 +4,7 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **2.40.1**.
+Poslední update: **2026-09-01**, verze appky **2.40.2**.
 
 ## Kde to teď je
 
@@ -67,20 +67,45 @@ hovorem/Siri — po přerušení zbylá pípnutí nepřijdou.
 
 ## Co se právě testuje (NEDOKONČENO)
 
-**Update 2026-09-01 večer — tlačítko "Zkontrolovat aktualizace" bylo
-neviditelné (2.40.1).** Uživatel po instalaci 2.40.0 hlásil, že v
-Nastavení není vidět vůbec žádné tlačítko na kontrolu aktualizací.
-Příčina nebyla ověřena (žádný telefon/Mac po ruce na Web Inspector) —
-podmínka co ho zobrazovala vyžadovala `window.Capacitor.Plugins.UpdateChecker`
-existující v době `initCoachHandlers()`; když se plugin z jakéhokoli
-důvodu nezaregistroval, řádek zůstal `display:none` bez jediné stopy.
-Oprava: řádek se teď zobrazí vždycky na nativní appce
-(`isNativeApp()` stačí) a klik bez pluginu / se selháním `checkNow()`
-ukáže `alert()` s důvodem — `app.js` u `initCoachHandlers()`. Bump na
-2.40.1 (cache v79), build ověřen přes `workflow_dispatch` na feature
-branchi, release `v2.40.1` publikovaný, PR #93 mergnutý do `main`.
-**Čeká se na potvrzení od uživatele**, že tlačítko je teď vidět (a pokud
-pořád ne, `alert()` teď aspoň řekne proč).
+**Update 2026-09-01 pozdní večer — nalezena SKUTEČNÁ příčina (2.40.2):
+vlastní nativní pluginy se nikdy neregistrovaly.** 2.40.1 udělala jen
+diagnostickou náplast (tlačítko viditelné, alert s důvodem) a ten alert
+skutečně ukázal: "Plugin pro kontrolu aktualizací se v tomhle buildu
+nenačetl." Skutečný root cause:
+
+Capacitor na iOS nehledá pluginy skenem runtime, ale podle explicitního
+seznamu tříd v `ios/App/App/capacitor.config.json` →
+`packageClassList`. Ten seznam generuje `npx cap sync ios` (běží v CI
+při každém buildu, viz `node_modules/@capacitor/cli/dist/util/iosplugin.js`
+→ `getPluginFiles`/`writePluginJSON`) **jen z nainstalovaných npm
+balíčků** s Capacitor manifestem. Naše vlastní pluginy
+(`UpdateCheckerPlugin`, `LiveActivityPlugin`, `RestAudioPlugin`) jsou
+ale ručně psané `.swift`/`.m` soubory přímo v Xcode projektu, žádný npm
+balíček nemají — `cap sync` je proto nikdy nenajde a seznam zůstává
+`[]`. Plugin se pak na JS straně (`Capacitor.Plugins.X`) nikdy
+neobjeví, tiše, bez chyby v buildu. **To platí od 2.39.4** (kdy vznikl
+první z těchhle pluginů) — nemá to nic společného s Live Activity ani s
+`project.pbxproj` úpravami, jak jsem si dřív myslel. Tlačítko "Zkontrolovat
+aktualizace" tedy nefungovalo od svého vzniku, ne jen teď.
+
+Oprava (2.40.2): nový `scripts/register-native-plugins.js`, spouští se
+v `build-ios.yml` hned PO `npx cap sync ios` (protože sync ten soubor
+přepisuje) — sesbírá třídy ze všech `CAP_PLUGIN(...)` maker v
+`ios/App/App/*.m` a doplní je do `packageClassList`. Budoucí nové
+pluginy (stejná konvence: `.m` soubor s `CAP_PLUGIN(...)` makrem) se
+tak zaregistrují samy, není potřeba na nic pamatovat ručně. Ověřeno
+lokálně (`node scripts/register-native-plugins.js` na kopii souboru
+vrátilo správně všechny tři třídy).
+
+Historie 2.40.1 (jen diagnostika, ne skutečná oprava): tlačítko se dřív
+zobrazilo, jen když `window.Capacitor.Plugins.UpdateChecker` existoval v
+době `initCoachHandlers()` — jinak řádek zůstal `display:none` beze
+stopy. 2.40.1 ho udělala viditelným vždycky + alert při chybě, což
+přesně tohle odhalilo.
+
+**Čeká se na potvrzení od uživatele**, že 2.40.2 tlačítko doopravdy
+opravila (a mělo by to zprovoznit i Live Activity pluginy, i když ty
+ještě nikdo nezkoušel — jsou ve stejné situaci).
 
 **Update na Update: 2026-09-01 odpoledne — auto-update dialog konečně
 naskočil sám** (2.39.2 → 2.39.5, bez tlačítka, čistě automatickou
