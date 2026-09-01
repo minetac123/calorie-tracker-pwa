@@ -5826,12 +5826,23 @@ function initCoachHandlers() {
   if (histClearBtn) histClearBtn.addEventListener('click', clearCoachHistoryAll);
 
   // ---- Manual update check (iOS only — sideloaded app has no App Store) ----
+  // Dřív se řádek zobrazil, jen když se plugin stihl zaregistrovat — pokud
+  // selhal (např. regrese v nativním buildu), tlačítko prostě zmizelo beze
+  // stopy a vypadalo to, že tam nikdy nebylo. Teď se ukáže vždycky na
+  // nativní appce a chybu řekne nahlas, ať je co ladit.
   const updateCheckRow = document.getElementById('ios-update-check-row');
   const updateCheckBtn = document.getElementById('btn-check-update');
-  if (isNativeApp() && updateCheckRow && updateCheckBtn && window.Capacitor?.Plugins?.UpdateChecker) {
+  if (isNativeApp() && updateCheckRow && updateCheckBtn) {
     updateCheckRow.style.display = '';
     updateCheckBtn.addEventListener('click', () => {
-      window.Capacitor.Plugins.UpdateChecker.checkNow();
+      const plugin = window.Capacitor?.Plugins?.UpdateChecker;
+      if (!plugin) {
+        alert('Plugin pro kontrolu aktualizací se v tomhle buildu nenačetl. Zkus appku úplně zavřít a znovu otevřít; pokud to nepomůže, je potřeba nový build.');
+        return;
+      }
+      plugin.checkNow().catch((err) => {
+        alert('Kontrola aktualizace selhala: ' + (err?.message || err));
+      });
     });
   }
 }
