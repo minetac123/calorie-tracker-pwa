@@ -4,7 +4,7 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **2.39.5**.
+Poslední update: **2026-09-01**, verze appky **2.39.6**.
 
 ## Kde to teď je
 
@@ -38,15 +38,38 @@ Poslední update: **2026-09-01**, verze appky **2.39.5**.
 
 ## Co se právě testuje (NEDOKONČENO)
 
+**Update na Update: 2026-09-01 odpoledne — auto-update dialog konečně
+naskočil sám** (2.39.2 → 2.39.5, bez tlačítka, čistě automatickou
+kontrolou po 6 h). To je první úspěšný důkaz, že `UpdateChecker`
+detekuje novou verzi správně. ALE klepnutí na "Aktualizovat" neotevřelo
+SideStore, skončilo na stránce GitHub Release — `canOpenURL` pro
+`sidestore://` vrátilo false, i když appka má `LSApplicationQueriesSchemes`
+správně a schéma `sidestore://install?url=...` je přesně podle oficiální
+dokumentace SideStore (ověřeno přes `docs.sidestore.io/docs/advanced/url-schema`,
+zdrojový soubor `SideStore/SideStore-Docs` na GitHubu). Nejspíš konkrétní
+build SideStore na telefonu uživatele to schéma (zatím) neregistruje —
+nejde to odsud ověřit, žádný fyzický iPhone k dispozici není.
+
+**Oprava v 2.39.6**: `startInstall()` teď místo stránky releasu otevírá
+rovnou přímý odkaz na `.ipa` v Safari (stejná cesta, jakou se appka
+dosud instalovala ručně pokaždé — Safari stažení zachytí a nabídne
+SideStore samo). Deep link `sidestore://` se pořád zkouší jako první
+(rychlejší 1-tap zážitek, kdyby fungoval), ale fallback je teď o krok
+kratší a spolehlivější než dřív. **Čeká se na potvrzení od uživatele,
+že 2.39.6 tohle doopravdy vyřešila** — nejde to ověřit jinak než na
+jeho telefonu.
+
 1. Uživatel má na telefonu 2.39.2 (bez tlačítka na kontrolu aktualizací).
-2. Potřebuje **jeden poslední ruční sideload** na **2.39.4**
-   (https://github.com/minetac123/calorie-tracker-pwa/releases/download/v2.39.4/CalorieTracker-unsigned.ipa),
-   protože appka s tlačítkem tam ještě fyzicky není.
+2. Potřebuje **jeden poslední ruční sideload** na **2.39.6**
+   (https://github.com/minetac123/calorie-tracker-pwa/releases — zkontroluj
+   že tag v2.39.6 existuje a má `.ipa` asset), protože appka s tlačítkem
+   i s tou opravou tam ještě fyzicky není.
 3. Po instalaci: Nastavení → "Zkontrolovat aktualizace" → mělo by hned
-   (bez čekání) ukázat "Máš nejnovější verzi" (protože 2.39.4 je
+   (bez čekání) ukázat "Máš nejnovější verzi" (protože 2.39.6 je
    nejnovější release). To ověří, že plugin/tlačítko funguje.
 4. **Skutečný test auto-update dialogu (že vyskočí nabídka na novější
-   verzi) ještě neproběhl úspěšně end-to-end.** Historie:
+   verzi A instalace se sama otevře) ještě neproběhl úspěšně
+   end-to-end.** Historie:
    - 2.39.1 → 2.39.2: nevyskočilo nic, protože appka na telefonu (2.39.1)
      byla vybuildovaná ještě PŘED přidáním `UpdateChecker.swift` — ten
      kód tam fyzicky nebyl.
