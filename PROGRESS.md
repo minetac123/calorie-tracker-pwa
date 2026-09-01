@@ -4,7 +4,14 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **2.40.2**.
+Poslední update: **2026-09-01**, verze appky **3.0.0**.
+
+Uživatel požádal o "oficiální" bump na 3.0 poté, co byla nalezena a
+opravena skutečná příčina toho, proč se vlastní nativní pluginy
+(update checker, Live Activity) nikdy neregistrovaly (viz 2.40.2 níž).
+Čistě verzový skok, žádná nová funkce navíc — `package.json` (dřív
+zaseklé na 2.39.1, mimo `check-version-sync.js`) bylo při té
+příležitosti taky dorovnané.
 
 ## Kde to teď je
 

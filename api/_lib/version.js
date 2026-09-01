@@ -9,7 +9,7 @@
 // Three other places show a version to a human and are kept in sync by hand
 // (scripts/check-version-sync.js fails the build if they drift): the
 // "Verze: X (Cache vN)" line in index.html and CACHE_NAME in sw.js.
-const APP_VERSION = '2.40.2';
-const CACHE_VERSION = 'v80';
+const APP_VERSION = '3.0.0';
+const CACHE_VERSION = 'v81';
 
 module.exports = { APP_VERSION, CACHE_VERSION };
