@@ -4,7 +4,7 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **2.40.0**.
+Poslední update: **2026-09-01**, verze appky **2.40.1**.
 
 ## Kde to teď je
 
@@ -66,6 +66,21 @@ zamýšlené na progress ring). `RestCountdownAudio` neřeší přerušení
 hovorem/Siri — po přerušení zbylá pípnutí nepřijdou.
 
 ## Co se právě testuje (NEDOKONČENO)
+
+**Update 2026-09-01 večer — tlačítko "Zkontrolovat aktualizace" bylo
+neviditelné (2.40.1).** Uživatel po instalaci 2.40.0 hlásil, že v
+Nastavení není vidět vůbec žádné tlačítko na kontrolu aktualizací.
+Příčina nebyla ověřena (žádný telefon/Mac po ruce na Web Inspector) —
+podmínka co ho zobrazovala vyžadovala `window.Capacitor.Plugins.UpdateChecker`
+existující v době `initCoachHandlers()`; když se plugin z jakéhokoli
+důvodu nezaregistroval, řádek zůstal `display:none` bez jediné stopy.
+Oprava: řádek se teď zobrazí vždycky na nativní appce
+(`isNativeApp()` stačí) a klik bez pluginu / se selháním `checkNow()`
+ukáže `alert()` s důvodem — `app.js` u `initCoachHandlers()`. Bump na
+2.40.1 (cache v79), build ověřen přes `workflow_dispatch` na feature
+branchi, release `v2.40.1` publikovaný, PR #93 mergnutý do `main`.
+**Čeká se na potvrzení od uživatele**, že tlačítko je teď vidět (a pokud
+pořád ne, `alert()` teď aspoň řekne proč).
 
 **Update na Update: 2026-09-01 odpoledne — auto-update dialog konečně
 naskočil sám** (2.39.2 → 2.39.5, bez tlačítka, čistě automatickou
