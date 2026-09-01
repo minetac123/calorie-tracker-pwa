@@ -4,7 +4,7 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **2.39.4**.
+Poslední update: **2026-09-01**, verze appky **2.39.5**.
 
 ## Kde to teď je
 
@@ -23,6 +23,18 @@ Poslední update: **2026-09-01**, verze appky **2.39.4**.
   **"Zkontrolovat aktualizace"** — obchází těch 6 hodin
   (`UpdateChecker.checkAndPrompt(force: true)` přes nový Capacitor plugin
   `UpdateCheckerPlugin.swift` + `.m`).
+- iOS appka je od 2.39.5 přejmenovaná z generického "Calorie Tracker" na
+  **FitAI** (`CFBundleDisplayName`, `capacitor.config.json`, title
+  GitHub release) a má ikonu vyrenderovanou z `icon.svg` — stejné logo,
+  jaké má web (`icon-192.png`/`icon-512.png`). Render: `@resvg/resvg-js`
+  (`npx`/`node -e`, viz git historie commitu), 1024×1024, do
+  `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`.
+  Pozn.: výsledný PNG má technicky alfa kanál (colorType 6, i když
+  vizuálně neprůhledný) — pro App Store validaci by to vadilo, ale appka
+  se nikdy nepodepisuje ani neuploaduje do App Store (jen unsigned
+  sideload), takže to nevadí. Kdyby se to někdy řešilo, potřeba by byl
+  nástroj co umí zapsat RGB PNG bez alfa kanálu (ImageMagick/Pillow —
+  ani jedno tu není nainstalované).
 
 ## Co se právě testuje (NEDOKONČENO)
 
@@ -112,10 +124,15 @@ CI build (~5-10 min, včetně fronty na macOS runner).
 
 ## Co zbývá / nápady na příště
 
-- [ ] Potvrdit od uživatele, že tlačítko "Zkontrolovat aktualizace" v 2.39.4
+- [ ] Potvrdit od uživatele, že tlačítko "Zkontrolovat aktualizace" (2.39.4+)
       funguje (viz sekce výš)
 - [ ] Jakmile potvrzeno, otestovat end-to-end, že force-check ukáže
       nabídku novější verze a že se SideStore opravdu otevře
+- [ ] Uživatel bude muset udělat ještě jeden ruční sideload na **2.39.5**
+      (https://github.com/minetac123/calorie-tracker-pwa/releases — zkontroluj
+      že tag v2.39.5 existuje a má `.ipa` asset), aby dostal nové jméno
+      "FitAI" a logo na plochu — appka na telefonu teď ukazuje staré
+      "Calorie Tracker" se starou ikonou, dokud se ručně nepřeinstaluje
 - [ ] `package.json` má `"version": "2.39.1"` — zaostává za skutečnou
       verzí, ale `check-version-sync.js` ho nekontroluje (není to jedno
       z hlídaných míst). Neškodí, ale je to nekonzistentní — zvážit buď
