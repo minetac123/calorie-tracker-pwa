@@ -17,6 +17,8 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		9582B6912FE993A70072D4E8 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6902FE993A50072D4E8 /* UpdateChecker.swift */; };
+		57301AB59F03AA1D4D2A8513 /* UpdateCheckerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CDD00BB8F8C8F48C8322C4C /* UpdateCheckerPlugin.swift */; };
+		FD22E689CCE5FF37DB7C4019 /* UpdateCheckerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 0B0EFEB635DCD2708238D77F /* UpdateCheckerPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +33,8 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		9582B6902FE993A50072D4E8 /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		2CDD00BB8F8C8F48C8322C4C /* UpdateCheckerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateCheckerPlugin.swift; sourceTree = "<group>"; };
+		0B0EFEB635DCD2708238D77F /* UpdateCheckerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UpdateCheckerPlugin.m; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -68,6 +72,8 @@
 			children = (
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				9582B6902FE993A50072D4E8 /* UpdateChecker.swift */,
+				2CDD00BB8F8C8F48C8322C4C /* UpdateCheckerPlugin.swift */,
+				0B0EFEB635DCD2708238D77F /* UpdateCheckerPlugin.m */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -164,6 +170,8 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				9582B6912FE993A70072D4E8 /* UpdateChecker.swift in Sources */,
+				57301AB59F03AA1D4D2A8513 /* UpdateCheckerPlugin.swift in Sources */,
+				FD22E689CCE5FF37DB7C4019 /* UpdateCheckerPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

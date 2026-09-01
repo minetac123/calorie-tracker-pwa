@@ -5824,6 +5824,16 @@ function initCoachHandlers() {
     });
   }
   if (histClearBtn) histClearBtn.addEventListener('click', clearCoachHistoryAll);
+
+  // ---- Manual update check (iOS only — sideloaded app has no App Store) ----
+  const updateCheckRow = document.getElementById('ios-update-check-row');
+  const updateCheckBtn = document.getElementById('btn-check-update');
+  if (isNativeApp() && updateCheckRow && updateCheckBtn && window.Capacitor?.Plugins?.UpdateChecker) {
+    updateCheckRow.style.display = '';
+    updateCheckBtn.addEventListener('click', () => {
+      window.Capacitor.Plugins.UpdateChecker.checkNow();
+    });
+  }
 }
 
 // Run app init
