@@ -151,13 +151,18 @@ neuvidí nový build a web zůstane na starém cache).
 ### GitHub Actions `list_workflow_runs` vrací obří payload
 
 `mcp__github__actions_list` s `method: list_workflow_runs` umí vrátit
-100k+ znaků a spadne na token limitu. Dvě cesty kolem toho:
-- **`workflow_runs_filter: {"branch": "<větev>"}`** — payload spadne na
-  pár set znaků a je v něm `id`, `status` i `conclusion`. Tohle je
-  nejlepší způsob, jak sledovat konkrétní běh.
+100k+ znaků a spadne na token limitu. Cesty kolem toho:
+- **`workflow_runs_filter: {"branch": "<feature větev>"}`** — funguje
+  hezky u čerstvé větve, která má jeden dva běhy. Pozor: **na `main` to
+  nepomůže**, tam je běhů spousta a payload je stejně obří (i s
+  `status: completed`). Nespoléhej na to jako na obecné řešení.
 - `mcp__github__get_latest_release` (kompaktní) pro zjištění, jestli
   build doběhl — pokud existuje release s očekávaným tagem a `.ipa`
-  assetem, build prošel.
+  assetem, build prošel. Tohle je nejspolehlivější u `main`.
+- Když se payload přesto uloží do souboru, vytáhni z něj jen to
+  podstatné: `python3 -c "import json; d=json.load(open('<soubor>'));
+  [print(r['id'], r['status'], r['conclusion']) for r in
+  d['workflow_runs'][:3]]"`
 
 Pro debug failed buildu pak `get_job_logs` s `failed_only: true`.
 
@@ -197,6 +202,12 @@ CI build (~5-10 min, včetně fronty na macOS runner).
       že tag v2.39.5 existuje a má `.ipa` asset), aby dostal nové jméno
       "FitAI" a logo na plochu — appka na telefonu teď ukazuje staré
       "Calorie Tracker" se starou ikonou, dokud se ručně nepřeinstaluje
+- [ ] Soubor v releasu se pořád jmenuje `CalorieTracker-unsigned.ipa`,
+      i když se appka jmenuje FitAI. Kosmetika, ale nekonzistentní —
+      pozor, přejmenování je v `build-ios.yml` na několika místech
+      (zip, upload-artifact path, `gh release upload`) a **rozbilo by
+      přímý odkaz na .ipa, na který se spoléhá fallback aktualizace**
+      u appek, které mají starší verzi. Měnit jen s rozmyslem.
 - [ ] `package.json` má `"version": "2.39.1"` — zaostává za skutečnou
       verzí, ale `check-version-sync.js` ho nekontroluje (není to jedno
       z hlídaných míst). Neškodí, ale je to nekonzistentní — zvážit buď
