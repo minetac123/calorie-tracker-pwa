@@ -19,7 +19,43 @@
 		9582B6912FE993A70072D4E8 /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6902FE993A50072D4E8 /* UpdateChecker.swift */; };
 		57301AB59F03AA1D4D2A8513 /* UpdateCheckerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CDD00BB8F8C8F48C8322C4C /* UpdateCheckerPlugin.swift */; };
 		FD22E689CCE5FF37DB7C4019 /* UpdateCheckerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = 0B0EFEB635DCD2708238D77F /* UpdateCheckerPlugin.m */; };
+		3CB51A0FB46F31E1089E1BB4 /* WorkoutActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2CF206D2FE992D3F703136 /* WorkoutActivityAttributes.swift */; };
+		1F651A5FD735BB34FA10DC99 /* LiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26DA06D6AB0D4E6BBAA4FD64 /* LiveActivityPlugin.swift */; };
+		ED13951A904589E5503F6B7B /* LiveActivityPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = DE5441BB3F2213643ED3663A /* LiveActivityPlugin.m */; };
+		A5ED9CB86CA36D71B2EA9266 /* RestAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C902FFE236C4C659FFD22679 /* RestAudioPlugin.swift */; };
+		F65585E73F9B3D44D0896018 /* RestAudioPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = E3B8E5E8879E27E6BAEB5911 /* RestAudioPlugin.m */; };
+		1D2255991C7CA4ED68D5ADF0 /* RestCountdownAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378C8D3965AED666878DF720 /* RestCountdownAudio.swift */; };
+		E406CE1B58992363C4D752D4 /* SkipRestIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 434EAF9E2B9EF2CF63B49700 /* SkipRestIntent.swift */; };
+		3F9677C3886CA98BE725AC69 /* WorkoutActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2CF206D2FE992D3F703136 /* WorkoutActivityAttributes.swift */; };
+		032D1463952661DED93AF960 /* SkipRestIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 434EAF9E2B9EF2CF63B49700 /* SkipRestIntent.swift */; };
+		0DC0A87EAAFD026C0B4786BC /* WorkoutLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 860C6362BB90D0038B5E3547 /* WorkoutLiveActivity.swift */; };
+		DBF840EFC751ABF0F78E8A74 /* WorkoutDynamicIsland.swift in Sources */ = {isa = PBXBuildFile; fileRef = C19950B2B2C3B35363737857 /* WorkoutDynamicIsland.swift */; };
+		31FCF9FE0988D24B4DD803E4 /* FitAIWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E7DC57880E73793D43185572 /* FitAIWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		87ACC347B83C933681638716 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 68DC9A15E7C6160516F3BD9E;
+			remoteInfo = FitAIWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A89AB855442CCA27E7B1FAD0 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				31FCF9FE0988D24B4DD803E4 /* FitAIWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
@@ -36,6 +72,17 @@
 		2CDD00BB8F8C8F48C8322C4C /* UpdateCheckerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateCheckerPlugin.swift; sourceTree = "<group>"; };
 		0B0EFEB635DCD2708238D77F /* UpdateCheckerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UpdateCheckerPlugin.m; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		ED2CF206D2FE992D3F703136 /* WorkoutActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutActivityAttributes.swift; sourceTree = "<group>"; };
+		26DA06D6AB0D4E6BBAA4FD64 /* LiveActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPlugin.swift; sourceTree = "<group>"; };
+		DE5441BB3F2213643ED3663A /* LiveActivityPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LiveActivityPlugin.m; sourceTree = "<group>"; };
+		C902FFE236C4C659FFD22679 /* RestAudioPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestAudioPlugin.swift; sourceTree = "<group>"; };
+		E3B8E5E8879E27E6BAEB5911 /* RestAudioPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RestAudioPlugin.m; sourceTree = "<group>"; };
+		378C8D3965AED666878DF720 /* RestCountdownAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestCountdownAudio.swift; sourceTree = "<group>"; };
+		434EAF9E2B9EF2CF63B49700 /* SkipRestIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkipRestIntent.swift; sourceTree = "<group>"; };
+		860C6362BB90D0038B5E3547 /* WorkoutLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutLiveActivity.swift; sourceTree = "<group>"; };
+		C19950B2B2C3B35363737857 /* WorkoutDynamicIsland.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutDynamicIsland.swift; sourceTree = "<group>"; };
+		650E6EE716B743C33AB587F7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E7DC57880E73793D43185572 /* FitAIWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FitAIWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,6 +94,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		53B919645D20E17D4ED18CD4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -55,6 +109,7 @@
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
+				2A644D5A1E806B13616FB60F /* LiveActivity */,
 				504EC3051FED79650016851F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -63,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				E7DC57880E73793D43185572 /* FitAIWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -74,6 +130,12 @@
 				9582B6902FE993A50072D4E8 /* UpdateChecker.swift */,
 				2CDD00BB8F8C8F48C8322C4C /* UpdateCheckerPlugin.swift */,
 				0B0EFEB635DCD2708238D77F /* UpdateCheckerPlugin.m */,
+				ED2CF206D2FE992D3F703136 /* WorkoutActivityAttributes.swift */,
+				26DA06D6AB0D4E6BBAA4FD64 /* LiveActivityPlugin.swift */,
+				DE5441BB3F2213643ED3663A /* LiveActivityPlugin.m */,
+				C902FFE236C4C659FFD22679 /* RestAudioPlugin.swift */,
+				E3B8E5E8879E27E6BAEB5911 /* RestAudioPlugin.m */,
+				378C8D3965AED666878DF720 /* RestCountdownAudio.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -86,6 +148,17 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		2A644D5A1E806B13616FB60F /* LiveActivity */ = {
+			isa = PBXGroup;
+			children = (
+				860C6362BB90D0038B5E3547 /* WorkoutLiveActivity.swift */,
+				C19950B2B2C3B35363737857 /* WorkoutDynamicIsland.swift */,
+				434EAF9E2B9EF2CF63B49700 /* SkipRestIntent.swift */,
+				650E6EE716B743C33AB587F7 /* Info.plist */,
+			);
+			path = LiveActivity;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -96,10 +169,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				A89AB855442CCA27E7B1FAD0 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				13033D5FD6263B8296A5284B /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -108,6 +183,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		68DC9A15E7C6160516F3BD9E /* FitAIWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 68835FF8F3B117D466339A75 /* Build configuration list for PBXNativeTarget "FitAIWidgets" */;
+			buildPhases = (
+				9A2E6D266623ADB7DD7A6299 /* Sources */,
+				53B919645D20E17D4ED18CD4 /* Frameworks */,
+				2CAC525FA493FAD407AEF673 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FitAIWidgets;
+			productName = FitAIWidgets;
+			productReference = E7DC57880E73793D43185572 /* FitAIWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -121,6 +213,10 @@
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
 						LastSwiftMigration = 1100;
+						ProvisioningStyle = Automatic;
+					};
+					68DC9A15E7C6160516F3BD9E = {
+						CreatedOnToolsVersion = 15.0;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -142,6 +238,7 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				68DC9A15E7C6160516F3BD9E /* FitAIWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -160,6 +257,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		2CAC525FA493FAD407AEF673 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -172,6 +276,24 @@
 				9582B6912FE993A70072D4E8 /* UpdateChecker.swift in Sources */,
 				57301AB59F03AA1D4D2A8513 /* UpdateCheckerPlugin.swift in Sources */,
 				FD22E689CCE5FF37DB7C4019 /* UpdateCheckerPlugin.m in Sources */,
+				3CB51A0FB46F31E1089E1BB4 /* WorkoutActivityAttributes.swift in Sources */,
+				1F651A5FD735BB34FA10DC99 /* LiveActivityPlugin.swift in Sources */,
+				ED13951A904589E5503F6B7B /* LiveActivityPlugin.m in Sources */,
+				A5ED9CB86CA36D71B2EA9266 /* RestAudioPlugin.swift in Sources */,
+				F65585E73F9B3D44D0896018 /* RestAudioPlugin.m in Sources */,
+				1D2255991C7CA4ED68D5ADF0 /* RestCountdownAudio.swift in Sources */,
+				E406CE1B58992363C4D752D4 /* SkipRestIntent.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A2E6D266623ADB7DD7A6299 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0DC0A87EAAFD026C0B4786BC /* WorkoutLiveActivity.swift in Sources */,
+				DBF840EFC751ABF0F78E8A74 /* WorkoutDynamicIsland.swift in Sources */,
+				3F9677C3886CA98BE725AC69 /* WorkoutActivityAttributes.swift in Sources */,
+				032D1463952661DED93AF960 /* SkipRestIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -195,6 +317,14 @@
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
+
+/* Begin PBXTargetDependency section */
+		13033D5FD6263B8296A5284B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 68DC9A15E7C6160516F3BD9E /* FitAIWidgets */;
+			targetProxy = 87ACC347B83C933681638716 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		504EC3141FED79650016851F /* Debug */ = {
@@ -350,6 +480,61 @@
 			};
 			name = Release;
 		};
+		CA17AECBF41EFEA69A6EF7AA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pruzz.calorieapp.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		192B463960D0C8C8675444E4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pruzz.calorieapp.LiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -367,6 +552,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		68835FF8F3B117D466339A75 /* Build configuration list for PBXNativeTarget "FitAIWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA17AECBF41EFEA69A6EF7AA /* Debug */,
+				192B463960D0C8C8675444E4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

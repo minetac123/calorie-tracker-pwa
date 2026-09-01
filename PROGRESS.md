@@ -4,7 +4,7 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **2.39.6**.
+Poslední update: **2026-09-01**, verze appky **2.40.0**.
 
 ## Kde to teď je
 
@@ -35,6 +35,35 @@ Poslední update: **2026-09-01**, verze appky **2.39.6**.
   sideload), takže to nevadí. Kdyby se to někdy řešilo, potřeba by byl
   nástroj co umí zapsat RGB PNG bez alfa kanálu (ImageMagick/Pillow —
   ani jedno tu není nainstalované).
+
+## Live Activity tréninku (2.40.0) — nové
+
+Widget extension target **FitAIWidgets** (`ios/App/LiveActivity/`,
+bundle id `com.pruzz.calorieapp.LiveActivity`, min iOS 17.0):
+
+- `WorkoutLiveActivity.swift` — zamykačka: cvik, "minule", odpočet pauzy,
+  tlačítko Přeskočit pauzu, postup sérií
+- `WorkoutDynamicIsland.swift` — compact / minimal / expanded prezentace
+- `SkipRestIntent.swift` — `LiveActivityIntent` za tím tlačítkem
+- `WorkoutActivityAttributes.swift` (v `App/`, kompiluje se do OBOU targetů)
+- `LiveActivityPlugin.swift`/`.m` — JS most (`WorkoutLiveActivity`:
+  start/update/end/consumeSkipRequest)
+- `RestCountdownAudio.swift` + `RestAudioPlugin.swift`/`.m` — pípání v
+  posledních 5 s pauzy, `duckOthers` (hudbu ztlumí, nezastaví)
+
+**Ověřeno rozbalením hotové `.ipa`** (ne jen "build prošel"):
+`PlugIns/FitAIWidgets.appex` je uvnitř, binárka 151 kB,
+`NSSupportsLiveActivities = true`, `UIBackgroundModes = [audio]`,
+extension point `com.apple.widgetkit-extension`, a `SkipRestIntent` je
+zaregistrovaný v `Metadata.appintents`.
+
+**Co ověřené NENÍ**: jak to vypadá a jestli to reálně funguje na
+telefonu. Žádný iPhone ani simulátor tu není. Zvuk při **odswipované**
+appce zásadně fungovat nebude (iOS jí nedá procesor) — to není bug.
+
+Pozor při další práci: `restTotalSec` se zatím nikde nepoužívá (bylo
+zamýšlené na progress ring). `RestCountdownAudio` neřeší přerušení
+hovorem/Siri — po přerušení zbylá pípnutí nepřijdou.
 
 ## Co se právě testuje (NEDOKONČENO)
 
@@ -122,10 +151,22 @@ neuvidí nový build a web zůstane na starém cache).
 ### GitHub Actions `list_workflow_runs` vrací obří payload
 
 `mcp__github__actions_list` s `method: list_workflow_runs` umí vrátit
-100k+ znaků a spadne na token limitu. Radši `mcp__github__get_latest_release`
-(kompaktní) pro zjištění, jestli build doběhl — pokud existuje release s
-očekávaným tagem a `.ipa` assetem, build prošel. Pro debug failed buildu
-až pak `get_job_logs` s `failed_only: true`.
+100k+ znaků a spadne na token limitu. Dvě cesty kolem toho:
+- **`workflow_runs_filter: {"branch": "<větev>"}`** — payload spadne na
+  pár set znaků a je v něm `id`, `status` i `conclusion`. Tohle je
+  nejlepší způsob, jak sledovat konkrétní běh.
+- `mcp__github__get_latest_release` (kompaktní) pro zjištění, jestli
+  build doběhl — pokud existuje release s očekávaným tagem a `.ipa`
+  assetem, build prošel.
+
+Pro debug failed buildu pak `get_job_logs` s `failed_only: true`.
+
+### Testovat build PŘED mergem do main
+
+Workflow má `workflow_dispatch`, takže jde spustit na libovolné větvi:
+`mcp__github__actions_run_trigger` s `method: run_workflow` a
+`ref: <větev>`. U rizikových nativních změn (nový target, Swift kód)
+tohle používej vždycky — ušetří to rozbitý `main`.
 
 ### Xcode project.pbxproj — ruční registrace nových souborů
 
