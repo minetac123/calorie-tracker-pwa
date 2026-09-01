@@ -158,8 +158,15 @@ enum UpdateChecker {
     }
 
     /// Otevře SideStore (nebo AltStore) s odkazem na .ipa. Když ani jeden
-    /// nereaguje, otevře stránku releasu v prohlížeči, ať uživatel neskončí
-    /// u tlačítka, které nic neudělá.
+    /// nereaguje — `sidestore://install?url=...` je sice přesně podle
+    /// oficiální dokumentace SideStore, ale `canOpenURL` u cizích schémat umí
+    /// vrátit false i s nainstalovanou appkou (např. starší SideStore build,
+    /// který schéma ještě neregistruje) — otevře přímo .ipa v Safari.
+    ///
+    /// To je záměrně stejná cesta, jakou uživatel dosud instaloval ručně:
+    /// Safari stažení .ipa zachytí a samo nabídne otevřít v SideStore. Je to
+    /// spolehlivější než slepě věřit deep linku, který nejde odsud ověřit na
+    /// reálném zařízení.
     ///
     /// `canOpenURL` u cizích schémat funguje jen tehdy, když jsou uvedená
     /// v LSApplicationQueriesSchemes v Info.plist — jinak vrací false i pro
@@ -167,16 +174,19 @@ enum UpdateChecker {
     static func startInstall(_ release: Release) {
         let app = UIApplication.shared
 
-        if let ipaURL = release.ipaURL {
-            for scheme in ["sidestore", "altstore"] {
-                if let url = installURL(scheme: scheme, ipaURL: ipaURL), app.canOpenURL(url) {
-                    app.open(url, options: [:], completionHandler: nil)
-                    return
-                }
+        guard let ipaURL = release.ipaURL else {
+            app.open(release.pageURL, options: [:], completionHandler: nil)
+            return
+        }
+
+        for scheme in ["sidestore", "altstore"] {
+            if let url = installURL(scheme: scheme, ipaURL: ipaURL), app.canOpenURL(url) {
+                app.open(url, options: [:], completionHandler: nil)
+                return
             }
         }
 
-        app.open(release.pageURL, options: [:], completionHandler: nil)
+        app.open(ipaURL, options: [:], completionHandler: nil)
     }
 
     // MARK: - Kompletní kontrola i s dialogem
@@ -212,7 +222,7 @@ enum UpdateChecker {
             title: "K dispozici je nová verze (\(release.version))",
             message: release.ipaURL == nil
                 ? "Release nemá přiloženou .ipa, otevřu ti stránku na GitHubu."
-                : "Teď máš \(currentVersion). Aktualizace se otevře v SideStore.",
+                : "Teď máš \(currentVersion). Stáhne se nová .ipa — dál ji nainstaluješ jako obvykle přes SideStore.",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Aktualizovat", style: .default) { _ in
