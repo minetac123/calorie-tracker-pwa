@@ -8442,6 +8442,84 @@ function sessionTotals() {
   return { sets, volume: Math.round(volume), done };
 }
 
+// ---- Live Activity na zamykačce + zvukové odpočítávání pauzy (jen iOS) ----
+//
+// Live Activity je nativní widget mimo webview, takže o tréninku neví nic sama
+// od sebe — každou změnu cviku, série nebo pauzy jí musíme poslat. Odpočet
+// pauzy si ale odtiká sama z `restEndsAt`, proto se nemusí posílat každou
+// sekundu, jen když se stav doopravdy změní.
+//
+// Na webu a v prohlížeči tyhle pluginy neexistují, proto se všechno tiše
+// přeskočí místo házení chyb.
+
+function nativePlugin(name) {
+  if (!isNativeApp()) return null;
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name]) || null;
+}
+
+let liveActivityRunning = false;
+
+function liveActivityPayload() {
+  const s = getSession_();
+  const ex = sessionCurrentExercise();
+  if (!s || !ex) return null;
+  const lastTop = sessionTopSet(getLastExerciseSession(ex.name, s.date));
+  return {
+    sessionId: String(s.id),
+    sessionTitle: s.title || 'Trénink',
+    exerciseName: ex.name || '',
+    previousLift: lastTop ? formatSet(lastTop) : null,
+    restEndsAt: s.restEndsAt || null,
+    restTotalSec: ex.restSec || 90,
+    setsDone: ex.sets.length,
+    setsTarget: ex.targetSets || 0
+  };
+}
+
+function syncWorkoutLiveActivity() {
+  const plugin = nativePlugin('WorkoutLiveActivity');
+  if (!plugin) return;
+  const payload = liveActivityPayload();
+  if (!payload) { endWorkoutLiveActivity(); return; }
+  const started = liveActivityRunning;
+  liveActivityRunning = true;
+  // Když start selže (uživatel má Live Activities vypnuté), příznak vrátíme
+  // zpátky, jinak by se pak už jen "updatovalo" něco, co neběží.
+  Promise.resolve(started ? plugin.update(payload) : plugin.start(payload))
+    .catch(() => { liveActivityRunning = false; });
+}
+
+function endWorkoutLiveActivity() {
+  liveActivityRunning = false;
+  const plugin = nativePlugin('WorkoutLiveActivity');
+  if (plugin) Promise.resolve(plugin.end()).catch(() => {});
+  armRestAudio(null);
+}
+
+function armRestAudio(restEndsAt) {
+  const audio = nativePlugin('RestAudio');
+  if (!audio) return;
+  Promise.resolve(restEndsAt ? audio.arm({ restEndsAt }) : audio.cancel()).catch(() => {});
+}
+
+// Tlačítko "přeskočit pauzu" na zamykačce běží v App Intentu, který se do
+// webview nedostane — nechá po sobě jen příznak. Vyzvedneme si ho, jakmile
+// je appka zase vpředu.
+function consumeLockScreenSkip() {
+  const plugin = nativePlugin('WorkoutLiveActivity');
+  if (!plugin || !plugin.consumeSkipRequest) return;
+  Promise.resolve(plugin.consumeSkipRequest()).then((res) => {
+    if (!res || !res.skipRequested) return;
+    const s = getSession_();
+    if (!s || !s.restEndsAt) return;
+    s.restEndsAt = null;
+    saveState();
+    armRestAudio(null);
+    syncWorkoutLiveActivity();
+    renderSessionClock();
+  }).catch(() => {});
+}
+
 // ---- Lifecycle ----
 
 function startWorkoutSession(dayKey) {
@@ -8493,6 +8571,7 @@ function runSessionCountdown() {
 function startSessionTick() {
   clearInterval(sessionTick);
   sessionTick = setInterval(renderSessionClock, 1000);
+  syncWorkoutLiveActivity();
   renderSession();
 }
 
@@ -8537,6 +8616,7 @@ function finishWorkoutSession() {
 
   appState.activeSession = null;
   saveState();
+  endWorkoutLiveActivity();
   closeSessionOverlay();
   renderPlanScreen();
   renderDashboard();
@@ -8586,6 +8666,7 @@ function renderSessionClock() {
       saveState();
       rest.style.display = 'none';
       buzz([120, 60, 120]);
+      syncWorkoutLiveActivity();
       showToast('Pauza je pryč, jedem');
       pingSessionCoach('rest_over');
     } else {
@@ -8692,7 +8773,13 @@ function renderSession() {
 
   document.getElementById('ses-skiprest').addEventListener('click', () => {
     const cur = getSession_();
-    if (cur) { cur.restEndsAt = null; saveState(); renderSessionClock(); }
+    if (cur) {
+      cur.restEndsAt = null;
+      saveState();
+      armRestAudio(null);
+      syncWorkoutLiveActivity();
+      renderSessionClock();
+    }
   });
   document.getElementById('ses-finish').addEventListener('click', finishWorkoutSession);
 
@@ -8983,6 +9070,7 @@ function moveExercise(delta) {
   if (next < 0 || next >= s.exercises.length) return;
   s.idx = next;
   saveState();
+  syncWorkoutLiveActivity();
   renderSession();
   pingSessionCoach('exercise_change');
 }
@@ -9000,6 +9088,8 @@ function logSessionSet() {
   s.restTotal = (s.restTotal || 0) + (ex.restSec || 90);
   saveState();
   buzz(40);
+  armRestAudio(s.restEndsAt);
+  syncWorkoutLiveActivity();
   renderSession();
   pingSessionCoach('set_logged');
 }
@@ -10180,6 +10270,10 @@ function initSessionHandlers() {
 
   // Coming back from a locked screen: repaint from timestamps immediately.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && hasActiveSession()) { renderSessionClock(); requestWakeLock(); }
+    if (!document.hidden && hasActiveSession()) {
+      renderSessionClock();
+      requestWakeLock();
+      consumeLockScreenSkip();
+    }
   });
 }

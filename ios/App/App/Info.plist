@@ -24,6 +24,19 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Bez tohohle ActivityKit odmítne Live Activity spustit a
+	     `areActivitiesEnabled` vrací false — trénink by se na zamykačce
+	     nikdy neukázal. -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<!-- Odpočet posledních 5 s pauzy musí pípnout i se zhasnutým displejem.
+	     Bez režimu `audio` iOS appku na pozadí uspí a zvuk se nepřehraje.
+	     Pozn.: appku odswipovanou z přepínače to nezachrání — tam iOS
+	     neběží nic a pípnutí prostě nepřijde. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<!-- POVINNÉ, jinak appka spadne. iOS proces okamžitě ukončí (SIGABRT) ve
 	     chvíli, kdy se sáhne na fotoaparát nebo galerii bez vysvětlení — ani
 	     neukáže dialog o povolení. Týká se to obojího, co appka používá:
