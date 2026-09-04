@@ -5845,6 +5845,31 @@ function initCoachHandlers() {
       });
     });
   }
+
+  // ---- Diagnostika Live Activity ----
+  // Live Activity umí selhat několika způsoby, které jsou zvenčí k nerozeznání
+  // (widget odstraněný při sideloadu, vypnuté Live Activities v Nastavení iOS,
+  // starý iOS). Bez tohohle by se to muselo hádat z toho, že "nic nenaskočí".
+  const liveActivityBtn = document.getElementById('btn-check-liveactivity');
+  if (isNativeApp() && liveActivityBtn) {
+    liveActivityBtn.addEventListener('click', () => {
+      const plugin = nativePlugin('WorkoutLiveActivity');
+      if (!plugin || !plugin.status) {
+        alert('Widget pro Live Activity v téhle instalaci chybí.\n\nNejčastější příčina: při sideloadu se odstranily app extensions. V Sideloadly nech "Remove app extensions" VYPNUTÉ a instaluj znovu.');
+        return;
+      }
+      plugin.status().then((res) => {
+        if (!res.supported) { alert('Live Activity nejde použít: ' + (res.reason || 'nepodporovaný iOS')); return; }
+        if (!res.enabled) {
+          alert('Live Activities jsou pro FitAI vypnuté.\n\nZapni je v Nastavení iOS → FitAI → Živé aktivity.');
+          return;
+        }
+        alert('Live Activity je připravená ✓\n\nWidget je nainstalovaný a povolený. Právě běží aktivit: ' + res.running + '\n\nSpusť trénink a zamkni telefon — má se objevit na zamykačce.');
+      }).catch((err) => {
+        alert('Diagnostika selhala: ' + liveActivityErrorText(err));
+      });
+    });
+  }
 }
 
 // Run app init
@@ -8487,9 +8512,27 @@ function liveActivityPayload() {
   };
 }
 
+// Chybu ohlásíme jen jednou za trénink — hláška při každé sérii by během
+// cvičení akorát otravovala, ale úplné mlčení nás už jednou stálo hodiny
+// hádání (viz tlačítko na kontrolu aktualizací).
+let liveActivityErrorShown = false;
+
+function reportLiveActivityProblem(message) {
+  if (liveActivityErrorShown) return;
+  liveActivityErrorShown = true;
+  showToast(message);
+}
+
 function syncWorkoutLiveActivity() {
   const plugin = nativePlugin('WorkoutLiveActivity');
-  if (!plugin) return;
+  if (!plugin) {
+    // Na nativní appce plugin chybět nemá. Nejčastější příčina: widget se při
+    // sideloadu odstranil (Sideloadly "Remove app extensions").
+    if (isNativeApp()) {
+      reportLiveActivityProblem('Live Activity není k dispozici — widget se do appky nenainstaloval.');
+    }
+    return;
+  }
   const payload = liveActivityPayload();
   if (!payload) { endWorkoutLiveActivity(); return; }
   const started = liveActivityRunning;
@@ -8497,11 +8540,23 @@ function syncWorkoutLiveActivity() {
   // Když start selže (uživatel má Live Activities vypnuté), příznak vrátíme
   // zpátky, jinak by se pak už jen "updatovalo" něco, co neběží.
   Promise.resolve(started ? plugin.update(payload) : plugin.start(payload))
-    .catch(() => { liveActivityRunning = false; });
+    .catch((err) => {
+      liveActivityRunning = false;
+      reportLiveActivityProblem('Live Activity se nespustila: ' + liveActivityErrorText(err));
+    });
+}
+
+/// Capacitor chybu zabaluje různě podle toho, kde vznikla — vytáhneme z ní
+/// text, ať se uživateli neukáže jen "[object Object]".
+function liveActivityErrorText(err) {
+  if (!err) return 'neznámá chyba';
+  return err.message || err.errorMessage || String(err);
 }
 
 function endWorkoutLiveActivity() {
   liveActivityRunning = false;
+  // Další trénink má na ohlášení problému zase nárok.
+  liveActivityErrorShown = false;
   const plugin = nativePlugin('WorkoutLiveActivity');
   if (plugin) Promise.resolve(plugin.end()).catch(() => {});
   armRestAudio(null);
@@ -10285,6 +10340,9 @@ function initSessionHandlers() {
       renderSessionClock();
       requestWakeLock();
       consumeLockScreenSkip();
+      // Po návratu z pozadí může být Live Activity pozadu (nebo ji systém
+      // stihl zahodit) — stav radši dotlačíme znovu.
+      syncWorkoutLiveActivity();
     }
   });
 }

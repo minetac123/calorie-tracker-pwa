@@ -10,7 +10,7 @@
     "@resvg/resvg-js": "^2.6.2"
   },
   "name": "calorie-tracker-pwa",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": true,
   "scripts": {
     "build": "node scripts/build-www.js",
