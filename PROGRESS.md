@@ -4,7 +4,7 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-09-01**, verze appky **3.0.0**.
+Poslední update: **2026-09-04**, verze appky **3.0.1**.
 
 Uživatel požádal o "oficiální" bump na 3.0 poté, co byla nalezena a
 opravena skutečná příčina toho, proč se vlastní nativní pluginy
@@ -73,6 +73,94 @@ zamýšlené na progress ring). `RestCountdownAudio` neřeší přerušení
 hovorem/Siri — po přerušení zbylá pípnutí nepřijdou.
 
 ## Co se právě testuje (NEDOKONČENO)
+
+**Update 2026-09-04 — Live Activity "nefunguje" + uživatel se nemůže dostat
+k instalaci (3.0.1).**
+
+### Stav: uživatel je zablokovaný na instalaci, ne na kódu
+
+Uživatel hlásil, že Live Activity ani Dynamic Island nefungují. Hlásil to
+ale z buildu **2.40.1**, který ještě NEMĚL opravu registrace nativních
+pluginů (ta přišla až v 2.40.2). Bez ní `Capacitor.Plugins.WorkoutLiveActivity`
+na JS straně vůbec neexistoval → `syncWorkoutLiveActivity()` tiše nic
+neudělal → aktivita se nikdy nespustila → nebylo co ukázat ani na zamykačce,
+ani v Islandu. **Takže to s vysokou pravděpodobností už opravené je** a čeká
+to jen na to, až si uživatel novou verzi nainstaluje.
+
+**Ověřeno rozbalením vydané 3.0.0 `.ipa`** (staženo z GitHub Release):
+- `capacitor.config.json` → `packageClassList` obsahuje všechny tři třídy
+  (`LiveActivityPlugin`, `RestAudioPlugin`, `UpdateCheckerPlugin`) ✓
+- `PlugIns/FitAIWidgets.appex` je uvnitř, binárka 151 kB ✓
+- verze appky i appexu sedí (3.0.0 / build 22) — kdyby se rozešly, iOS by
+  extension zahodil ✓
+- `NSSupportsLiveActivities = true`, `UIBackgroundModes = [audio]` ✓
+- `SkipRestIntent` je v binárce appky I widgetu, `Metadata.appintents`
+  je v obou ✓
+
+Statický audit kódu Dynamic Islandu a lock screen view nenašel žádnou
+fatální chybu — SF Symbols jsou platné pro iOS 17+, `ClosedRange` je
+ošetřený proti prošlému času, availability sedí (widget target má min
+iOS 17.0, takže je vše implicitně dostupné).
+
+### Proč to uživatel pořád nemá nainstalované
+
+Uživateli se ze telefonu ztratil **SideStore** (vypršel free Apple ID
+certifikát, 7 dní). Nová instalace SideStore selhává na přihlášení Apple ID:
+2FA kód nikdy nedorazí. Vyzkoušeno bez efektu: jiný anisette server, reset
+adi.pb, restart, jiná síť, kontrola data/času, Nerušit vypnuté. Příčina je
+nejspíš na straně sdílených anisette serverů SideStore (zdokumentované v
+SideStore GitHub issues #708, #135) nebo Apple rate-limitu — **nejde to
+opravit z repozitáře**.
+
+Prošlé a zamítnuté alternativy: AltStore PAL (jen kurátorovaný obchod,
+nenahraje vlastní `.ipa`), AltStore Classic beta (funguje bez PC, ale
+$3/měsíc Patreon), KSign/Feather (chtějí vlastní podpisový certifikát,
+který uživatel nemá — a cizí certifikát z pochybného zdroje je
+bezpečnostní riziko, nedoporučeno), Scarlet (spousta klonovaných
+"oficiálních" domén, vypadá to na podvod — vynechat), TrollStore
+(jen do iOS 17.0, uživatel má 26.6), BuildStore ($6.67/měsíc).
+
+**Uživatel se rozhodl použít Sideloadly z PC (má ho až "zítra").**
+
+### ⚠️ KRITICKÉ pro instalaci přes Sideloadly
+
+Sideloadly umí odstranit app extensions (PlugIns) při instalaci a na free
+Apple ID se widget počítá jako **samostatná aplikace** proti limitu 3 appek.
+Takže:
+1. V Sideloadly musí být **"Remove app extensions" VYPNUTÉ**, jinak se
+   `FitAIWidgets.appex` z balíčku vyhodí a Live Activity nebude fungovat
+   ani s opraveným kódem.
+2. Musí být volné **aspoň 2 sloty** z limitu 3 (appka + widget).
+
+### Co přidala 3.0.1 (aby se příště nehádalo)
+
+Poučení z tlačítka na aktualizace: Live Activity selhávala **úplně
+potichu** — každý `catch` chybu spolkl. Nově:
+- chyby ze `start`/`update` se ohlásí toastem (jednou za trénink)
+- **nové tlačítko "Otestovat Live Activity"** v Nastavení (vedle
+  "Zkontrolovat aktualizace") → nová metoda `status()` v
+  `LiveActivityPlugin.swift`/`.m`, vrací `supported`/`enabled`/`running`.
+  Rozliší: widget v instalaci chybí (= odstraněný při sideloadu) ×
+  Live Activities vypnuté v Nastavení iOS × vše OK.
+- stav se dotlačí znovu po návratu appky z pozadí
+- Dynamic Island: prázdný `previousLift` se chová jako chybějící
+
+### CO UDĚLAT PŘÍŠTĚ (v tomhle pořadí)
+
+1. Uživatel nainstaluje **3.0.1** přes Sideloadly (pozor na "Remove app
+   extensions", viz výš).
+2. Nechat ho zmáčknout **Nastavení → "Otestovat Live Activity"**. To řekne
+   přesně, co je špatně, bez hádání:
+   - "Widget pro Live Activity v téhle instalaci chybí" → Sideloadly
+     extension odstranil, instalovat znovu s vypnutou volbou
+   - "Live Activities jsou pro FitAI vypnuté" → Nastavení iOS → FitAI
+   - "Live Activity je připravená ✓" → widget je OK, jít na bod 3
+3. Spustit trénink, zalogovat sérii (tím začne pauza) a zamknout telefon.
+   Má naskočit zamykačka i Dynamic Island.
+4. Teprve pokud i po "připravená ✓" nic nenaskočí, hledat chybu dál —
+   ale pak už to bude nová, neznámá příčina, ne tahle.
+5. Pořád neověřeno na reálném zařízení: vzhled Live Activity, tlačítko
+   "Přeskočit pauzu" ze zamykačky, a zvukový odpočet posledních 5 s.
 
 **Update 2026-09-01 pozdní večer — nalezena SKUTEČNÁ příčina (2.40.2):
 vlastní nativní pluginy se nikdy neregistrovaly.** 2.40.1 udělala jen
