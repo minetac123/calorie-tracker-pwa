@@ -105,7 +105,10 @@ enum WorkoutDynamicIsland {
     ) -> some View {
         // Spodní region je nepovinný doplněk — když "minule" chybí a pauza
         // neběží, zůstane schválně prázdný, ať Island nezabírá zbytečnou výšku.
-        if let previous = context.state.previousLift {
+        // Prázdný řetězec se musí chovat jako chybějící historie, jinak by se
+        // ukázalo holé "Minule: " bez hodnoty (plugin sice prázdné hodnoty
+        // převádí na nil, ale widget na to nemá spoléhat).
+        if let previous = context.state.previousLift, !previous.isEmpty {
             HStack(spacing: 4) {
                 Image(systemName: "clock.arrow.circlepath")
                 Text("Minule: \(previous)")

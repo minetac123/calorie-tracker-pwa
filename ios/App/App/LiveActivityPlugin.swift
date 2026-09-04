@@ -13,7 +13,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "end", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "consumeSkipRequest", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "consumeSkipRequest", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise)
     ]
 
     /// Musí sedět se `SkipRestIntent.skipKey`. Píše se do `UserDefaults.standard`
@@ -110,6 +111,28 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             await self.endAllActivities(dismiss: true)
             call.resolve()
         }
+    }
+
+    /// Diagnostika pro tlačítko v Nastavení. Live Activity umí selhat několika
+    /// způsoby, které jsou zvenčí k nerozeznání (widget se při sideloadu
+    /// odstranil, uživatel má Live Activities vypnuté v Nastavení, starý iOS) —
+    /// bez tohohle by se to muselo hádat, jako u kontroly aktualizací.
+    @objc func status(_ call: CAPPluginCall) {
+        guard #available(iOS 16.2, *) else {
+            call.resolve([
+                "supported": false,
+                "enabled": false,
+                "running": 0,
+                "reason": "Vyžaduje iOS 16.2 nebo novější."
+            ])
+            return
+        }
+        call.resolve([
+            "supported": true,
+            "enabled": ActivityAuthorizationInfo().areActivitiesEnabled,
+            "running": Activity<WorkoutActivityAttributes>.activities.count,
+            "reason": ""
+        ])
     }
 
     /// Vyzvedne a smaže požadavek na přeskočení pauzy, který na zamykačce zapsal
