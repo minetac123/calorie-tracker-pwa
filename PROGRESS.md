@@ -4,9 +4,9 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-10-11**, verze appky **3.1.0**.
+Poslední update: **2026-10-11**, verze appky **3.1.1**.
 
-### Novinka ve 3.1.0 — Katalog všech workoutů a kompletní historie vah (`#workouts-modal`)
+### Novinka ve 3.1.0 / 3.1.1 — Katalog všech workoutů a kompletní historie vah (`#workouts-modal`) + QA opravy
 - Přidáno tlačítko **„🏋️ Workouty“** přímo do živého tréninku (`#session-view`), do obrazovky `Plán → Trénink` (`#plan-workout-view`) a nová karta **„🏋️ Moje workouty a váhy“** do `Moje historie → Váha a progres` (`#history-progress-view`).
 - Nový modál `#workouts-modal` (s `z-index: 3600`, takže se otevírá i přímo nad běžícím tréninkem) zobrazuje:
   1. **Všechny workouty / cviky**, které uživatel kdy odjel nebo má v plánu (`getAllKnownExercises()`), s vyhledáváním, osobním rekordem (PR), poslední zvednutou váhou, počtem odjetých tréninků a rozbalitelnou kompletní historií všech sérií a vah (`kg × opakování`) od začátku používání appky.
@@ -14,6 +14,11 @@ Poslední update: **2026-10-11**, verze appky **3.1.0**.
 - Přímo z katalogu Workouty lze jedním klepnutím **přidat jakýkoliv dříve odjetý cvik do právě běžícího tréninku** (nebo na něj v tréninku rovnou přepnout) a také ho přidat do tréninkového plánu.
 - AI Kouč (v běžném chatu, v živém tréninku i v `extend_workout`) dostává rozšířený přehled všech uživatelových workoutů včetně osobáků a při přidávání či obměně cviků z něj přednostně vybírá.
 - Cloud sync (`api/sync.js` i klient `app.js`) nyní slučuje `exerciseLogs` po jednotlivých datech místo přepisování a synchronizuje i `sessionHistory`, takže se žádná starší historie vah nikdy neztratí.
+- **Ve 3.1.1 opraveno po E2E testování v prohlížeči:**
+  - Kritický pád `ReferenceError: PLAN_DAY_ORDER is not defined` v `getAllKnownExercises()` (použito `PLAN_DAY_KEYS`), který rozbíjel vykreslení tréninkového plánu, živého tréninku, historie i modálu Workouty.
+  - Sjednoceny všechny CSS třídy (`.wk-card-top`, `.wk-card-name`, `.wk-hist-line`, `.wk-hist-top`, `.wk-add-btn`, `.wk-chart-btn`, `.wk-session-*`, `.ses-last-bar`, `.ses-hist-btn`, `.plan-workouts-btn`) a CSS proměnné (`--text-1/2/3`) v `styles.css` a `app.js`.
+  - Opraveno čtení `durationMs`, `sets` a `volume` v `getAllPastWorkouts()` a pojmenování zrekonstruovaných tréninků.
+  - Okamžité ukládání sérií v živém tréninku do `exerciseLogs` a zachování reference „Naposledy“ z předchozího tréninku i po zapsání dnešní rozcvičkové série.
 
 ## Kde to teď je
 

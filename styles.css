@@ -4699,50 +4699,70 @@ input, textarea, select, button {
   padding: 14px 16px calc(env(safe-area-inset-bottom, 16px) + 18px);
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 12px;
 }
-.wk-card {
+.wk-empty {
+  padding: 28px 14px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.wk-card,
+.wk-session-card {
   background: var(--bg-card);
   border: 0.5px solid var(--sep);
   border-radius: var(--r-lg);
   padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 10px;
 }
-.wk-card.in-session {
-  border-color: var(--sep-strong);
-  box-shadow: inset 3px 0 0 rgba(255,255,255,0.85);
-}
-.wk-card-head {
+.wk-card-top,
+.wk-session-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
 }
-.wk-card-title-wrap { flex: 1; min-width: 0; }
-.wk-card-title {
+.wk-card-name,
+.wk-session-title {
   font-size: 15.5px;
   font-weight: 750;
   letter-spacing: -0.25px;
   color: var(--text-1);
+  line-height: 1.25;
 }
-.wk-card-sub {
+.wk-card-sub,
+.wk-session-sub {
   font-size: 12px;
   color: var(--text-3);
   margin-top: 3px;
   font-variant-numeric: tabular-nums;
 }
+.wk-chart-btn {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 0.5px solid var(--sep-strong);
+  background: var(--bg-elevated-2);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-family);
+  cursor: pointer;
+}
+.wk-chart-btn:active { transform: scale(0.97); }
 .wk-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  flex-shrink: 0;
+  gap: 6px;
 }
-.wk-badge {
-  font-size: 10.5px;
-  font-weight: 750;
-  padding: 3px 8px;
+.wk-badge,
+.wk-session-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
   border-radius: var(--r-pill);
   background: var(--bg-elevated-2);
   border: 0.5px solid var(--sep-strong);
@@ -4751,27 +4771,41 @@ input, textarea, select, button {
   white-space: nowrap;
 }
 .wk-badge.pr {
-  background: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.28);
   color: var(--text-1);
 }
-.wk-hist-list {
+.wk-badge.last {
+  color: var(--text-1);
+}
+.wk-badge.stall {
+  background: rgba(255, 179, 64, 0.14);
+  border-color: rgba(255, 179, 64, 0.35);
+  color: #ffd480;
+}
+.wk-hist-list,
+.wk-session-exlist {
   display: flex;
   flex-direction: column;
   border-top: 0.5px solid var(--sep);
   padding-top: 6px;
+  gap: 2px;
 }
-.wk-hist-row {
+.wk-hist-line,
+.wk-session-ex {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
   padding: 6px 0;
   border-bottom: 0.5px solid rgba(255,255,255,0.05);
   font-variant-numeric: tabular-nums;
 }
-.wk-hist-row:last-child { border-bottom: none; }
+.wk-hist-line:last-child,
+.wk-session-ex:last-child { border-bottom: none; }
 .wk-hist-date {
   flex-shrink: 0;
-  width: 58px;
+  min-width: 58px;
   font-size: 11.5px;
   font-weight: 700;
   color: var(--text-3);
@@ -4782,48 +4816,44 @@ input, textarea, select, button {
   font-weight: 600;
   color: var(--text-1);
 }
-.wk-hist-vol {
+.wk-hist-top {
   flex-shrink: 0;
   font-size: 11.5px;
-  color: var(--text-3);
-}
-.wk-more-btn {
-  background: none;
-  border: none;
-  padding: 6px 0 2px;
+  font-weight: 700;
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 650;
-  font-family: var(--font-family);
-  text-align: left;
-  cursor: pointer;
 }
-.wk-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 2px;
-}
-.wk-btn {
-  flex: 1;
-  min-width: 110px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  border: 0.5px solid var(--sep-strong);
-  background: var(--bg-elevated-2);
+.wk-session-ex-name {
+  font-size: 13.5px;
+  font-weight: 700;
   color: var(--text-1);
+}
+.wk-session-ex-sets {
   font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-align: right;
+}
+.wk-add-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 0.5px solid rgba(255,255,255,0.22);
+  background: var(--bg-elevated-3);
+  color: var(--text-1);
+  font-size: 13px;
   font-weight: 700;
   font-family: var(--font-family);
   cursor: pointer;
   text-align: center;
+  transition: transform 0.1s, background 0.15s;
 }
-.wk-btn.primary {
+.wk-add-btn.in-session {
   background: linear-gradient(180deg, #FFFFFF, #DCDCDC);
   color: #000;
   border-color: transparent;
 }
-.wk-btn:active { transform: scale(0.98); }
+.wk-add-btn:active { transform: scale(0.98); }
 
 .plan-workouts-btn {
   width: 100%;
@@ -4839,12 +4869,37 @@ input, textarea, select, button {
   cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 8px;
 }
 .plan-workouts-btn:active { transform: scale(0.99); }
-.plan-workouts-btn span:last-child {
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--text-3);
-}
 
+.ses-last-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  margin-bottom: 10px;
+  border-radius: 11px;
+  background: rgba(255,255,255,0.05);
+  border: 0.5px solid var(--sep-strong);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.ses-last-bar b {
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+.ses-hist-btn {
+  flex-shrink: 0;
+  background: var(--bg-elevated-3);
+  border: 0.5px solid var(--sep-strong);
+  color: var(--text-1);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-family: var(--font-family);
+  cursor: pointer;
+}

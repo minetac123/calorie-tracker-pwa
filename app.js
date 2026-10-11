@@ -1320,13 +1320,13 @@ function renderHistory() {
         const prTxt = ex.bestSet ? `Osobák ${formatSet(ex.bestSet)}` : '';
         return `
           <div class="weight-history-item" data-ex-name="${esc(ex.name)}" style="cursor:pointer; flex-direction:column; align-items:stretch; gap:4px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-              <span style="font-weight:700; color:var(--text-1); font-size:14.5px;">${esc(ex.name)}</span>
-              <span style="font-size:12px; font-weight:700; color:var(--text-2);">${esc(prTxt || `${ex.targetSets}×${ex.targetReps}`)}</span>
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
+              <span style="font-weight:700; color:var(--text-1); font-size:14.5px; min-width:0;">${esc(ex.name)}</span>
+              <span style="font-size:12px; font-weight:700; color:var(--text-2); white-space:nowrap; flex-shrink:0;">${esc(prTxt || `${ex.targetSets}×${ex.targetReps}`)}</span>
             </div>
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; color:var(--text-3);">
-              <span>${last ? `Naposledy (${formatShortCzDate(last.date)}): ${esc(lastSets)}` : esc(lastSets)}</span>
-              <span>${ex.totalSessions ? `${ex.totalSessions}×` : ''} ›</span>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12.5px; color:var(--text-3);">
+              <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${last ? `Naposledy (${formatShortCzDate(last.date)}): ${esc(lastSets)}` : esc(lastSets)}</span>
+              <span style="white-space:nowrap; flex-shrink:0;">${ex.totalSessions ? `${ex.totalSessions}×` : ''} ›</span>
             </div>
           </div>`;
       }).join('') + (allEx.length > 8
@@ -7614,7 +7614,7 @@ function getAllKnownExercises() {
 
   // 3. Aktuální tréninkový plán (abychom znali i cílové série/opakování a dny)
   if (appState.workoutPlan && appState.workoutPlan.days) {
-    PLAN_DAY_ORDER.forEach((dKey) => {
+    PLAN_DAY_KEYS.forEach((dKey) => {
       const day = appState.workoutPlan.days[dKey];
       if (!day || day.rest || !Array.isArray(day.exercises)) return;
       day.exercises.forEach((ex) => {
@@ -7633,6 +7633,7 @@ function getAllKnownExercises() {
 
   // 4. Právě běžící trénink (activeSession)
   const active = appState.activeSession;
+  const activeDate = (active && !active.endedAt && active.date) ? active.date : null;
   if (active && Array.isArray(active.exercises)) {
     active.exercises.forEach((ex) => {
       if (!ex || !ex.name) return;
@@ -7655,7 +7656,9 @@ function getAllKnownExercises() {
     const sessions = Object.values(item.byDate)
       .filter((s) => s.sets && s.sets.length)
       .sort((a, b) => b.date.localeCompare(a.date));
-    const lastSession = sessions[0] || null;
+    // Pokud právě běží trénink a dnes už je zapsaná rozcvičková série, ukazujeme
+    // jako „Naposledy“ předchozí trénink, aby uživatel nepřicházel o referenci z minula.
+    const lastSession = (activeDate && sessions.find((s) => s.date < activeDate)) || sessions[0] || null;
     const lastTop = sessionTopSet(lastSession);
     const bestSet = sessions.reduce((best, s) => {
       const t = sessionTopSet(s);
@@ -7689,8 +7692,8 @@ function getAllKnownExercises() {
   list.sort((a, b) => {
     if (a.totalSessions > 0 && b.totalSessions === 0) return -1;
     if (a.totalSessions === 0 && b.totalSessions > 0) return 1;
-    const da = a.lastSession ? a.lastSession.date : '';
-    const db = b.lastSession ? b.lastSession.date : '';
+    const da = a.sessions[0] ? a.sessions[0].date : '';
+    const db = b.sessions[0] ? b.sessions[0].date : '';
     if (da !== db) return db.localeCompare(da);
     if (b.totalSessions !== a.totalSessions) return b.totalSessions - a.totalSessions;
     return a.name.localeCompare(b.name, 'cs');
@@ -7710,13 +7713,16 @@ function getAllPastWorkouts() {
     appState.sessionHistory.forEach((h) => {
       if (!h || !h.date) return;
       coveredDates.add(h.date);
+      const durMin = h.durationMin || (h.durationMs ? Math.max(1, Math.round(h.durationMs / 60000)) : null);
+      const totSets = h.totalSets || h.sets || (Array.isArray(h.exercises) ? h.exercises.reduce((s, e) => s + ((e.sets && e.sets.length) || 0), 0) : 0);
+      const totVol = h.totalVolume || h.volume || (Array.isArray(h.exercises) ? Math.round(h.exercises.reduce((s, e) => s + sessionVolume(e), 0)) : 0);
       out.push({
         id: h.id || ('sh_' + h.date),
         date: h.date,
         title: h.title || 'Trénink',
-        durationMin: h.durationMin || null,
-        totalSets: h.totalSets || (Array.isArray(h.exercises) ? h.exercises.reduce((s, e) => s + ((e.sets && e.sets.length) || 0), 0) : 0),
-        totalVolume: h.totalVolume || (Array.isArray(h.exercises) ? Math.round(h.exercises.reduce((s, e) => s + sessionVolume(e), 0)) : 0),
+        durationMin: durMin,
+        totalSets: totSets,
+        totalVolume: totVol,
         exercises: (h.exercises || []).map((e) => ({
           name: e.name,
           sets: (e.sets || []).map((x) => ({ w: Number(x.w) || 0, r: Number(x.r) || 0 }))
@@ -7745,14 +7751,39 @@ function getAllPastWorkouts() {
     const exList = byDate[date];
     const totalSets = exList.reduce((s, e) => s + e.sets.length, 0);
     const totalVolume = Math.round(exList.reduce((s, e) => s + sessionVolume(e), 0));
-    let title = 'Odjetý trénink';
-    const dt = new Date(date + 'T12:00:00');
-    if (!isNaN(dt.getTime()) && appState.workoutPlan && appState.workoutPlan.days) {
-      const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-      const dKey = dayMap[dt.getDay()];
-      const planned = appState.workoutPlan.days[dKey];
-      if (planned && planned.title && !planned.rest) title = planned.title;
+    const exKeys = new Set(exList.map((e) => normalizeExerciseName(e.name)));
+
+    // Název odvodíme z plánu pouze tehdy, když se aspoň jeden odjetý cvik
+    // shoduje s tímto dnem v plánu — jinak trénink pojmenujeme podle hlavních cviků.
+    let title = '';
+    if (appState.workoutPlan && appState.workoutPlan.days) {
+      const dt = new Date(date + 'T12:00:00');
+      if (!isNaN(dt.getTime())) {
+        const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        const dKey = dayMap[dt.getDay()];
+        const planned = appState.workoutPlan.days[dKey];
+        if (planned && planned.title && !planned.rest && Array.isArray(planned.exercises)) {
+          const overlaps = planned.exercises.some((pe) => exKeys.has(normalizeExerciseName(pe.name)));
+          if (overlaps) title = planned.title;
+        }
+      }
+      if (!title) {
+        PLAN_DAY_KEYS.forEach((dKey) => {
+          if (title) return;
+          const planned = appState.workoutPlan.days[dKey];
+          if (planned && planned.title && !planned.rest && Array.isArray(planned.exercises)) {
+            const overlaps = planned.exercises.some((pe) => exKeys.has(normalizeExerciseName(pe.name)));
+            if (overlaps) title = planned.title;
+          }
+        });
+      }
     }
+    if (!title) {
+      title = exList.length <= 2
+        ? exList.map((e) => e.name).join(', ')
+        : `${exList.slice(0, 2).map((e) => e.name).join(', ')} +${exList.length - 2}`;
+    }
+
     out.push({
       id: 'log_' + date,
       date,
@@ -7843,25 +7874,52 @@ function openExerciseDetail(name) {
   const title = document.getElementById('exercise-title');
   if (!modal || !body) return;
 
-  const known = getAllKnownExercises().find((e) => e.key === normalizeExerciseName(name));
+  const normKey = normalizeExerciseName(name);
+  const known = getAllKnownExercises().find((e) => e.key === normKey);
   const hist = known ? known.sessions : getExerciseHistory(name); // newest first
   const chrono = hist.slice().reverse();                          // oldest first, for the chart
   if (title) title.textContent = name;
 
   const canAddSession = hasActiveSession();
+  const activeSes = getSession_();
+  const inSessionIdx = (canAddSession && activeSes && Array.isArray(activeSes.exercises))
+    ? activeSes.exercises.findIndex((e) => normalizeExerciseName(e.name) === normKey)
+    : -1;
+  const isCurrentSessionEx = canAddSession && activeSes && inSessionIdx === activeSes.idx;
+
+  let sessionBtnHtml = '';
+  if (canAddSession && known && !isCurrentSessionEx) {
+    sessionBtnHtml = inSessionIdx >= 0
+      ? `<button class="mc-btn" id="ex-add-to-session" type="button" style="margin-top:10px;">🎯 Přepnout na cvik v tréninku (${inSessionIdx + 1}.)</button>`
+      : `<button class="mc-btn" id="ex-add-to-session" type="button" style="margin-top:10px;">+ Přidat cvik do dnešního tréninku</button>`;
+  }
+
+  const bindSessionBtn = () => {
+    const addBtn = document.getElementById('ex-add-to-session');
+    if (!addBtn || !known) return;
+    addBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      closeWorkoutsModal();
+      const cur = getSession_();
+      if (inSessionIdx >= 0 && cur && cur.exercises[inSessionIdx]) {
+        cur.idx = inSessionIdx;
+        sessionEditingSet = -1;
+        saveState();
+        closeSessionSheet();
+        renderSession();
+        pingSessionCoach('exercise_change');
+      } else {
+        addWorkoutExerciseToSession(known, true);
+      }
+    });
+  };
 
   if (!hist.length) {
     body.innerHTML = `
       <div class="plan-empty-sub" style="padding:24px 0;text-align:center;">U tohoto cviku zatím nemáš zapsané žádné odjeté série.</div>
-      ${canAddSession && known ? `<button class="mc-btn" id="ex-add-to-session" type="button" style="margin-bottom:8px;">+ Přidat do běžícího tréninku</button>` : ''}
+      ${sessionBtnHtml}
     `;
-    const addBtn = document.getElementById('ex-add-to-session');
-    if (addBtn && known) {
-      addBtn.addEventListener('click', () => {
-        modal.classList.remove('active');
-        addWorkoutExerciseToSession(known, true);
-      });
-    }
+    bindSessionBtn();
     modal.classList.add('active');
     return;
   }
@@ -7872,7 +7930,13 @@ function openExerciseDetail(name) {
   }, null);
   const totalVol = hist.reduce((s, x) => s + sessionVolume(x), 0);
   const first = sessionTopSet(chrono[0]);
-  const latest = sessionTopSet(hist[0]);
+  const rawLatest = sessionTopSet(hist[0]);
+  const prevCompleted = (canAddSession && activeSes && hist.length > 1 && hist[0].date === activeSes.date)
+    ? sessionTopSet(hist[1])
+    : null;
+  const isWarmupInProgress = !!(prevCompleted && rawLatest && rawLatest.w < prevCompleted.w);
+  const latest = isWarmupInProgress ? prevCompleted : rawLatest;
+  const chartChrono = (isWarmupInProgress && chrono.length > 2) ? chrono.slice(0, -1) : chrono;
   const gain = (first && latest) ? Math.round((latest.w - first.w) * 10) / 10 : 0;
 
   body.innerHTML = `
@@ -7884,8 +7948,8 @@ function openExerciseDetail(name) {
     </div>
     ${gain !== 0 ? `<div class="ex-gain ${gain > 0 ? 'up' : 'down'}">${gain > 0 ? '+' : ''}${String(gain).replace('.', ',')} kg od začátku</div>` : ''}
     ${isExerciseStalled(name) ? '<div class="plan-drift over">Váha se 3 tréninky nehnula — řekni si kouči o deload</div>' : ''}
-    ${exerciseChartSvg(chrono)}
-    <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px;">Kompletní historie (${hist.length} záznamů)</div>
+    ${exerciseChartSvg(chartChrono)}
+    <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px;">Kompletní historie (${hist.length} záznamů)</div>
     <div class="ex-history" style="max-height:280px;overflow-y:auto;">
       ${hist.map((s) => {
         return `<div class="ex-hist-row">
@@ -7895,17 +7959,10 @@ function openExerciseDetail(name) {
         </div>`;
       }).join('')}
     </div>
-    ${canAddSession && known ? `<button class="mc-btn" id="ex-add-to-session" type="button" style="margin-top:10px;">+ Přidat cvik do dnešního tréninku</button>` : ''}
+    ${sessionBtnHtml}
     <button class="mc-btn secondary" id="ex-ask-coach" type="button" style="margin-top:8px;">Zeptat se kouče na progres</button>`;
 
-  const addBtn = document.getElementById('ex-add-to-session');
-  if (addBtn && known) {
-    addBtn.addEventListener('click', () => {
-      modal.classList.remove('active');
-      closeWorkoutsModal();
-      addWorkoutExerciseToSession(known, true);
-    });
-  }
+  bindSessionBtn();
 
   const ask = document.getElementById('ex-ask-coach');
   if (ask) ask.addEventListener('click', () => {
@@ -7972,7 +8029,7 @@ function addWorkoutExerciseToSession(exData, switchNow = true) {
     targetSets: Number(exData.targetSets) || 3,
     targetReps: String(exData.targetReps || '8-12'),
     restSec: Number(exData.restSec) || 90,
-    note: exData.note || (exData.lastTop ? `Minule ${formatSet(exData.lastTop)}` : ''),
+    note: exData.note || '',
     sets: []
   };
   s.exercises.splice(insertIdx, 0, newEx);
@@ -8139,6 +8196,10 @@ function renderWorkoutsModal() {
       ? activeSes.exercises.findIndex((sEx) => normalizeExerciseName(sEx.name) === ex.key)
       : -1;
 
+    const dayPlan = getWorkoutForDay(dayKey);
+    const inPlan = !!(dayPlan && !dayPlan.rest && Array.isArray(dayPlan.exercises) &&
+      dayPlan.exercises.some((pe) => normalizeExerciseName(pe.name) === ex.key));
+
     let actionHtml = '';
     if (inLiveSession) {
       if (inSessionIdx >= 0) {
@@ -8151,7 +8212,9 @@ function renderWorkoutsModal() {
         actionHtml = `<button class="wk-add-btn" data-wk-add-ses="${idx}" type="button">+ Přidat do dnešního tréninku</button>`;
       }
     } else if (mode === 'plan') {
-      actionHtml = `<button class="wk-add-btn" data-wk-add-plan="${idx}" type="button">+ Přidat do plánu (${esc(dayCz)})</button>`;
+      actionHtml = inPlan
+        ? `<button class="wk-add-btn" data-wk-add-plan="${idx}" type="button" style="opacity:0.78;">✓ V plánu (${esc(dayCz)}) · Přidat znovu</button>`
+        : `<button class="wk-add-btn" data-wk-add-plan="${idx}" type="button">+ Přidat do plánu (${esc(dayCz)})</button>`;
     }
 
     return `
@@ -8189,7 +8252,7 @@ function renderWorkoutsModal() {
               </button>
             ` : ''}
           </div>
-        ` : `<div style="font-size:11px;color:var(--text-tertiary);padding:4px 0;">Zatím žádné zapsané série — jen v tréninkovém plánu.</div>`}
+        ` : `<div style="font-size:11.5px;color:var(--text-3);padding:4px 0;">Zatím žádné zapsané série — jen v tréninkovém plánu.</div>`}
 
         ${actionHtml}
       </div>
@@ -9489,16 +9552,16 @@ function renderSession() {
     </div>
 
     ${last && Array.isArray(last.sets) && last.sets.length ? `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;margin-bottom:8px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);font-size:12px;">
-        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);">
-          <span style="color:var(--text-tertiary);">Minule (${formatShortCzDate(last.date)}):</span>
-          <b style="color:var(--text-primary);margin-left:4px;">${last.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</b>
+      <div class="ses-last-bar">
+        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          <span style="color:var(--text-3);">Minule (${formatShortCzDate(last.date)}):</span>
+          <b style="margin-left:4px;">${last.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</b>
         </div>
-        <button id="ses-exhist" type="button" style="flex-shrink:0;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);color:var(--text-primary);border-radius:8px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;">📈 Historie (${exHistCount})</button>
+        <button id="ses-exhist" class="ses-hist-btn" type="button">📈 Historie (${exHistCount})</button>
       </div>
     ` : (exHistCount > 0 ? `
       <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
-        <button id="ses-exhist" type="button" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);color:var(--text-primary);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;">📈 Historie cviku (${exHistCount})</button>
+        <button id="ses-exhist" class="ses-hist-btn" type="button">📈 Historie cviku (${exHistCount})</button>
       </div>
     ` : '')}
 
@@ -9529,7 +9592,7 @@ function renderSession() {
     </div>
 
     <div class="ses-actions">
-      <button class="ses-action" id="ses-workouts" type="button" style="border-color:rgba(16,185,129,0.45);background:rgba(16,185,129,0.14);color:#6ee7b7;font-weight:700;">🏋️ Workouty (${knownExercisesCount})</button>
+      <button class="ses-action" id="ses-workouts" type="button" style="border-color:rgba(255,255,255,0.28);background:var(--bg-elevated-3);color:var(--text-1);font-weight:750;">🏋️ Workouty (${knownExercisesCount})</button>
       <button class="ses-action" id="ses-list" type="button">Cviky &amp; pořadí (${s.exercises.length})</button>
       <button class="ses-action" id="ses-addex" type="button">+ Vlastní cvik</button>
       <button class="ses-action" id="ses-skiprest" type="button">Přeskočit pauzu</button>
@@ -9575,8 +9638,9 @@ function renderSession() {
 // ---- Úpravy zapsaných sérií ----
 
 function saveEditedSet(i) {
+  const s = getSession_();
   const ex = sessionCurrentExercise();
-  if (!ex || !ex.sets[i]) return;
+  if (!s || !ex || !ex.sets[i]) return;
   const body = document.getElementById('ses-body');
   const w = parseFloat(String(body.querySelector('.ses-edit-w').value).replace(',', '.'));
   const r = parseInt(body.querySelector('.ses-edit-r').value, 10);
@@ -9584,16 +9648,19 @@ function saveEditedSet(i) {
   ex.sets[i].w = Math.round(w * 10) / 10;
   ex.sets[i].r = r;
   sessionEditingSet = -1;
+  logExerciseSession(ex.name, s.date, ex.sets.map((x) => ({ w: x.w, r: x.r })));
   saveState();
   buzz(30);
   renderSession();
 }
 
 function deleteSessionSet(i) {
+  const s = getSession_();
   const ex = sessionCurrentExercise();
-  if (!ex || !ex.sets[i]) return;
+  if (!s || !ex || !ex.sets[i]) return;
   ex.sets.splice(i, 1);
   sessionEditingSet = -1;
+  logExerciseSession(ex.name, s.date, ex.sets.map((x) => ({ w: x.w, r: x.r })));
   saveState();
   buzz(30);
   renderSession();
@@ -9892,6 +9959,7 @@ function logSessionSet() {
   ex.sets.push({ w: Math.round(w * 10) / 10, r, at: Date.now() });
   s.restEndsAt = Date.now() + (ex.restSec || 90) * 1000;
   s.restTotal = (s.restTotal || 0) + (ex.restSec || 90);
+  logExerciseSession(ex.name, s.date, ex.sets.map((x) => ({ w: x.w, r: x.r })));
   saveState();
   buzz(40);
   armRestAudio(s.restEndsAt);
@@ -10007,6 +10075,7 @@ function applySessionActions(actions) {
       case 'log_set':
         if (!ex || ex.sets.length >= 20) break;
         ex.sets.push({ w: a.w, r: a.r, at: Date.now() });
+        logExerciseSession(ex.name, s.date, ex.sets.map((x) => ({ w: x.w, r: x.r })));
         applied++;
         break;
 
@@ -10014,12 +10083,14 @@ function applySessionActions(actions) {
         if (!ex || !ex.sets[a.index]) break;
         ex.sets[a.index].w = a.w;
         ex.sets[a.index].r = a.r;
+        logExerciseSession(ex.name, s.date, ex.sets.map((x) => ({ w: x.w, r: x.r })));
         applied++;
         break;
 
       case 'delete_set':
         if (!ex || !ex.sets[a.index]) break;
         ex.sets.splice(a.index, 1);
+        logExerciseSession(ex.name, s.date, ex.sets.map((x) => ({ w: x.w, r: x.r })));
         applied++;
         break;
 
