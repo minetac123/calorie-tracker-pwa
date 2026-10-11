@@ -1015,10 +1015,16 @@ function todayPrague() {
 function fmtExerciseHistory(list) {
   if (!Array.isArray(list) || !list.length) return 'Zatím žádná historie vah.';
   return list.map((e) => {
+    const meta = [];
+    if (e.best) meta.push(`osobák ${e.best}`);
+    if (e.totalSessions) meta.push(`${e.totalSessions}× odjeto`);
+    if (e.defaultTarget) meta.push(`obvykle ${e.defaultTarget}`);
+    if (e.stalled) meta.push('STAGNUJE — 3 tréninky bez posunu');
+    const head = `- ${e.name}${meta.length ? ` [${meta.join(' · ')}]` : ''}`;
     const rows = (e.recent || [])
       .map((r) => `    ${r.date}: ${r.sets} (objem ${r.volume} kg)`)
       .join('\n');
-    return `- ${e.name}${e.stalled ? ' [STAGNUJE — 3 tréninky bez posunu]' : ''}\n${rows}`;
+    return rows ? `${head}\n${rows}` : head;
   }).join('\n');
 }
 

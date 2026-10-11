@@ -477,6 +477,13 @@
       </div>
 
       <div id="history-progress-view" class="history-sub-view" style="display:none;">
+        <div class="dark-card" style="margin-bottom:16px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+            <h2>🏋️ Moje workouty a váhy</h2>
+            <button class="plan-day-action" id="btn-open-workouts-history" type="button">Workouty</button>
+          </div>
+          <div id="workouts-history-list" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;"></div>
+        </div>
         <div class="dark-card">
           <h2>⚖️ Vývoj váhy</h2>
           <div id="weight-history-list" style="display:flex; flex-direction:column; gap:10px; margin-top:14px;"></div>
@@ -602,7 +609,7 @@
       </div>
 
       <div style="text-align:center; margin:20px 0 10px; font-size:12px; color:var(--text-3); font-weight:500;">
-        Verze: 3.0.1 (Cache v82)
+        Verze: 3.1.0 (Cache v83)
       </div>
     </section>
 
@@ -691,6 +698,26 @@
         <button class="mc-close" id="exercise-close" type="button" aria-label="Zavřít">×</button>
       </div>
       <div class="mc-body" id="exercise-body"></div>
+    </div>
+  </div>
+
+  <!-- ================= SEZNAM WORKOUTŮ A HISTORIE VAH ================= -->
+  <div class="modal-overlay" id="workouts-modal">
+    <div class="modal-content mc-modal wk-modal">
+      <div class="mc-header">
+        <span class="mc-title" id="workouts-modal-title">Workouty</span>
+        <button class="mc-close" id="workouts-modal-close" type="button" aria-label="Zavřít">×</button>
+      </div>
+      <div class="wk-toolbar">
+        <search class="wk-search-wrap">
+          <input type="search" id="workouts-search-input" class="wk-search-input" placeholder="Hledat workout nebo cvik…" autocomplete="off">
+        </search>
+        <div class="wk-tabs" id="workouts-tabs">
+          <button class="wk-tab active" data-wk-tab="exercises" type="button">Všechny workouty</button>
+          <button class="wk-tab" data-wk-tab="sessions" type="button">Odjeté tréninky</button>
+        </div>
+      </div>
+      <div class="mc-body wk-body" id="workouts-modal-body"></div>
     </div>
   </div>
 

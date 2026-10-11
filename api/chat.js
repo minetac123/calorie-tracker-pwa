@@ -491,8 +491,9 @@ ${ctx.sessionExercises ? `
 === CVIKY V TRÉNINKU (ID pro nástroje) ===
 ${ctx.sessionExercises}` : ''}
 
-=== HISTORIE VAH ===
+=== WORKOUTY UŽIVATELE A HISTORIE VAH (všechny cviky, které už jel) ===
 ${fmtExerciseHistory(ctx.exerciseHistory)}
+Když přidáváš nebo měníš cvik v tréninku (add_exercise / edit_exercise), PŘEDNOSTNĚ vybírej z těchto workoutů/cviků výše, které už uživatel jel a zná na nich své váhy (použij stejný název, ať se mu spáruje historie vah), pokud si výslovně neřekne o úplně nový cvik.
 
 === PROFIL ===
 ${fmtProfile(ctx.profile)}
@@ -663,10 +664,11 @@ i makra PŘESNĚ z PŘEDCHOZÍCH DNŮ výš. Nikdy si je nevymýšlej — když 
 === DNEŠNÍ TRÉNINK ===
 ${ctx.workoutStatus}
 
-=== HISTORIE VAH (progressive overload) ===
+=== WORKOUTY UŽIVATELE A HISTORIE VAH (progressive overload) ===
 ${fmtExerciseHistory(ctx.exerciseHistory)}
 
 Když se uživatel ptá na progres, opírej se o čísla výš — konkrétně, ne obecně.
+Když sestavuješ, upravuješ nebo doplňuješ tréninkový plán (set_workout_plan, update_workout_day, add_exercise_to_plan_day, substitute_exercise, extend_workout), PŘEDNOSTNĚ vybírej cviky ze seznamu WORKOUTY UŽIVATELE výš (které už v minulosti jel a má u nich zapsané váhy — použij stejný název), pokud odpovídají partii a vybavení a uživatel nechce úplně nový cvik.
 Když je cvik označený [STAGNUJE], sám navrhni deload (−10 % váhy na týden) nebo výměnu cviku.
 Když má na posledním tréninku splněný horní rozsah opakování, navrhni přidat 2,5 kg (u velkých cviků 5 kg).
 Když ti nahlásí odcvičenou sérii („dal jsem bench 3x8 na 42,5"), zavolej log_set.

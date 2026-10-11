@@ -51,12 +51,12 @@ function exerciseList(s) {
 const SESSION_TOOLS = [
   {
     name: 'edit_exercise',
-    description: 'Upraví cvik v probíhajícím tréninku — název, počet sérií, opakování, pauzu nebo poznámku. Zapsané série zůstanou. Použij, když uživatel chce vyměnit cvik za jiný, ubrat sérii, změnit rozsah opakování nebo si prodloužit pauzu.',
+    description: 'Upraví cvik v probíhajícím tréninku — název, počet sérií, opakování, pauzu nebo poznámku. Zapsané série zůstanou. Použij, když uživatel chce vyměnit cvik za jiný, ubrat sérii, změnit rozsah opakování nebo si prodloužit pauzu. Když měníš cvik za jiný, PŘEDNOSTNĚ vyber ze seznamu WORKOUTY UŽIVATELE (v sekci HISTORIE VAH), které už v minulosti jel.',
     parameters: {
       type: 'OBJECT',
       properties: {
         exerciseId: { type: 'STRING', description: 'ID cviku ze seznamu CVIKY V TRÉNINKU' },
-        name: { type: 'STRING', description: 'Nový název cviku (jen když ho měníš)' },
+        name: { type: 'STRING', description: 'Nový název cviku (jen když ho měníš — přednostně přesný název ze seznamu WORKOUTY UŽIVATELE)' },
         sets: { type: 'INTEGER', description: 'Nový počet cílových sérií 1-12' },
         reps: { type: 'STRING', description: 'Nový rozsah opakování, např. "8-12"' },
         restSec: { type: 'INTEGER', description: 'Nová délka pauzy mezi sériemi v sekundách 15-600' },
@@ -67,11 +67,11 @@ const SESSION_TOOLS = [
   },
   {
     name: 'add_exercise',
-    description: 'Přidá do probíhajícího tréninku nový cvik. Ve výchozím stavu hned za ten, na kterém uživatel právě je.',
+    description: 'Přidá do probíhajícího tréninku nový cvik. Ve výchozím stavu hned za ten, na kterém uživatel právě je. PŘEDNOSTNĚ vybírej cvik ze seznamu WORKOUTY UŽIVATELE (v sekci HISTORIE VAH), které už uživatel jel a má u nich zapsané váhy, pokud si výslovně neřekne o úplně nový cvik.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        name: { type: 'STRING', description: 'Český název cviku' },
+        name: { type: 'STRING', description: 'Český název cviku (přednostně přesný název ze seznamu WORKOUTY UŽIVATELE)' },
         sets: { type: 'INTEGER', description: 'Počet sérií 1-12' },
         reps: { type: 'STRING', description: 'Rozsah opakování, např. "10-12"' },
         restSec: { type: 'INTEGER', description: 'Pauza mezi sériemi v sekundách' },

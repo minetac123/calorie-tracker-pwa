@@ -895,10 +895,30 @@ function applyWorkoutOpsTool(name, args, state) {
       const have = new Set(d.day.exercises.map((e) => normName(e.name)));
       const isDup = (n) => have.has(normName(n)) || !!duplicateOf(d.day, n);
 
+      const picked = [];
+      const userLogs = (state && state.exerciseLogs && typeof state.exerciseLogs === 'object') ? state.exerciseLogs : {};
+      const userEntries = Object.keys(userLogs)
+        .map((k) => userLogs[k])
+        .filter((e) => e && e.name && Array.isArray(e.sessions) && e.sessions.length)
+        .sort((x, y) => y.sessions.length - x.sessions.length);
+
+      for (const entry of userEntries) {
+        if (picked.length >= Math.min(want, room)) break;
+        if (isDup(entry.name)) continue;
+        const n = normName(entry.name);
+        const matchesFocus = cats.includes('fullbody') || cats.some((c) => (FOCUS_KEYWORDS[c] || []).some((kw) => n.includes(kw)));
+        if (!matchesFocus) continue;
+        const lastSes = entry.sessions[entry.sessions.length - 1];
+        const setsCount = (lastSes && Array.isArray(lastSes.sets) && lastSes.sets.length)
+          ? clamp(lastSes.sets.length, 2, 6)
+          : 3;
+        have.add(n);
+        picked.push({ name: entry.name, sets: setsCount, reps: '8-12', restSec: 90 });
+      }
+
       // Round-robin across the detected focus categories, so a "push" day gets
       // chest AND triceps instead of four chest exercises.
       const pools = cats.map((c) => (CATALOG[c] || []).filter((x) => allowed.includes(x.equipment)));
-      const picked = [];
       for (let round = 0; picked.length < Math.min(want, room) && round < 8; round++) {
         let progressed = false;
         for (let i = 0; i < pools.length && picked.length < Math.min(want, room); i++) {
@@ -917,7 +937,9 @@ function applyWorkoutOpsTool(name, args, state) {
       }
 
       const added = picked.map((c) => {
-        const ex = { id: newExId(), name: c.name, sets: c.sets, reps: c.reps, restSec: c.restSec, note: '' };
+        const last = lastWorkingWeight(state, c.name);
+        const note = last ? `minule ${fmtKg(last.weight)} kg × ${last.reps}` : '';
+        const ex = { id: newExId(), name: c.name, sets: c.sets, reps: c.reps, restSec: c.restSec, note };
         d.day.exercises.push(ex);
         return ex;
       });

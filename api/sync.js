@@ -31,6 +31,33 @@ function mergeDatedEntries(existing, incoming) {
   return Array.from(byDate.values()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
+function mergeExerciseLogs(existing, incoming) {
+  const out = {};
+  const ex = (existing && typeof existing === 'object') ? existing : {};
+  const inc = (incoming && typeof incoming === 'object') ? incoming : {};
+  const keys = new Set([...Object.keys(ex), ...Object.keys(inc)]);
+  keys.forEach((k) => {
+    const a = ex[k] && typeof ex[k] === 'object' ? ex[k] : null;
+    const b = inc[k] && typeof inc[k] === 'object' ? inc[k] : null;
+    if (!a && !b) return;
+    const byDate = new Map();
+    (a && Array.isArray(a.sessions) ? a.sessions : []).forEach((s) => {
+      if (s && s.date && Array.isArray(s.sets) && s.sets.length) byDate.set(s.date, s);
+    });
+    (b && Array.isArray(b.sessions) ? b.sessions : []).forEach((s) => {
+      if (s && s.date && Array.isArray(s.sets) && s.sets.length) byDate.set(s.date, s);
+    });
+    const sessions = Array.from(byDate.values())
+      .sort((x, y) => String(x.date).localeCompare(String(y.date)))
+      .slice(-200);
+    out[k] = {
+      name: (b && b.name) || (a && a.name) || k,
+      sessions
+    };
+  });
+  return out;
+}
+
 function mergeCoachChats(existing, incoming) {
   const out = (Array.isArray(incoming) ? incoming : []).map((c) => Object.assign({}, c));
   const byId = new Map(out.filter((c) => c && c.id).map((c) => [c.id, c]));
@@ -82,14 +109,17 @@ module.exports = async function handler(req, res) {
         ['measurements', 'sleepLogs', 'moodLogs'].forEach((k) => {
           appData[k] = mergeDatedEntries(existing[k], appData[k]);
         });
-        ['cardioLogs', 'injuries'].forEach((k) => {
+        ['cardioLogs', 'injuries', 'sessionHistory'].forEach((k) => {
           const out = Array.isArray(appData[k]) ? appData[k].slice() : [];
           const seen = new Set(out.map((x) => x && x.id).filter(Boolean));
           (Array.isArray(existing[k]) ? existing[k] : []).forEach((x) => {
             if (x && x.id && !seen.has(x.id)) out.push(x);
           });
-          appData[k] = out;
+          appData[k] = k === 'sessionHistory'
+            ? out.sort((a, b) => String((b && b.date) || '').localeCompare(String((a && a.date) || ''))).slice(0, 60)
+            : out;
         });
+        appData.exerciseLogs = mergeExerciseLogs(existing.exerciseLogs, appData.exerciseLogs);
         ['dayNotes', 'steps', 'water', 'workoutLogs'].forEach((k) => {
           appData[k] = Object.assign({}, existing[k] || {}, appData[k] || {});
         });

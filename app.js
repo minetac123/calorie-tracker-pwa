@@ -1296,6 +1296,50 @@ function renderHistory() {
     }
   }
 
+  // Render workouts & exercise history in progress tab
+  const workoutsContainer = document.getElementById('workouts-history-list');
+  const openWorkoutsHistBtn = document.getElementById('btn-open-workouts-history');
+  if (openWorkoutsHistBtn && !openWorkoutsHistBtn._bound) {
+    openWorkoutsHistBtn._bound = true;
+    openWorkoutsHistBtn.addEventListener('click', () => openWorkoutsModal({ mode: 'history' }));
+  }
+  if (workoutsContainer && typeof getAllKnownExercises === 'function') {
+    const allEx = getAllKnownExercises();
+    const withHistory = allEx.filter((e) => e.sessions.length > 0);
+    if (!allEx.length) {
+      workoutsContainer.innerHTML = `
+        <div class="empty-state" style="padding: 16px 0; text-align: center;">
+          <div class="empty-icon">🏋️</div>
+          <p style="color: var(--text-secondary); font-size: 14px; margin-top: 8px;">Zatím žádné odjeté workouty ani cviky.</p>
+        </div>`;
+    } else {
+      const listToShow = (withHistory.length ? withHistory : allEx).slice(0, 8);
+      workoutsContainer.innerHTML = listToShow.map((ex) => {
+        const last = ex.lastSession;
+        const lastSets = last ? last.sets.map((s) => `${String(s.w).replace('.', ',')}×${s.r}`).join(' · ') : 'zatím bez zapsané váhy';
+        const prTxt = ex.bestSet ? `Osobák ${formatSet(ex.bestSet)}` : '';
+        return `
+          <div class="weight-history-item" data-ex-name="${esc(ex.name)}" style="cursor:pointer; flex-direction:column; align-items:stretch; gap:4px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span style="font-weight:700; color:var(--text-1); font-size:14.5px;">${esc(ex.name)}</span>
+              <span style="font-size:12px; font-weight:700; color:var(--text-2);">${esc(prTxt || `${ex.targetSets}×${ex.targetReps}`)}</span>
+            </div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; color:var(--text-3);">
+              <span>${last ? `Naposledy (${formatShortCzDate(last.date)}): ${esc(lastSets)}` : esc(lastSets)}</span>
+              <span>${ex.totalSessions ? `${ex.totalSessions}×` : ''} ›</span>
+            </div>
+          </div>`;
+      }).join('') + (allEx.length > 8
+        ? `<button class="plan-day-action" type="button" id="btn-more-workouts-hist" style="width:100%; text-align:center; margin-top:4px;">Zobrazit všech ${allEx.length} workoutů</button>`
+        : '');
+      workoutsContainer.querySelectorAll('[data-ex-name]').forEach((row) => {
+        row.addEventListener('click', () => openExerciseDetail(row.getAttribute('data-ex-name')));
+      });
+      const moreBtn = document.getElementById('btn-more-workouts-hist');
+      if (moreBtn) moreBtn.addEventListener('click', () => openWorkoutsModal({ mode: 'history' }));
+    }
+  }
+
   // Render weight logs
   const weightContainer = document.getElementById('weight-history-list');
   if (weightContainer) {
@@ -3209,7 +3253,7 @@ function mergePlanFromCloud(cloud) {
   // by id like sessionHistory rather than collapsing to one per day.
   appState.cardioLogs = mergeById(appState.cardioLogs, cloud.cardioLogs, 400);
   appState.injuries = mergeById(appState.injuries, cloud.injuries, 100);
-  appState.exerciseLogs = mergeByKey(appState.exerciseLogs, cloud.exerciseLogs);
+  appState.exerciseLogs = mergeExerciseLogsMap(cloud.exerciseLogs, appState.exerciseLogs);
   appState.sessionHistory = mergeById(appState.sessionHistory, cloud.sessionHistory, 60);
   appState.miniApps = mergeById(appState.miniApps, cloud.miniApps, 20);
 
@@ -3532,6 +3576,7 @@ function init() {
   initMealCheckHandlers();
   initShoppingHandlers();
   initExerciseDetailHandlers();
+  initWorkoutsModalHandlers();
   initMealChatHandlers();
   initMiniAppHandlers();
   initSessionHandlers();
@@ -6036,15 +6081,23 @@ function renderWorkoutView() {
   const date = isToday ? getTodayDateString() : null;
   const w = getWorkoutForDay(dayKey);
 
+  const knownCount = getAllKnownExercises().length;
+  const wkBtnLabel = `🏋️ Workouty & historie vah${knownCount ? ` (${knownCount})` : ''}`;
+
   if (!appState.workoutPlan) {
     box.innerHTML = `
       <div class="plan-empty">
         <div class="plan-empty-title">Zatím žádný tréninkový plán</div>
         <div class="plan-empty-sub">Řekni si o něj kouči — vygeneruje ti split na míru</div>
         <button class="plan-empty-btn" type="button" id="plan-ask-workout">Chci plán</button>
+        <div style="margin-top:10px;">
+          <button class="plan-workouts-btn" type="button" id="plan-workouts-btn">${wkBtnLabel}</button>
+        </div>
       </div>`;
     const b = document.getElementById('plan-ask-workout');
     if (b) b.addEventListener('click', () => askCoach('vygeneruj mi tréninkový plán'));
+    const wb = document.getElementById('plan-workouts-btn');
+    if (wb) wb.addEventListener('click', () => openWorkoutsModal({ mode: 'history' }));
     return;
   }
 
@@ -6054,7 +6107,10 @@ function renderWorkoutView() {
         <div class="plan-rest-icon">😴</div>
         <div class="plan-rest-title">${PLAN_DAY_CZ[dayKey]} — volno</div>
         <div class="plan-rest-sub">Regenerace je součást plánu</div>
+        <button class="plan-workouts-btn" type="button" id="plan-workouts-btn" style="margin-top:12px;">${wkBtnLabel}</button>
       </div>`;
+    const wb = document.getElementById('plan-workouts-btn');
+    if (wb) wb.addEventListener('click', () => openWorkoutsModal({ mode: 'plan', dayKey }));
     return;
   }
 
@@ -6072,12 +6128,15 @@ function renderWorkoutView() {
     </div>
     ${isToday ? `<div class="plan-progress-bar"><div class="plan-progress-fill" style="width:${pct}%"></div></div>` : ''}
     ${isToday ? `<button class="ses-start-btn" id="ses-start" type="button">${hasActiveSession() ? '▶  Pokračovat v tréninku' : '▶  Spustit trénink'}</button>` : ''}
+    <button class="plan-workouts-btn" id="plan-workouts-btn" type="button">${wkBtnLabel}</button>
     <div class="plan-ex-list" id="plan-ex-list"></div>`;
 
   const startBtn = document.getElementById('ses-start');
   if (startBtn) startBtn.addEventListener('click', () => {
     if (hasActiveSession()) resumeSessionIfAny(); else startWorkoutSession(dayKey);
   });
+  const wkBtn = document.getElementById('plan-workouts-btn');
+  if (wkBtn) wkBtn.addEventListener('click', () => openWorkoutsModal({ mode: 'plan', dayKey }));
 
   const list = document.getElementById('plan-ex-list');
   w.exercises.forEach((ex) => {
@@ -6417,7 +6476,7 @@ function applyCoachPlanUpdate(data) {
   }
   if (data.workoutPlan) { appState.workoutPlan = data.workoutPlan; changed = true; }
   if (data.exerciseLogs && typeof data.exerciseLogs === 'object') {
-    appState.exerciseLogs = data.exerciseLogs;
+    appState.exerciseLogs = mergeExerciseLogsMap(appState.exerciseLogs, data.exerciseLogs);
     changed = true;
   }
   if (Array.isArray(data.miniApps)) {
@@ -7359,6 +7418,50 @@ function getExerciseLogs() {
   return appState.exerciseLogs;
 }
 
+// Sloučí dvě mapy historie cviků po jednotlivých datech, aby při cloud syncu
+// nebo odpovědi kouče nikdy nezmizely starší odjeté tréninky.
+function mergeExerciseLogsMap(base, incoming) {
+  const out = {};
+  const addSource = (src) => {
+    if (!src || typeof src !== 'object') return;
+    Object.keys(src).forEach((rawKey) => {
+      const entry = src[rawKey];
+      if (!entry || typeof entry !== 'object') return;
+      const name = String(entry.name || rawKey).trim();
+      const key = normalizeExerciseName(name || rawKey);
+      if (!key) return;
+      if (!out[key]) out[key] = { name: name || rawKey, byDate: {} };
+      if (name) out[key].name = name;
+      if (Array.isArray(entry.sessions)) {
+        entry.sessions.forEach((s) => {
+          if (s && s.date && Array.isArray(s.sets) && s.sets.length) {
+            out[key].byDate[s.date] = { date: s.date, sets: s.sets };
+          }
+        });
+      }
+    });
+  };
+  addSource(base);
+  addSource(incoming);
+  const finalMap = {};
+  Object.keys(out).forEach((key) => {
+    const sessions = Object.values(out[key].byDate)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-200);
+    finalMap[key] = { name: out[key].name, sessions };
+  });
+  return finalMap;
+}
+
+function formatShortCzDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const [y, m, d] = parts;
+  const curYear = String(new Date().getFullYear());
+  return y === curYear ? `${Number(d)}. ${Number(m)}.` : `${Number(d)}. ${Number(m)}. ${y}`;
+}
+
 // All sessions for an exercise, newest first.
 function getExerciseHistory(name) {
   const entry = getExerciseLogs()[normalizeExerciseName(name)];
@@ -7387,8 +7490,13 @@ function sessionVolume(session) {
 // Heaviest set of a session (the number people actually track).
 function sessionTopSet(session) {
   if (!session || !Array.isArray(session.sets) || !session.sets.length) return null;
-  return session.sets.reduce((best, x) =>
-    (Number(x.w) || 0) > (Number(best.w) || 0) ? x : best, session.sets[0]);
+  return session.sets.reduce((best, x) => {
+    const w = Number(x.w) || 0;
+    const bw = Number(best.w) || 0;
+    if (w > bw) return x;
+    if (w === bw && (Number(x.r) || 0) > (Number(best.r) || 0)) return x;
+    return best;
+  }, session.sets[0]);
 }
 
 function formatSet(set) {
@@ -7444,22 +7552,241 @@ function suggestNextLoad(name, targetReps) {
   return Math.round((w + step) * 10) / 10;
 }
 
-// Compact history for the coach's context: last 5 sessions per exercise.
-function buildExerciseContext() {
+// Sjednotí všechny cviky, které uživatel kdy odjel nebo má v plánu / aktivním
+// tréninku, a ke každému připojí kompletní historii zvednutých vah a sérií.
+function getAllKnownExercises() {
+  const map = {};
+  const ensure = (rawName) => {
+    const name = String(rawName || '').trim();
+    const key = normalizeExerciseName(name);
+    if (!key) return null;
+    if (!map[key]) {
+      map[key] = {
+        key,
+        name,
+        byDate: {},
+        targetSets: 3,
+        targetReps: '8-12',
+        restSec: 90,
+        note: '',
+        planDays: []
+      };
+    } else if (name && name.length >= map[key].name.length) {
+      map[key].name = name;
+    }
+    return map[key];
+  };
+
+  // 1. Zapsaná historie vah v exerciseLogs
   const logs = getExerciseLogs();
+  Object.keys(logs).forEach((k) => {
+    const entry = logs[k];
+    if (!entry) return;
+    const item = ensure(entry.name || k);
+    if (!item || !Array.isArray(entry.sessions)) return;
+    entry.sessions.forEach((s) => {
+      if (s && s.date && Array.isArray(s.sets) && s.sets.length) {
+        item.byDate[s.date] = {
+          date: s.date,
+          sets: s.sets.map((x) => ({ w: Number(x.w) || 0, r: Number(x.r) || 0 })).filter((x) => x.w > 0 && x.r > 0)
+        };
+      }
+    });
+  });
+
+  // 2. Historie celých tréninků (sessionHistory) — pojistka, kdyby některý záznam nebyl v exerciseLogs
+  if (Array.isArray(appState.sessionHistory)) {
+    appState.sessionHistory.forEach((ses) => {
+      if (!ses || !ses.date || !Array.isArray(ses.exercises)) return;
+      ses.exercises.forEach((ex) => {
+        if (!ex || !ex.name) return;
+        const item = ensure(ex.name);
+        if (!item) return;
+        if (Array.isArray(ex.sets) && ex.sets.length && !item.byDate[ses.date]) {
+          const clean = ex.sets
+            .map((x) => ({ w: Number(x.w) || 0, r: Number(x.r) || 0 }))
+            .filter((x) => x.w > 0 && x.r > 0);
+          if (clean.length) item.byDate[ses.date] = { date: ses.date, sets: clean };
+        }
+      });
+    });
+  }
+
+  // 3. Aktuální tréninkový plán (abychom znali i cílové série/opakování a dny)
+  if (appState.workoutPlan && appState.workoutPlan.days) {
+    PLAN_DAY_ORDER.forEach((dKey) => {
+      const day = appState.workoutPlan.days[dKey];
+      if (!day || day.rest || !Array.isArray(day.exercises)) return;
+      day.exercises.forEach((ex) => {
+        if (!ex || !ex.name) return;
+        const item = ensure(ex.name);
+        if (!item) return;
+        if (ex.sets) item.targetSets = Number(ex.sets) || 3;
+        if (ex.reps) item.targetReps = String(ex.reps);
+        if (ex.restSec) item.restSec = Number(ex.restSec) || 90;
+        if (ex.note && !item.note) item.note = String(ex.note);
+        const dayCz = PLAN_DAY_CZ[dKey] || dKey;
+        if (!item.planDays.includes(dayCz)) item.planDays.push(dayCz);
+      });
+    });
+  }
+
+  // 4. Právě běžící trénink (activeSession)
+  const active = appState.activeSession;
+  if (active && Array.isArray(active.exercises)) {
+    active.exercises.forEach((ex) => {
+      if (!ex || !ex.name) return;
+      const item = ensure(ex.name);
+      if (!item) return;
+      if (ex.targetSets) item.targetSets = Number(ex.targetSets) || item.targetSets;
+      if (ex.targetReps) item.targetReps = String(ex.targetReps);
+      if (ex.restSec) item.restSec = Number(ex.restSec) || item.restSec;
+      if (ex.note && !item.note) item.note = String(ex.note);
+      if (active.date && Array.isArray(ex.sets) && ex.sets.length) {
+        const clean = ex.sets
+          .map((x) => ({ w: Number(x.w) || 0, r: Number(x.r) || 0 }))
+          .filter((x) => x.w > 0 && x.r > 0);
+        if (clean.length) item.byDate[active.date] = { date: active.date, sets: clean };
+      }
+    });
+  }
+
+  const list = Object.values(map).map((item) => {
+    const sessions = Object.values(item.byDate)
+      .filter((s) => s.sets && s.sets.length)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const lastSession = sessions[0] || null;
+    const lastTop = sessionTopSet(lastSession);
+    const bestSet = sessions.reduce((best, s) => {
+      const t = sessionTopSet(s);
+      if (!t) return best;
+      if (!best) return t;
+      if ((Number(t.w) || 0) > (Number(best.w) || 0)) return t;
+      if ((Number(t.w) || 0) === (Number(best.w) || 0) && (Number(t.r) || 0) > (Number(best.r) || 0)) return t;
+      return best;
+    }, null);
+    const totalVolume = sessions.reduce((acc, s) => acc + sessionVolume(s), 0);
+
+    return {
+      key: item.key,
+      name: item.name,
+      sessions,
+      totalSessions: sessions.length,
+      lastSession,
+      lastTop,
+      bestSet,
+      totalVolume: Math.round(totalVolume),
+      stalled: isExerciseStalled(item.name),
+      targetSets: item.targetSets,
+      targetReps: item.targetReps,
+      restSec: item.restSec,
+      note: item.note,
+      planDays: item.planDays
+    };
+  });
+
+  // Řazení: nejprve cviky s historií (od naposledy odjetých), poté cviky jen v plánu
+  list.sort((a, b) => {
+    if (a.totalSessions > 0 && b.totalSessions === 0) return -1;
+    if (a.totalSessions === 0 && b.totalSessions > 0) return 1;
+    const da = a.lastSession ? a.lastSession.date : '';
+    const db = b.lastSession ? b.lastSession.date : '';
+    if (da !== db) return db.localeCompare(da);
+    if (b.totalSessions !== a.totalSessions) return b.totalSessions - a.totalSessions;
+    return a.name.localeCompare(b.name, 'cs');
+  });
+
+  return list;
+}
+
+// Vrátí seznam všech odjetých tréninků (sessions) seřazený od nejnovějšího.
+// Spojuje záznamy ze živého tréninku (sessionHistory) i dny zrekonstruované
+// z exerciseLogs, takže uživatel vidí i tréninky odškrtané přímo v plánu.
+function getAllPastWorkouts() {
   const out = [];
-  Object.keys(logs).forEach((key) => {
-    const entry = logs[key];
-    if (!entry || !Array.isArray(entry.sessions) || !entry.sessions.length) return;
-    const recent = entry.sessions.slice(-5).reverse().map((s) => ({
+  const coveredDates = new Set();
+
+  if (Array.isArray(appState.sessionHistory)) {
+    appState.sessionHistory.forEach((h) => {
+      if (!h || !h.date) return;
+      coveredDates.add(h.date);
+      out.push({
+        id: h.id || ('sh_' + h.date),
+        date: h.date,
+        title: h.title || 'Trénink',
+        durationMin: h.durationMin || null,
+        totalSets: h.totalSets || (Array.isArray(h.exercises) ? h.exercises.reduce((s, e) => s + ((e.sets && e.sets.length) || 0), 0) : 0),
+        totalVolume: h.totalVolume || (Array.isArray(h.exercises) ? Math.round(h.exercises.reduce((s, e) => s + sessionVolume(e), 0)) : 0),
+        exercises: (h.exercises || []).map((e) => ({
+          name: e.name,
+          sets: (e.sets || []).map((x) => ({ w: Number(x.w) || 0, r: Number(x.r) || 0 }))
+        })).filter((e) => e.sets.length > 0)
+      });
+    });
+  }
+
+  // Doplníme dny z exerciseLogs, které nejsou v sessionHistory
+  const byDate = {};
+  const logs = getExerciseLogs();
+  Object.keys(logs).forEach((k) => {
+    const entry = logs[k];
+    if (!entry || !Array.isArray(entry.sessions)) return;
+    entry.sessions.forEach((s) => {
+      if (!s || !s.date || coveredDates.has(s.date) || !Array.isArray(s.sets) || !s.sets.length) return;
+      if (!byDate[s.date]) byDate[s.date] = [];
+      byDate[s.date].push({
+        name: entry.name || k,
+        sets: s.sets.map((x) => ({ w: Number(x.w) || 0, r: Number(x.r) || 0 }))
+      });
+    });
+  });
+
+  Object.keys(byDate).forEach((date) => {
+    const exList = byDate[date];
+    const totalSets = exList.reduce((s, e) => s + e.sets.length, 0);
+    const totalVolume = Math.round(exList.reduce((s, e) => s + sessionVolume(e), 0));
+    let title = 'Odjetý trénink';
+    const dt = new Date(date + 'T12:00:00');
+    if (!isNaN(dt.getTime()) && appState.workoutPlan && appState.workoutPlan.days) {
+      const dayMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const dKey = dayMap[dt.getDay()];
+      const planned = appState.workoutPlan.days[dKey];
+      if (planned && planned.title && !planned.rest) title = planned.title;
+    }
+    out.push({
+      id: 'log_' + date,
+      date,
+      title,
+      durationMin: null,
+      totalSets,
+      totalVolume,
+      exercises: exList
+    });
+  });
+
+  out.sort((a, b) => b.date.localeCompare(a.date));
+  return out;
+}
+
+// Compact history for the coach's context: all known exercises + recent sessions.
+function buildExerciseContext() {
+  const all = getAllKnownExercises();
+  return all.slice(0, 60).map((ex) => {
+    const recent = ex.sessions.slice(0, 5).map((s) => ({
       date: s.date,
       sets: s.sets.map((x) => `${x.w}kg×${x.r}`).join(', '),
       volume: Math.round(sessionVolume(s)),
       top: formatSet(sessionTopSet(s))
     }));
-    out.push({ name: entry.name, stalled: isExerciseStalled(entry.name), recent });
+    return {
+      name: ex.name,
+      best: ex.bestSet ? formatSet(ex.bestSet) : null,
+      totalSessions: ex.totalSessions,
+      defaultTarget: `${ex.targetSets}×${ex.targetReps}`,
+      stalled: ex.stalled,
+      recent
+    };
   });
-  return out.slice(0, 25);
 }
 
 // ---- Detail cviku: graf vývoje váhy + objem ----
@@ -7516,12 +7843,25 @@ function openExerciseDetail(name) {
   const title = document.getElementById('exercise-title');
   if (!modal || !body) return;
 
-  const hist = getExerciseHistory(name);          // newest first
-  const chrono = hist.slice().reverse();          // oldest first, for the chart
+  const known = getAllKnownExercises().find((e) => e.key === normalizeExerciseName(name));
+  const hist = known ? known.sessions : getExerciseHistory(name); // newest first
+  const chrono = hist.slice().reverse();                          // oldest first, for the chart
   if (title) title.textContent = name;
 
+  const canAddSession = hasActiveSession();
+
   if (!hist.length) {
-    body.innerHTML = '<div class="plan-empty-sub" style="padding:24px 0;text-align:center;">Zatím žádná data</div>';
+    body.innerHTML = `
+      <div class="plan-empty-sub" style="padding:24px 0;text-align:center;">U tohoto cviku zatím nemáš zapsané žádné odjeté série.</div>
+      ${canAddSession && known ? `<button class="mc-btn" id="ex-add-to-session" type="button" style="margin-bottom:8px;">+ Přidat do běžícího tréninku</button>` : ''}
+    `;
+    const addBtn = document.getElementById('ex-add-to-session');
+    if (addBtn && known) {
+      addBtn.addEventListener('click', () => {
+        modal.classList.remove('active');
+        addWorkoutExerciseToSession(known, true);
+      });
+    }
     modal.classList.add('active');
     return;
   }
@@ -7545,21 +7885,33 @@ function openExerciseDetail(name) {
     ${gain !== 0 ? `<div class="ex-gain ${gain > 0 ? 'up' : 'down'}">${gain > 0 ? '+' : ''}${String(gain).replace('.', ',')} kg od začátku</div>` : ''}
     ${isExerciseStalled(name) ? '<div class="plan-drift over">Váha se 3 tréninky nehnula — řekni si kouči o deload</div>' : ''}
     ${exerciseChartSvg(chrono)}
-    <div class="ex-history">
-      ${hist.slice(0, 12).map((s) => {
-        const [y, m, d] = s.date.split('-');
+    <div style="font-size:11px;font-weight:700;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 6px;">Kompletní historie (${hist.length} záznamů)</div>
+    <div class="ex-history" style="max-height:280px;overflow-y:auto;">
+      ${hist.map((s) => {
         return `<div class="ex-hist-row">
-          <span class="ex-hist-date">${Number(d)}.${Number(m)}.</span>
+          <span class="ex-hist-date">${formatShortCzDate(s.date)}</span>
           <span class="ex-hist-sets">${s.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</span>
           <span class="ex-hist-vol">${Math.round(sessionVolume(s))} kg</span>
         </div>`;
       }).join('')}
     </div>
-    <button class="mc-btn secondary" id="ex-ask-coach" type="button">Zeptat se kouče na progres</button>`;
+    ${canAddSession && known ? `<button class="mc-btn" id="ex-add-to-session" type="button" style="margin-top:10px;">+ Přidat cvik do dnešního tréninku</button>` : ''}
+    <button class="mc-btn secondary" id="ex-ask-coach" type="button" style="margin-top:8px;">Zeptat se kouče na progres</button>`;
+
+  const addBtn = document.getElementById('ex-add-to-session');
+  if (addBtn && known) {
+    addBtn.addEventListener('click', () => {
+      modal.classList.remove('active');
+      closeWorkoutsModal();
+      addWorkoutExerciseToSession(known, true);
+    });
+  }
 
   const ask = document.getElementById('ex-ask-coach');
   if (ask) ask.addEventListener('click', () => {
     modal.classList.remove('active');
+    closeWorkoutsModal();
+    if (hasActiveSession()) closeSessionOverlay();
     askCoach(`jak mi roste ${name} za poslední měsíc a co mám dělat dál?`);
   });
 
@@ -7571,6 +7923,354 @@ function initExerciseDetailHandlers() {
   const closeBtn = document.getElementById('exercise-close');
   if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.remove('active'));
   if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
+}
+
+// ==========================================================================
+// KATALOG VŠECH WORKOUTŮ & HISTORIE VAH (#workouts-modal)
+// ==========================================================================
+// Umožňuje kdykoliv (přímo během živého tréninku, v plánu i v historii)
+// zobrazit kompletní přehled všech cviků a odjetých tréninků včetně všech vah,
+// které uživatel kdy zvedl, a jedním klepnutím cvik přidat do tréninku.
+
+let workoutsModalState = {
+  mode: 'history', // 'session' | 'plan' | 'history'
+  dayKey: null,
+  tab: 'exercises', // 'exercises' | 'sessions'
+  query: '',
+  expandedKeys: {}
+};
+
+function openWorkoutsModal(opts = {}) {
+  const modal = document.getElementById('workouts-modal');
+  if (!modal) return;
+  workoutsModalState.mode = opts.mode || (hasActiveSession() ? 'session' : 'history');
+  workoutsModalState.dayKey = opts.dayKey || (hasActiveSession() ? appState.activeSession.dayKey : getActiveDayKey());
+  workoutsModalState.tab = opts.tab || 'exercises';
+  workoutsModalState.query = '';
+  workoutsModalState.expandedKeys = {};
+
+  const searchInput = document.getElementById('workouts-search-input');
+  if (searchInput) searchInput.value = '';
+
+  renderWorkoutsModal();
+  modal.classList.add('active');
+}
+
+function closeWorkoutsModal() {
+  const modal = document.getElementById('workouts-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function addWorkoutExerciseToSession(exData, switchNow = true) {
+  const s = getSession_();
+  if (!s || !exData) return;
+
+  const insertIdx = Math.min(s.exercises.length, (typeof s.idx === 'number' ? s.idx + 1 : s.exercises.length));
+  const newEx = {
+    id: 'ex_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5),
+    name: exData.name,
+    targetSets: Number(exData.targetSets) || 3,
+    targetReps: String(exData.targetReps || '8-12'),
+    restSec: Number(exData.restSec) || 90,
+    note: exData.note || (exData.lastTop ? `Minule ${formatSet(exData.lastTop)}` : ''),
+    sets: []
+  };
+  s.exercises.splice(insertIdx, 0, newEx);
+  if (switchNow) s.idx = insertIdx;
+
+  syncSessionToPlan();
+  sessionEditingSet = -1;
+  saveState();
+  buzz(30);
+  closeSessionSheet();
+  renderSession();
+  pingSessionCoach('exercise_change');
+  showToast(`Přidáno do tréninku: ${exData.name}`);
+}
+
+function addWorkoutExerciseToPlanDay(exData, dayKey) {
+  const targetDay = dayKey || getActiveDayKey();
+  if (!appState.workoutPlan) {
+    appState.workoutPlan = { split: 'Vlastní plán', days: {} };
+  }
+  if (!appState.workoutPlan.days) appState.workoutPlan.days = {};
+  if (!appState.workoutPlan.days[targetDay]) {
+    appState.workoutPlan.days[targetDay] = {
+      title: `Trénink (${PLAN_DAY_CZ[targetDay] || targetDay})`,
+      focus: 'Vlastní',
+      rest: false,
+      exercises: []
+    };
+  }
+  const day = appState.workoutPlan.days[targetDay];
+  day.rest = false;
+  if (!day.title || day.title === 'Volno') {
+    day.title = `Trénink (${PLAN_DAY_CZ[targetDay] || targetDay})`;
+  }
+  if (!Array.isArray(day.exercises)) day.exercises = [];
+
+  day.exercises.push({
+    id: 'ex_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5),
+    name: exData.name,
+    sets: Number(exData.targetSets) || 3,
+    reps: String(exData.targetReps || '8-12'),
+    restSec: Number(exData.restSec) || 90,
+    note: exData.note || ''
+  });
+
+  saveState();
+  buzz(30);
+  renderPlanScreen();
+  renderDashboardPlanCards();
+  showToast(`Přidáno na ${(PLAN_DAY_CZ[targetDay] || targetDay).toLowerCase()}: ${exData.name}`);
+}
+
+function renderWorkoutsModal() {
+  const body = document.getElementById('workouts-modal-body');
+  const titleEl = document.getElementById('workouts-modal-title');
+  const tabsWrap = document.getElementById('workouts-tabs');
+  if (!body) return;
+
+  const allExercises = getAllKnownExercises();
+  const allSessions = getAllPastWorkouts();
+  const inLiveSession = hasActiveSession();
+  const activeSes = getSession_();
+  const mode = workoutsModalState.mode;
+  const q = normalizeExerciseName(workoutsModalState.query);
+
+  if (titleEl) {
+    titleEl.textContent = inLiveSession
+      ? `🏋️ Moje workouty (${allExercises.length})`
+      : `🏋️ Moje workouty a váhy (${allExercises.length})`;
+  }
+
+  if (tabsWrap) {
+    tabsWrap.querySelectorAll('.wk-tab').forEach((btn) => {
+      const t = btn.getAttribute('data-wk-tab');
+      btn.classList.toggle('active', t === workoutsModalState.tab);
+      if (t === 'exercises') btn.textContent = `Cviky & váhy (${allExercises.length})`;
+      if (t === 'sessions') btn.textContent = `Odjeté tréninky (${allSessions.length})`;
+    });
+  }
+
+  // Záložka 2: Odjeté tréninky (celé workouty podle data)
+  if (workoutsModalState.tab === 'sessions') {
+    const filteredSessions = q
+      ? allSessions.filter((w) =>
+          normalizeExerciseName(w.title).includes(q) ||
+          w.date.includes(q) ||
+          w.exercises.some((e) => normalizeExerciseName(e.name).includes(q))
+        )
+      : allSessions;
+
+    if (!filteredSessions.length) {
+      body.innerHTML = `<div class="wk-empty">Zatím tu nejsou žádné odjeté tréninky${q ? ' odpovídající hledání' : ''}. Jakmile v tréninku odjedeš první sérii, všechno se ti sem automaticky uloží.</div>`;
+      return;
+    }
+
+    body.innerHTML = filteredSessions.map((w) => `
+      <div class="wk-session-card">
+        <div class="wk-session-head">
+          <div>
+            <div class="wk-session-title">${esc(w.title)}</div>
+            <div class="wk-session-sub">${formatShortCzDate(w.date)}${w.durationMin ? ` · ${w.durationMin} min` : ''} · ${w.totalSets} sérií</div>
+          </div>
+          <div class="wk-session-badge">${(w.totalVolume || 0).toLocaleString('cs-CZ')} kg</div>
+        </div>
+        <div class="wk-session-exlist">
+          ${w.exercises.map((e) => `
+            <div class="wk-session-ex" data-open-ex="${esc(e.name)}" style="cursor:pointer;">
+              <div class="wk-session-ex-name">${esc(e.name)}</div>
+              <div class="wk-session-ex-sets">${e.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
+
+    body.querySelectorAll('[data-open-ex]').forEach((el) => {
+      el.addEventListener('click', () => openExerciseDetail(el.getAttribute('data-open-ex')));
+    });
+    return;
+  }
+
+  // Záložka 1: Všechny cviky a jejich kompletní historie vah
+  const filtered = q
+    ? allExercises.filter((ex) =>
+        ex.key.includes(q) ||
+        normalizeExerciseName(ex.note).includes(q) ||
+        ex.planDays.some((d) => normalizeExerciseName(d).includes(q))
+      )
+    : allExercises;
+
+  if (!filtered.length) {
+    body.innerHTML = `
+      <div class="wk-empty">
+        ${q ? `Žádný cvik neodpovídá „${esc(workoutsModalState.query)}“.` : 'Zatím nemáš uložené žádné cviky ani váhy. Odjeď svůj první trénink nebo si nech sestavit plán od kouče.'}
+        ${inLiveSession ? `<div style="margin-top:12px;"><button class="wk-add-btn" id="wk-create-custom" type="button">+ Vytvořit nový cvik v tréninku</button></div>` : ''}
+      </div>`;
+    const customBtn = document.getElementById('wk-create-custom');
+    if (customBtn) {
+      customBtn.addEventListener('click', () => {
+        const prefill = workoutsModalState.query.trim();
+        closeWorkoutsModal();
+        openExerciseEditor(-1);
+        if (prefill) {
+          setTimeout(() => {
+            const inp = document.getElementById('sesf-name');
+            if (inp) inp.value = prefill;
+          }, 70);
+        }
+      });
+    }
+    return;
+  }
+
+  const dayKey = workoutsModalState.dayKey || getActiveDayKey();
+  const dayCz = PLAN_DAY_CZ[dayKey] || 'plánu';
+
+  body.innerHTML = filtered.map((ex, idx) => {
+    const isExpanded = !!workoutsModalState.expandedKeys[ex.key];
+    const visibleSessions = isExpanded ? ex.sessions : ex.sessions.slice(0, 4);
+    const hasMore = ex.sessions.length > 4;
+
+    // Zjistíme, zda už cvik je v právě běžícím tréninku
+    const inSessionIdx = (inLiveSession && activeSes && Array.isArray(activeSes.exercises))
+      ? activeSes.exercises.findIndex((sEx) => normalizeExerciseName(sEx.name) === ex.key)
+      : -1;
+
+    let actionHtml = '';
+    if (inLiveSession) {
+      if (inSessionIdx >= 0) {
+        actionHtml = `
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="wk-add-btn in-session" data-wk-jump="${inSessionIdx}" type="button" style="margin-top:0;flex:1;">🎯 Přepnout v tréninku (${inSessionIdx + 1}.)</button>
+            <button class="wk-add-btn" data-wk-add-ses="${idx}" type="button" style="margin-top:0;flex:0 0 auto;width:auto;padding:9px 12px;" title="Přidat do tréninku ještě jednou">+ Znovu</button>
+          </div>`;
+      } else {
+        actionHtml = `<button class="wk-add-btn" data-wk-add-ses="${idx}" type="button">+ Přidat do dnešního tréninku</button>`;
+      }
+    } else if (mode === 'plan') {
+      actionHtml = `<button class="wk-add-btn" data-wk-add-plan="${idx}" type="button">+ Přidat do plánu (${esc(dayCz)})</button>`;
+    }
+
+    return `
+      <div class="wk-card">
+        <div class="wk-card-top">
+          <div style="min-width:0;flex:1;">
+            <div class="wk-card-name">${esc(ex.name)}</div>
+            <div class="wk-card-sub">
+              ${ex.targetSets} × ${esc(ex.targetReps)} · pauza ${ex.restSec}s
+              ${ex.planDays.length ? ` · 📅 ${esc(ex.planDays.join(', '))}` : ''}
+            </div>
+          </div>
+          <button class="wk-chart-btn" data-wk-detail="${idx}" type="button" title="Graf a kompletní detail">📈 Detail</button>
+        </div>
+
+        <div class="wk-badges">
+          <span class="wk-badge pr">🏆 Osobák: ${ex.bestSet ? formatSet(ex.bestSet) : 'zatím bez váhy'}</span>
+          ${ex.lastTop && ex.lastSession ? `<span class="wk-badge last">⏮ Naposledy (${formatShortCzDate(ex.lastSession.date)}): ${formatSet(ex.lastTop)}</span>` : ''}
+          <span class="wk-badge">${ex.totalSessions}× odjeto</span>
+          ${ex.stalled ? `<span class="wk-badge stall">⚠️ Stojí váha</span>` : ''}
+        </div>
+
+        ${ex.sessions.length ? `
+          <div class="wk-hist-list">
+            ${visibleSessions.map((s) => `
+              <div class="wk-hist-line">
+                <span class="wk-hist-date">${formatShortCzDate(s.date)}</span>
+                <span class="wk-hist-sets">${s.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</span>
+                <span class="wk-hist-top">${formatSet(sessionTopSet(s))}</span>
+              </div>
+            `).join('')}
+            ${hasMore ? `
+              <button class="plan-day-action" data-wk-expand="${esc(ex.key)}" type="button" style="width:100%;margin-top:4px;font-size:11px;padding:5px 8px;">
+                ${isExpanded ? 'Skrýt starší záznamy ▲' : `Zobrazit všech ${ex.sessions.length} tréninků ▼`}
+              </button>
+            ` : ''}
+          </div>
+        ` : `<div style="font-size:11px;color:var(--text-tertiary);padding:4px 0;">Zatím žádné zapsané série — jen v tréninkovém plánu.</div>`}
+
+        ${actionHtml}
+      </div>
+    `;
+  }).join('');
+
+  body.querySelectorAll('[data-wk-detail]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const ex = filtered[Number(btn.getAttribute('data-wk-detail'))];
+      if (ex) openExerciseDetail(ex.name);
+    });
+  });
+
+  body.querySelectorAll('[data-wk-expand]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const k = btn.getAttribute('data-wk-expand');
+      workoutsModalState.expandedKeys[k] = !workoutsModalState.expandedKeys[k];
+      renderWorkoutsModal();
+    });
+  });
+
+  body.querySelectorAll('[data-wk-add-ses]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const ex = filtered[Number(btn.getAttribute('data-wk-add-ses'))];
+      if (!ex) return;
+      closeWorkoutsModal();
+      addWorkoutExerciseToSession(ex, true);
+    });
+  });
+
+  body.querySelectorAll('[data-wk-jump]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetIdx = Number(btn.getAttribute('data-wk-jump'));
+      const cur = getSession_();
+      if (!cur || isNaN(targetIdx) || !cur.exercises[targetIdx]) return;
+      cur.idx = targetIdx;
+      sessionEditingSet = -1;
+      saveState();
+      closeWorkoutsModal();
+      closeSessionSheet();
+      renderSession();
+      pingSessionCoach('exercise_change');
+    });
+  });
+
+  body.querySelectorAll('[data-wk-add-plan]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const ex = filtered[Number(btn.getAttribute('data-wk-add-plan'))];
+      if (!ex) return;
+      addWorkoutExerciseToPlanDay(ex, dayKey);
+      renderWorkoutsModal();
+    });
+  });
+}
+
+function initWorkoutsModalHandlers() {
+  const modal = document.getElementById('workouts-modal');
+  const closeBtn = document.getElementById('workouts-modal-close');
+  const searchInput = document.getElementById('workouts-search-input');
+  const tabsWrap = document.getElementById('workouts-tabs');
+
+  if (closeBtn) closeBtn.addEventListener('click', closeWorkoutsModal);
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeWorkoutsModal();
+    });
+  }
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      workoutsModalState.query = searchInput.value || '';
+      renderWorkoutsModal();
+    });
+  }
+  if (tabsWrap) {
+    tabsWrap.querySelectorAll('.wk-tab').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        workoutsModalState.tab = btn.getAttribute('data-wk-tab') || 'exercises';
+        renderWorkoutsModal();
+      });
+    });
+  }
 }
 
 // ==========================================================================
@@ -8775,6 +9475,8 @@ function renderSession() {
   const last = getLastExerciseSession(ex.name, s.date);
   const lastTop = sessionTopSet(last);
   const prev = ex.sets.length ? ex.sets[ex.sets.length - 1] : (last && last.sets[ex.sets.length]) || lastTop;
+  const exHistCount = getExerciseHistory(ex.name).length;
+  const knownExercisesCount = getAllKnownExercises().length;
 
   body.innerHTML = `
     <div class="ses-exnav">
@@ -8785,6 +9487,20 @@ function renderSession() {
       </button>
       <button class="ses-nav-btn" id="ses-next" type="button" ${s.idx >= s.exercises.length - 1 ? 'disabled' : ''}>›</button>
     </div>
+
+    ${last && Array.isArray(last.sets) && last.sets.length ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;margin-bottom:8px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);font-size:12px;">
+        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);">
+          <span style="color:var(--text-tertiary);">Minule (${formatShortCzDate(last.date)}):</span>
+          <b style="color:var(--text-primary);margin-left:4px;">${last.sets.map((x) => `${String(x.w).replace('.', ',')}×${x.r}`).join(' · ')}</b>
+        </div>
+        <button id="ses-exhist" type="button" style="flex-shrink:0;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);color:var(--text-primary);border-radius:8px;padding:4px 8px;font-size:11px;font-weight:700;cursor:pointer;">📈 Historie (${exHistCount})</button>
+      </div>
+    ` : (exHistCount > 0 ? `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+        <button id="ses-exhist" type="button" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);color:var(--text-primary);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;">📈 Historie cviku (${exHistCount})</button>
+      </div>
+    ` : '')}
 
     ${ex.note ? `<div class="ses-exnote">${esc(ex.note)}</div>` : ''}
 
@@ -8813,8 +9529,9 @@ function renderSession() {
     </div>
 
     <div class="ses-actions">
+      <button class="ses-action" id="ses-workouts" type="button" style="border-color:rgba(16,185,129,0.45);background:rgba(16,185,129,0.14);color:#6ee7b7;font-weight:700;">🏋️ Workouty (${knownExercisesCount})</button>
       <button class="ses-action" id="ses-list" type="button">Cviky &amp; pořadí (${s.exercises.length})</button>
-      <button class="ses-action" id="ses-addex" type="button">+ Přidat cvik</button>
+      <button class="ses-action" id="ses-addex" type="button">+ Vlastní cvik</button>
       <button class="ses-action" id="ses-skiprest" type="button">Přeskočit pauzu</button>
       <button class="ses-action primary" id="ses-finish" type="button">Ukončit trénink</button>
     </div>`;
@@ -8822,8 +9539,11 @@ function renderSession() {
   document.getElementById('ses-prev').addEventListener('click', () => moveExercise(-1));
   document.getElementById('ses-next').addEventListener('click', () => moveExercise(1));
   document.getElementById('ses-exedit').addEventListener('click', () => openExerciseEditor(s.idx));
+  document.getElementById('ses-workouts').addEventListener('click', () => openWorkoutsModal({ mode: 'session' }));
   document.getElementById('ses-list').addEventListener('click', openExercisePicker);
   document.getElementById('ses-addex').addEventListener('click', () => openExerciseEditor(-1));
+  const exHistBtn = document.getElementById('ses-exhist');
+  if (exHistBtn) exHistBtn.addEventListener('click', () => openExerciseDetail(ex.name));
   const add = document.getElementById('ses-add');
   if (add) add.addEventListener('click', logSessionSet);
 
@@ -8935,6 +9655,7 @@ function openExerciseEditor(i) {
         <span>${isNew ? 'Nový cvik' : 'Upravit cvik'}</span>
         <button class="mc-close" data-close="1" type="button" aria-label="Zavřít">×</button>
       </div>
+      ${isNew ? `<button class="wk-add-btn" id="sesf-pick-known" type="button" style="margin-top:0;margin-bottom:10px;">🏋️ Vybrat ze všech mých workoutů (${getAllKnownExercises().length})</button>` : ''}
       <label class="ses-f">
         <span>Název</span>
         <input id="sesf-name" type="text" maxlength="80" placeholder="např. Bench press" value="${esc(ex.name)}">
@@ -8976,6 +9697,13 @@ function openExerciseEditor(i) {
   sheet.style.display = 'block';
 
   sheet.querySelectorAll('[data-close]').forEach((el) => el.addEventListener('click', closeSessionSheet));
+  const pickKnownBtn = sheet.querySelector('#sesf-pick-known');
+  if (pickKnownBtn) {
+    pickKnownBtn.addEventListener('click', () => {
+      closeSessionSheet();
+      openWorkoutsModal({ mode: 'session' });
+    });
+  }
   // Bind the toggle immediately — delete and reorder act straight away, so
   // they must see the checkbox as it stands, not as it was at the last save.
   sheet.querySelector('#sesf-sync').addEventListener('change', (e) => {
@@ -9087,20 +9815,25 @@ function openExercisePicker() {
         <button class="mc-close" data-close="1" type="button" aria-label="Zavřít">×</button>
       </div>
       <div class="ses-picker">
-        ${s.exercises.map((e, i) => `
-        <div class="ses-pick ${i === s.idx ? 'current' : ''}">
-          <button class="ses-pick-main" data-jump="${i}" type="button">
-            <div class="ses-pick-t">${esc(e.name)}</div>
-            <div class="ses-pick-s">${e.sets.length}/${e.targetSets} sérií · ${esc(e.targetReps)} op.</div>
-          </button>
-          <div class="ses-pick-tools">
-            <button class="ses-pick-btn" data-up="${i}" type="button" ${i === 0 ? 'disabled' : ''} aria-label="Nahoru">↑</button>
-            <button class="ses-pick-btn" data-down="${i}" type="button" ${i >= s.exercises.length - 1 ? 'disabled' : ''} aria-label="Dolů">↓</button>
-            <button class="ses-pick-btn" data-edit="${i}" type="button" aria-label="Upravit">✎</button>
-          </div>
-        </div>`).join('')}
+        ${s.exercises.map((e, i) => {
+          const last = getLastExerciseSession(e.name, s.date);
+          const top = sessionTopSet(last);
+          return `
+          <div class="ses-pick ${i === s.idx ? 'current' : ''}">
+            <button class="ses-pick-main" data-jump="${i}" type="button">
+              <div class="ses-pick-t">${esc(e.name)}</div>
+              <div class="ses-pick-s">${e.sets.length}/${e.targetSets} sérií · ${esc(e.targetReps)} op.${top ? ` · minule ${formatSet(top)}` : ''}</div>
+            </button>
+            <div class="ses-pick-tools">
+              <button class="ses-pick-btn" data-up="${i}" type="button" ${i === 0 ? 'disabled' : ''} aria-label="Nahoru">↑</button>
+              <button class="ses-pick-btn" data-down="${i}" type="button" ${i >= s.exercises.length - 1 ? 'disabled' : ''} aria-label="Dolů">↓</button>
+              <button class="ses-pick-btn" data-edit="${i}" type="button" aria-label="Upravit">✎</button>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
-      <button class="ses-action ses-sheet-save" id="sesp-add" type="button">+ Přidat cvik</button>
+      <button class="wk-add-btn" id="sesp-workouts" type="button" style="margin-top:10px;">🏋️ Vybrat ze všech mých workoutů (${getAllKnownExercises().length})</button>
+      <button class="ses-action ses-sheet-save" id="sesp-add" type="button">+ Vytvořit vlastní cvik</button>
     </div>`;
   sheet.style.display = 'block';
 
@@ -9126,6 +9859,13 @@ function openExercisePicker() {
   sheet.querySelectorAll('[data-edit]').forEach((el) => el.addEventListener('click', () => {
     openExerciseEditor(Number(el.dataset.edit));
   }));
+  const wkBtn = sheet.querySelector('#sesp-workouts');
+  if (wkBtn) {
+    wkBtn.addEventListener('click', () => {
+      closeSessionSheet();
+      openWorkoutsModal({ mode: 'session' });
+    });
+  }
   sheet.querySelector('#sesp-add').addEventListener('click', () => openExerciseEditor(-1));
 }
 
