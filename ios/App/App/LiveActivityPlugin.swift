@@ -166,9 +166,13 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         var previousLift = call.getString("previousLift")
         if previousLift?.isEmpty == true { previousLift = nil }
 
+        var nextLift = call.getString("nextLift")
+        if nextLift?.isEmpty == true { nextLift = nil }
+
         return WorkoutActivityAttributes.ContentState(
             exerciseName: exerciseName,
             previousLift: previousLift,
+            nextLift: nextLift,
             restEndsAt: date(fromEpochMillis: call.getDouble("restEndsAt")),
             restTotalSec: call.getInt("restTotalSec") ?? 0,
             setsDone: call.getInt("setsDone") ?? 0,

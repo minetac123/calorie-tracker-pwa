@@ -9263,14 +9263,38 @@ function liveActivityPayload() {
   const ex = sessionCurrentExercise();
   if (!s || !ex) return null;
   const lastTop = sessionTopSet(getLastExerciseSession(ex.name, s.date));
+
+  // Určíme, jakou váhu a opakování má uživatel zvednout v nadcházející sérii:
+  let targetWeight = null;
+  if (Array.isArray(ex.sets) && ex.sets.length > 0) {
+    targetWeight = ex.sets[ex.sets.length - 1].w;
+  } else if (lastTop && typeof lastTop.w === 'number') {
+    targetWeight = lastTop.w;
+  }
+
+  const repsStr = ex.targetReps ? String(ex.targetReps).trim() : '';
+  const repsSuffix = (repsStr && !repsStr.includes('-') && !repsStr.toLowerCase().includes('op')) ? ' op.' : '';
+
+  let nextLiftStr = '';
+  if (targetWeight !== null && targetWeight > 0) {
+    nextLiftStr = `${String(targetWeight).replace('.', ',')} kg${repsStr ? ` × ${repsStr}${repsSuffix}` : ''}`;
+  } else if (targetWeight === 0) {
+    nextLiftStr = `Vlastní váha${repsStr ? ` × ${repsStr}${repsSuffix}` : ''}`;
+  } else if (repsStr) {
+    nextLiftStr = `${repsStr}${repsSuffix}`;
+  } else {
+    nextLiftStr = 'Další série';
+  }
+
   return {
     sessionId: String(s.id),
     sessionTitle: s.title || 'Trénink',
     exerciseName: ex.name || '',
     previousLift: lastTop ? formatSet(lastTop) : null,
+    nextLift: nextLiftStr.trim(),
     restEndsAt: s.restEndsAt || null,
     restTotalSec: ex.restSec || 90,
-    setsDone: ex.sets.length,
+    setsDone: Array.isArray(ex.sets) ? ex.sets.length : 0,
     setsTarget: ex.targetSets || 0
   };
 }

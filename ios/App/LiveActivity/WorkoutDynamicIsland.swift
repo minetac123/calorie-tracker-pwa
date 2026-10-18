@@ -16,6 +16,8 @@ import WidgetKit
 @available(iOS 17.0, *)
 enum WorkoutDynamicIsland {
 
+    private static let fitGreen = Color(red: 0.42, green: 0.86, blue: 0.35)
+
     // MARK: - Sdílené pomocné kusy
 
     /// Rozsah pro odpočet, nebo `nil` když pauza neběží.
@@ -50,8 +52,8 @@ enum WorkoutDynamicIsland {
 
             if let range = restRange(context) {
                 countdown(range)
-                    .font(.system(size: 26, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .foregroundStyle(fitGreen)
                     .frame(maxWidth: 90, alignment: .leading)
             } else {
                 Text("—")
@@ -72,9 +74,9 @@ enum WorkoutDynamicIsland {
                 .foregroundStyle(.secondary)
 
             Text("\(context.state.setsDone)/\(context.state.setsTarget)")
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .font(.system(size: 20, weight: .bold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .foregroundStyle(fitGreen)
         }
         .padding(.trailing, 4)
     }
@@ -83,18 +85,31 @@ enum WorkoutDynamicIsland {
     static func expandedCenter(
         context: ActivityViewContext<WorkoutActivityAttributes>
     ) -> some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 2) {
             Text(context.state.exerciseName)
                 .font(.caption)
-                .fontWeight(.medium)
+                .fontWeight(.bold)
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
-            Text(context.attributes.sessionTitle)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if let nextLift = context.state.nextLift, !nextLift.isEmpty {
+                HStack(spacing: 3) {
+                    Image(systemName: "target")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(fitGreen)
+                    Text(nextLift)
+                        .font(.system(size: 12.5, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            } else {
+                Text(context.attributes.sessionTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
         .multilineTextAlignment(.center)
     }
@@ -103,29 +118,37 @@ enum WorkoutDynamicIsland {
     static func expandedBottom(
         context: ActivityViewContext<WorkoutActivityAttributes>
     ) -> some View {
-        // Spodní region je nepovinný doplněk — když "minule" chybí a pauza
-        // neběží, zůstane schválně prázdný, ať Island nezabírá zbytečnou výšku.
-        // Prázdný řetězec se musí chovat jako chybějící historie, jinak by se
-        // ukázalo holé "Minule: " bez hodnoty (plugin sice prázdné hodnoty
-        // převádí na nil, ale widget na to nemá spoléhat).
-        if let previous = context.state.previousLift, !previous.isEmpty {
-            HStack(spacing: 4) {
-                Image(systemName: "clock.arrow.circlepath")
-                Text("Minule: \(previous)")
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 4)
-        } else if restRange(context) == nil {
-            Text("Pauza neběží")
+        HStack(spacing: 8) {
+            if let previous = context.state.previousLift, !previous.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.arrow.circlepath")
+                    Text("Minule: \(previous)")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
+            } else if restRange(context) == nil {
+                Text("Čas na sérii")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(fitGreen)
+            }
+
+            Spacer(minLength: 4)
+
+            if restRange(context) != nil, #available(iOS 17.0, *) {
+                Button(intent: SkipRestIntent()) {
+                    Text("Přeskočit")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+                .background(Color.white.opacity(0.15), in: Capsule())
+                .foregroundStyle(.white)
+            }
         }
+        .padding(.horizontal, 4)
     }
 
     // MARK: - Compact
@@ -135,7 +158,7 @@ enum WorkoutDynamicIsland {
         context: ActivityViewContext<WorkoutActivityAttributes>
     ) -> some View {
         Image(systemName: restRange(context) == nil ? "dumbbell.fill" : "timer")
-            .foregroundStyle(.white)
+            .foregroundStyle(fitGreen)
     }
 
     @ViewBuilder
@@ -146,12 +169,17 @@ enum WorkoutDynamicIsland {
             // Pevná šířka: kompaktní region se jinak při každé změně číslic
             // překresluje na jinou šířku a "dýchá".
             countdown(range)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(fitGreen)
                 .frame(width: 44)
+        } else if let nextLift = context.state.nextLift, !nextLift.isEmpty {
+            Text(nextLift.components(separatedBy: " × ").first ?? nextLift)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
         } else {
             Text("\(context.state.setsDone)/\(context.state.setsTarget)")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -165,12 +193,12 @@ enum WorkoutDynamicIsland {
     ) -> some View {
         if let range = restRange(context) {
             countdown(range)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(fitGreen)
                 .frame(width: 36)
         } else {
             Image(systemName: "dumbbell.fill")
-                .foregroundStyle(.white)
+                .foregroundStyle(fitGreen)
         }
     }
 }

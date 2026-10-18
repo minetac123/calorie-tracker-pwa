@@ -4,7 +4,15 @@ Tenhle soubor je pro mě (Claude) i pro tebe, kdybys pokračoval v jiném
 nástroji (Antigravity apod.) a nová session nebude mít kontext z chatu.
 Aktualizuju ho průběžně, ne jen na konci.
 
-Poslední update: **2026-10-11**, verze appky **3.1.1**.
+Poslední update: **2026-10-18**, verze appky **3.1.2**.
+
+### Novinka ve 3.1.2 — iOS Widget & Live Activity: Rest Timer, Cvik & Kolik naložit
+- Rozšířen ActivityKit Live Activity widget na zamykací obrazovce i v Dynamic Islandu (`FitAIWidgets`):
+  1. **Rest timer (pauza mezi sériemi)**: Obří, čistý systémový odpočet (`Text(timerInterval:countsDown:)`, 38pt, design `.rounded`, weight `.black`, fitness neonově zelená barva), progress bar a tlačítko „Přeskočit“.
+  2. **Jaký cvik**: Název aktuálně prováděného cviku velkým písmem spolu s počítadlem sérií (`2/4 sérií`).
+  3. **Kolik naložit / zvednout**: Nová výrazná kartička s ikonou terče ukazující přesnou váhu a opakování pro nadcházející sérii (např. `🎯 Naložit: 85 kg × 6-8` nebo `Další série: 100 kg × 5 op.`), odvozenou z poslední odjeté série nebo z předchozího tréninku, s poznámkou `Minule: 80 kg × 8`.
+  4. **Dynamic Island**: Expanded regiony zobrazují název cviku, `🎯 85 kg × 6-8`, sérii `2/4` a velký odpočet pauzy; v kompaktním režimu se zobrazuje odpočet nebo naložená váha.
+- Změny v souborech: `ios/App/App/WorkoutActivityAttributes.swift`, `ios/App/App/LiveActivityPlugin.swift`, `ios/App/LiveActivity/WorkoutLiveActivity.swift`, `ios/App/LiveActivity/WorkoutDynamicIsland.swift`, `app.js`.
 
 ### Novinka ve 3.1.0 / 3.1.1 — Katalog všech workoutů a kompletní historie vah (`#workouts-modal`) + QA opravy
 - Přidáno tlačítko **„🏋️ Workouty“** přímo do živého tréninku (`#session-view`), do obrazovky `Plán → Trénink` (`#plan-workout-view`) a nová karta **„🏋️ Moje workouty a váhy“** do `Moje historie → Váha a progres` (`#history-progress-view`).

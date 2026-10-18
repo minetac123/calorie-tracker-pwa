@@ -59,39 +59,85 @@ struct WorkoutLiveActivity: Widget {
 
 struct WorkoutLockScreenView: View {
     let context: ActivityViewContext<WorkoutActivityAttributes>
-
     private var state: WorkoutActivityAttributes.ContentState { context.state }
 
+    private let fitGreen = Color(red: 0.42, green: 0.86, blue: 0.35)
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 11) {
+            // 1. ŘÁDEK: Název cviku a počet sérií
+            HStack(alignment: .center) {
                 Text(state.exerciseName)
-                    .font(.headline)
+                    .font(.system(.headline, design: .rounded, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
+
                 Spacer(minLength: 8)
+
                 Text("\(state.setsDone)/\(state.setsTarget) sérií")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .foregroundStyle(fitGreen)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(fitGreen.opacity(0.18), in: Capsule())
             }
 
-            // Řádek "minule" se schová celý, když historie chybí — prázdný
-            // placeholder by na lock screenu jen zabíral místo.
-            if let previousLift = state.previousLift, !previousLift.isEmpty {
-                Text(previousLift)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
+            // 2. ŘÁDEK: Kolik naložit / zvednout na další sérii + Minule
+            if let nextLift = state.nextLift, !nextLift.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "target")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(fitGreen)
+
+                        Text(state.restEndsAt != nil ? "Naložit:" : "Další série:")
+                            .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.68))
+
+                        Text(nextLift)
+                            .font(.system(.title3, design: .rounded, weight: .black))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.09), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    if let previousLift = state.previousLift, !previousLift.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 10))
+                            Text("Minule: \(previousLift)")
+                                .font(.system(size: 11, weight: .regular))
+                        }
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.leading, 4)
+                    }
+                }
+            } else if let previousLift = state.previousLift, !previousLift.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 11))
+                    Text("Minule: \(previousLift)")
+                        .font(.system(size: 12, weight: .regular))
+                }
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.leading, 2)
             }
 
+            // 3. ŘÁDEK: Rest timer nebo Čas na sérii
             if let endsAt = state.restEndsAt {
                 restRunningView(endsAt: endsAt)
             } else {
                 idleView
             }
 
+            // 4. ŘÁDEK: Progress sérií
             ProgressView(value: setsProgress)
-                .tint(Color(red: 0.42, green: 0.86, blue: 0.35))
+                .progressViewStyle(.linear)
+                .tint(fitGreen)
         }
         .padding(14)
     }
@@ -99,27 +145,33 @@ struct WorkoutLockScreenView: View {
     @ViewBuilder
     private func restRunningView(endsAt: Date) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Pauza")
-                    .font(.caption2)
+            VStack(alignment: .leading, spacing: -2) {
+                Text("PAUZA")
+                    .font(.system(size: 9.5, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white.opacity(0.55))
-                // Odpočet kreslí systém sám z rozsahu dat; Live Activity nesmí
-                // mít vlastní timer a push update každou sekundu není možný.
+                    .kerning(1.2)
+
+                // Obří, snadno čitelný časovač pauzy
                 Text(timerInterval: timerRange(endsAt: endsAt), countsDown: true)
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(.system(size: 38, weight: .black, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(fitGreen)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
 
             Spacer(minLength: 8)
 
             if #available(iOS 17.0, *) {
                 Button(intent: SkipRestIntent()) {
-                    Text("Přeskočit")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
+                    HStack(spacing: 5) {
+                        Image(systemName: "forward.end.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("Přeskočit")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                    }
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 8)
                 }
                 .buttonStyle(.plain)
                 .background(Color.white.opacity(0.14), in: Capsule())
@@ -129,14 +181,25 @@ struct WorkoutLockScreenView: View {
     }
 
     private var idleView: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: "figure.strengthtraining.traditional")
-                .foregroundStyle(Color(red: 0.42, green: 0.86, blue: 0.35))
-            Text(state.setsDone >= state.setsTarget ? "Cvik hotový" : "Čas na sérii")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(fitGreen)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(state.setsDone >= state.setsTarget ? "CVIK DOKONČEN" : "ČAS NA SÉRII")
+                    .font(.system(size: 12.5, weight: .heavy, design: .rounded))
+                    .foregroundStyle(fitGreen)
+                    .kerning(0.8)
+
+                Text(state.setsDone >= state.setsTarget ? "Skvělá práce, přejdi na další cvik." : "Odpočiň si nebo jdi zvedat.")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.65))
+            }
+
             Spacer(minLength: 0)
         }
+        .padding(.vertical, 2)
     }
 
     /// `Text(timerInterval:)` spadne na prázdném/obráceném rozsahu, což se stane

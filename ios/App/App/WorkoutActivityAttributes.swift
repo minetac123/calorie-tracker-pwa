@@ -18,6 +18,8 @@ struct WorkoutActivityAttributes: ActivityAttributes {
         /// Volitelné — u prvního tréninku daného cviku ještě žádný "minule"
         /// neexistuje a řádek se v UI vynechá.
         var previousLift: String?
+        /// Co a kolik naložit/zvednout v nadcházející sérii (např. "85 kg × 6-8" nebo "85 kg × 8 op.").
+        var nextLift: String?
         /// Absolutní čas konce pauzy, ne zbývající sekundy: Live Activity si
         /// nesmí tikat vlastní časovač, takže odpočet musí umět dopočítat
         /// systém sám z pevného data.
