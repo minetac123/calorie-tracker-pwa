@@ -27,10 +27,10 @@ function registerStatsProfileTools(client) {
         reps: { type: 'number', description: 'Počet opakování (doporučeno 1 až 10 pro přesnost).' },
         exerciseName: { type: 'string', description: 'Název cviku (pokud není uvedena váha/opakování, načte se z historie).' }
       }
-    },\
+    },
     async (args) => {
-      const w = Number(args.weightKg || 0);\
-      const r = Number(args.reps || 0);\
+      const w = Number(args.weightKg || 0);
+      const r = Number(args.reps || 0);
       if (w > 0 && r > 0) {
         const epley = Math.round(w * (1 + r / 30));
         const brzycki = Math.round(w / (1.0278 - 0.0278 * r));
@@ -70,7 +70,7 @@ function registerStatsProfileTools(client) {
       properties: {
         weeks: { type: 'number', description: 'Počet týdnů zpětně (výchozí 4).' }
       }
-    },\
+    },
     async (args) => {
       const state = await client.getState();
       const days = (args.weeks || 4) * 7;
@@ -86,7 +86,7 @@ function registerStatsProfileTools(client) {
       properties: {
         days: { type: 'number', description: 'Počet dní zpětně (výchozí 30).' }
       }
-    },\
+    },
     async (args) => {
       const state = await client.getState();
       const res = applyStatsTool('get_progress_summary', { days: args.days || 30 }, state);
@@ -128,7 +128,7 @@ function registerStatsProfileTools(client) {
         equipment: { type: 'string', description: 'Dostupné vybavení (posilovna, činky doma, vlastní váha).' },
         trainingDaysPerWeek: { type: 'number', description: 'Kolik dní v týdnu chce cvičit.' }
       }
-    },\
+    },
     async (args) => {
       const state = await client.getState();
       const res = applyTool('save_profile', args, state);
@@ -158,7 +158,7 @@ function registerStatsProfileTools(client) {
       properties: {
         fact: { type: 'string', description: 'Text faktu k zapamatování.' }
       }
-    },\
+    },
     async (args) => {
       const state = await client.getState();
       if (!Array.isArray(state.coachMemories)) state.coachMemories = [];
@@ -176,67 +176,67 @@ function registerStatsProfileTools(client) {
       properties: {
         fact: { type: 'string', description: 'Text faktu k zapomenutí.' }
       }
-    },\
+    },
     async (args) => {
       const state = await client.getState();
-      const before = (state.coachMemories || []).length;\
-      state.coachMemories = (state.coachMemories || []).filter(\
-        (f) => !f.toLowerCase().includes(args.fact.toLowerCase())\
-      );\
-      if (state.coachMemories.length === before) {\
-        return `Fakt "${args.fact}" nebyl v paměti nalezen.`;\
-      }\
-      await client.saveState(state);\
-      return `Fakt byl z paměti odstraněn.`;\
-    }\
-  );\
+      const before = (state.coachMemories || []).length;
+      state.coachMemories = (state.coachMemories || []).filter(
+        (f) => !f.toLowerCase().includes(args.fact.toLowerCase())
+      );
+      if (state.coachMemories.length === before) {
+        return `Fakt "${args.fact}" nebyl v paměti nalezen.`;
+      }
+      await client.saveState(state);
+      return `Fakt byl z paměti odstraněn.`;
+    }
+  );
 
-  def(\
-    'fitai_login',\
-    'Přihlásí se k FitAI účtu uživatele jménem a heslem a stáhne data z cloudu.',\
-    {\
-      required: ['username', 'password'],\
-      properties: {\
-        username: { type: 'string', description: 'Uživatelské jméno ve FitAI.' },\
-        password: { type: 'string', description: 'Heslo k účtu.' }\
-      }\
-    },\
-    async (args) => {\
-      const res = await client.login(args.username, args.password);\
-      return `Úspěšně přihlášen jako "${res.username}". Token získán a data stažena.`;\
-    }\
-  );\
+  def(
+    'fitai_login',
+    'Přihlásí se k FitAI účtu uživatele jménem a heslem a stáhne data z cloudu.',
+    {
+      required: ['username', 'password'],
+      properties: {
+        username: { type: 'string', description: 'Uživatelské jméno ve FitAI.' },
+        password: { type: 'string', description: 'Heslo k účtu.' }
+      }
+    },
+    async (args) => {
+      const res = await client.login(args.username, args.password);
+      return `Úspěšně přihlášen jako "${res.username}". Token získán a data stažena.`;
+    }
+  );
 
-  def(\
-    'fitai_sync',\
-    'Vynutí okamžitou synchronizaci dat mezi MCP serverem a FitAI cloudem.',\
-    {\
-      properties: {\
-        forcePull: { type: 'boolean', description: 'Zda přednostně stáhnout nejnovější stav z cloudu.' }\
-      }\
-    },\
-    async (args) => {\
-      const state = await client.getState(args.forcePull);\
-      const res = await client.saveState(state);\
-      return JSON.stringify({\
-        status: res.cloudSynced ? 'Synchronizováno s cloudem' : 'Uloženo pouze lokálně (nepřihlášen nebo offline)',\
-        lastSync: res.lastSync,\
-        error: res.cloudError || null\
-      }, null, 2);\
-    }\
-  );\
+  def(
+    'fitai_sync',
+    'Vynutí okamžitou synchronizaci dat mezi MCP serverem a FitAI cloudem.',
+    {
+      properties: {
+        forcePull: { type: 'boolean', description: 'Zda přednostně stáhnout nejnovější stav z cloudu.' }
+      }
+    },
+    async (args) => {
+      const state = await client.getState(args.forcePull);
+      const res = await client.saveState(state);
+      return JSON.stringify({
+        status: res.cloudSynced ? 'Synchronizováno s cloudem' : 'Uloženo pouze lokálně (nepřihlášen nebo offline)',
+        lastSync: res.lastSync,
+        error: res.cloudError || null
+      }, null, 2);
+    }
+  );
 
-  def(\
-    'fitai_status',\
-    'Zobrazí stav připojení k FitAI, přihlášeného uživatele a počty evidovaných dat.',\
-    {},\
-    async () => {\
-      const st = client.getStatus();\
-      return JSON.stringify(st, null, 2);\
-    }\
-  );\
+  def(
+    'fitai_status',
+    'Zobrazí stav připojení k FitAI, přihlášeného uživatele a počty evidovaných dat.',
+    {},
+    async () => {
+      const st = client.getStatus();
+      return JSON.stringify(st, null, 2);
+    }
+  );
 
-  return tools;\
-}\
+  return tools;
+}
 
-module.exports = { registerStatsProfileTools };\
+module.exports = { registerStatsProfileTools };

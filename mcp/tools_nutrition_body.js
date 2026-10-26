@@ -130,8 +130,7 @@ function registerNutritionBodyTools(client) {
       if (state.logs[d].length === initLen) {
         return `Žádné odpovídající jídlo pro smazání nebylo nalezeno v datu ${d}.`;
       }
-      await client.saveState(state);
-      return `Jídlo bylo smazáno.`;
+      await client.saveState(state);\n      return `Jídlo bylo smazáno.`;
     }
   );
 
@@ -239,7 +238,7 @@ function registerNutritionBodyTools(client) {
 
   def(
     'log_body_measurement',
-    'Zapíše obvody těla v cm (pas, hrudník, paže, stehna, boky).',
+    'Zapíše obvody těla v cm (pas, hrudník, paže, stehna, boky, krk).',
     {
       properties: {
         date: { type: 'string', description: 'Datum YYYY-MM-DD.' },
@@ -247,7 +246,8 @@ function registerNutritionBodyTools(client) {
         chest: { type: 'number', description: 'Obvod hrudníku v cm.' },
         arm: { type: 'number', description: 'Obvod paže v cm.' },
         thigh: { type: 'number', description: 'Obvod stehna v cm.' },
-        hips: { type: 'number', description: 'Obvod boků v cm.' }
+        hips: { type: 'number', description: 'Obvod boků v cm.' },
+        neck: { type: 'number', description: 'Obvod krku v cm.' }
       }
     },
     async (args) => {
@@ -259,7 +259,8 @@ function registerNutritionBodyTools(client) {
         chest: args.chest,
         arm: args.arm,
         thigh: args.thigh,
-        hips: args.hips
+        hips: args.hips,
+        neck: args.neck
       }, state);
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);
@@ -289,14 +290,14 @@ function registerNutritionBodyTools(client) {
 
   def(
     'log_cardio',
-    'Zapíše kardio aktivitu (běh, chůze, plavání, kolo - délka, km, kcal).',
+    'Zapíše kardio aktivitu (běh, chůze, plavání, kolo - délka, km, intenzita).',
     {
       required: ['type', 'durationMinutes'],
       properties: {
-        type: { type: 'string', description: 'Typ aktivity (běh, chůze, plavání, rotoped, veslování).' },
+        type: { type: 'string', description: 'Typ aktivity (běh, chůze, plavání, kolo, veslování).' },
         durationMinutes: { type: 'number', description: 'Trvání v minutách.' },
         distanceKm: { type: 'number', description: 'Vzdálenost v kilometrech.' },
-        calories: { type: 'number', description: 'Spálené kalorie (pokud jsou známy z WHOOP / hodinek).' },
+        intensity: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Intenzita.' },
         date: { type: 'string', description: 'Datum YYYY-MM-DD.' }
       }
     },
@@ -305,9 +306,9 @@ function registerNutritionBodyTools(client) {
       const d = args.date || todayStr();
       const res = applyBodyTool('log_cardio', {
         type: args.type,
-        minutes: args.durationMinutes,
-        distance_km: args.distanceKm,
-        calories: args.calories,
+        minutes: args.durationMinutes || args.minutes,
+        distanceKm: args.distanceKm,
+        intensity: args.intensity || 'medium',
         date: d
       }, state);
       if (!res.ok) throw new Error(res.error);
@@ -323,8 +324,7 @@ function registerNutritionBodyTools(client) {
       required: ['hours'],
       properties: {
         hours: { type: 'number', description: 'Počet hodin spánku (např. 7.5).' },
-        quality: { type: 'number', description: 'Kvalita spánku 1-5 nebo recovery skóre.' },
-        note: { type: 'string', description: 'Poznámka ke spánku nebo regeneraci.' },
+        quality: { type: 'number', description: 'Kvalita spánku 1-5.' },
         date: { type: 'string', description: 'Datum YYYY-MM-DD.' }
       }
     },
@@ -334,7 +334,6 @@ function registerNutritionBodyTools(client) {
       const res = applyBodyTool('log_sleep', {
         hours: args.hours,
         quality: args.quality,
-        note: args.note,
         date: d
       }, state);
       if (!res.ok) throw new Error(res.error);
@@ -347,23 +346,26 @@ function registerNutritionBodyTools(client) {
     'log_injury',
     'Zaeviduje zranění nebo omezení (např. bolest zápěstí, přetížení hamstringu), aby kouč neplánoval problémové cviky.',
     {
-      required: ['name'],
+      required: ['affectedBodyPart'],
       properties: {
-        name: { type: 'string', description: 'Název zranění nebo bolesti.' },
+        affectedBodyPart: { type: 'string', description: 'Zasažená partie (rameno, koleno, zápěstí, záda).' },
+        severity: { type: 'number', description: 'Závažnost 1-5 (výchozí 3).' },
         notes: { type: 'string', description: 'Podrobnosti o bolesti a cvicích, kterým se vyhnout.' },
-        affectedBodyPart: { type: 'string', description: 'Zasažená partie (rameno, koleno, zápěstí, záda).' }
+        date: { type: 'string', description: 'Datum YYYY-MM-DD.' }
       }
     },
     async (args) => {
       const state = await client.getState();
+      const d = args.date || todayStr();
       const res = applyBodyTool('log_injury', {
-        name: args.name,
-        note: args.notes,
-        part: args.affectedBodyPart
+        bodyPart: args.affectedBodyPart || args.bodyPart || args.name,
+        severity: args.severity || 3,
+        note: args.notes || args.note || '',
+        date: d
       }, state);
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);
-      return res.note || `Zranění "${args.name}" bylo zaevidováno.`;
+      return res.note || `Zranění "${args.affectedBodyPart || args.name}" bylo zaevidováno.`;
     }
   );
 
@@ -371,16 +373,15 @@ function registerNutritionBodyTools(client) {
     'resolve_injury',
     'Označí dříve zapsané zranění za vyléčené a vyřešené.',
     {
+      required: ['affectedBodyPart'],
       properties: {
-        name: { type: 'string', description: 'Název zranění.' },
-        injuryId: { type: 'string', description: 'ID zranění.' }
+        affectedBodyPart: { type: 'string', description: 'Část těla (např. rameno, koleno).' }
       }
     },
     async (args) => {
       const state = await client.getState();
       const res = applyBodyTool('resolve_injury', {
-        name: args.name,
-        id: args.injuryId
+        bodyPart: args.affectedBodyPart || args.bodyPart || args.name
       }, state);
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);

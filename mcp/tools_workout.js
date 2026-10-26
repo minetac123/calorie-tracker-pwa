@@ -74,7 +74,8 @@ function registerWorkoutTools(client) {
         date: d,
         dayName: DAY_CZ[k] || k,
         isRestDay: !!dayData.rest,
-        workoutName: dayData.name || '',
+        workoutName: dayData.title || dayData.name || '',
+        focus: dayData.focus || '',
         exercisesCount: (dayData.exercises || []).length,
         exercises: dayData.exercises || []
       }, null, 2);
@@ -85,17 +86,39 @@ function registerWorkoutTools(client) {
     'set_workout_plan',
     'Kompletně nastaví nebo přepíše týdenní tréninkový plán pro všech 7 dní (pondělí až neděle).',
     {
-      required: ['plan'],
+      required: ['days'],
       properties: {
-        plan: {
-          type: 'object',
-          description: 'Objekt plánu obsahující klíč days (mon, tue, wed, thu, fri, sat, sun).'
+        split: {
+          type: 'string',
+          description: 'Název splitu (např. "Push/Pull/Legs + Upper").'
+        },
+        days: {
+          type: 'array',
+          description: 'Pole objektů pro dny (day: mon..sun, title, focus, rest, exercises).',
+          items: { type: 'object' }
         }
       }
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyTool('save_workout_plan', args.plan, state);
+      let daysArr = args.days;
+      if (!Array.isArray(daysArr) && args.plan?.days) {
+        if (Array.isArray(args.plan.days)) {
+          daysArr = args.plan.days;
+        } else if (typeof args.plan.days === 'object') {
+          daysArr = Object.entries(args.plan.days).map(([day, val]) => ({
+            day,
+            title: val.title || val.name || 'Trénink',
+            focus: val.focus || '',
+            rest: !!val.rest,
+            exercises: val.exercises || []
+          }));
+        }
+      }
+      const res = applyTool('set_workout_plan', {
+        split: args.split || args.plan?.split || 'Vlastní split',
+        days: daysArr || []
+      }, state);
       if (res && res.error) throw new Error(res.error);
       await client.saveState(state);
       return `Tréninkový plán byl úspěšně uložen!\n\n${fmtWorkoutPlan(state.workoutPlan)}`;
@@ -112,7 +135,9 @@ function registerWorkoutTools(client) {
           type: 'string',
           description: 'Den v týdnu (mon, tue, wed, thu, fri, sat, sun nebo pondělí-neděle).'
         },
-        name: { type: 'string', description: 'Nový název dne (např. "Push - Hrudník & Ramena").' },
+        title: { type: 'string', description: 'Nový název dne (např. "Push - Hrudník & Ramena").' },
+        name: { type: 'string', description: 'Alternativní pole pro název dne.' },
+        focus: { type: 'string', description: 'Zaměření tréninku (např. "hrudník, ramena, triceps").' },
         rest: { type: 'boolean', description: 'Zda je den dnem volna (rest day).' },
         exercises: {
           type: 'array',
@@ -125,17 +150,17 @@ function registerWorkoutTools(client) {
       const state = await client.getState();
       const k = normDayKey(args.day);
       if (!k) throw new Error(`Neznámý den "${args.day}"`);
-      if (!state.workoutPlan) state.workoutPlan = { days: {} };
-      if (!state.workoutPlan.days) state.workoutPlan.days = {};
-
-      const current = state.workoutPlan.days[k] || { name: DAY_CZ[k], rest: false, exercises: [] };
-      if (args.name !== undefined) current.name = args.name;
-      if (args.rest !== undefined) current.rest = !!args.rest;
-      if (Array.isArray(args.exercises)) current.exercises = args.exercises;
-
-      state.workoutPlan.days[k] = current;
+      const current = state.workoutPlan?.days?.[k] || {};
+      const res = applyTool('update_workout_day', {
+        day: k,
+        title: args.title || args.name || current.title || current.name || DAY_CZ[k],
+        focus: args.focus !== undefined ? args.focus : (current.focus || ''),
+        rest: args.rest !== undefined ? !!args.rest : !!current.rest,
+        exercises: Array.isArray(args.exercises) ? args.exercises : (current.exercises || [])
+      }, state);
+      if (res && res.error) throw new Error(res.error);
       await client.saveState(state);
-      return `Den ${DAY_CZ[k]} byl úspěšně aktualizován. Počet cviků: ${current.exercises.length}, rest day: ${current.rest ? 'ano' : 'ne'}.`;
+      return `Den ${DAY_CZ[k]} byl úspěšně aktualizován: "${res.title}", počet cviků: ${(res.exercises || []).length}, rest day: ${res.rest ? 'ano' : 'ne'}.`;
     }
   );
 
@@ -152,20 +177,22 @@ function registerWorkoutTools(client) {
         weight: { type: 'string', description: 'Plánovaná váha (např. "32 kg", "vlastní váha").' },
         restSec: { type: 'number', description: 'Délka pauzy mezi sériemi v sekundách (výchozí 90).' },
         note: { type: 'string', description: 'Poznámka k provedení, tempu či technice.' },
-        position: { type: 'number', description: 'Pozice v pořadí cviků (1 pro začátek, výchozí na konec).' }
+        position: { type: 'string', description: 'Pozice ("start", "end" nebo index od 0).' }
       }
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('add_exercise', {
-        day: normDayKey(args.day),
+      const noteParts = [];
+      if (args.weight) noteParts.push(`cíl ${args.weight}`);
+      if (args.note) noteParts.push(args.note);
+      const res = applyWorkoutOpsTool('add_exercise_to_plan_day', {
+        day: normDayKey(args.day) || args.day,
         name: args.name,
         sets: args.sets || 3,
-        reps: String(args.reps || '10'),
-        weight: args.weight,
+        reps: String(args.reps || '8-12'),
         restSec: args.restSec || 90,
-        note: args.note,
-        position: args.position
+        note: noteParts.join(' · '),
+        position: args.position !== undefined ? String(args.position) : undefined
       }, state);
 
       if (!res.ok) throw new Error(res.error);
@@ -186,8 +213,8 @@ function registerWorkoutTools(client) {
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('remove_exercise', {
-        day: normDayKey(args.day),
+      const res = applyWorkoutOpsTool('remove_exercise_from_plan_day', {
+        day: normDayKey(args.day) || args.day,
         exerciseRef: args.exerciseRef
       }, state);
 
@@ -199,27 +226,23 @@ function registerWorkoutTools(client) {
 
   def(
     'substitute_exercise',
-    'Nahradí existující cvik v tréninku alternativním cvikem se zachováním nebo úpravou sérií a vah.',
+    'Nahradí existující cvik v tréninku alternativním cvikem se zachováním sérií a opakování.',
     {
       required: ['day', 'exerciseRef', 'newExerciseName'],
       properties: {
         day: { type: 'string', description: 'Den v týdnu.' },
         exerciseRef: { type: 'string', description: 'Původní cvik k nahrazení.' },
         newExerciseName: { type: 'string', description: 'Nový náhradní cvik.' },
-        reason: { type: 'string', description: 'Důvod výměny (např. obsazený stroj, bolest ramene).' },
-        sets: { type: 'number', description: 'Volitelný nový počet sérií.' },
-        reps: { type: 'string', description: 'Volitelný nový rozsah opakování.' }
+        reason: { type: 'string', description: 'Důvod výměny / poznámka (např. obsazený stroj, bolest ramene).' }
       }
     },
     async (args) => {
       const state = await client.getState();
       const res = applyWorkoutOpsTool('substitute_exercise', {
-        day: normDayKey(args.day),
+        day: normDayKey(args.day) || args.day,
         exerciseRef: args.exerciseRef,
-        new_name: args.newExerciseName,
-        reason: args.reason,
-        sets: args.sets,
-        reps: args.reps
+        newName: args.newExerciseName || args.newName,
+        note: args.reason || args.note
       }, state);
 
       if (!res.ok) throw new Error(res.error);
@@ -238,15 +261,15 @@ function registerWorkoutTools(client) {
         exerciseOrder: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Seřazené pole názvů cviků přesně v pořadí, jak mají jít po sobě.'
+          description: 'Seřazené pole názvů nebo ID cviků přesně v pořadí, jak mají jít po sobě.'
         }
       }
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('reorder_exercises', {
-        day: normDayKey(args.day),
-        order: args.exerciseOrder
+      const res = applyWorkoutOpsTool('reorder_plan_exercises', {
+        day: normDayKey(args.day) || args.day,
+        order: args.exerciseOrder || args.order
       }, state);
 
       if (!res.ok) throw new Error(res.error);
@@ -259,22 +282,31 @@ function registerWorkoutTools(client) {
     'set_rest_day',
     'Nastaví daný den jako den volna (rest day) nebo naopak z něj udělá aktivní tréninkový den.',
     {
-      required: ['day', 'rest'],
+      required: ['day'],
       properties: {
         day: { type: 'string', description: 'Den v týdnu.' },
-        rest: { type: 'boolean', description: 'true pro rest day, false pro trénink.' }
+        rest: { type: 'boolean', description: 'true pro rest day (výchozí true), false pro trénink.' }
       }
     },
     async (args) => {
       const state = await client.getState();
+      const k = normDayKey(args.day);
+      if (args.rest === false) {
+        if (!state.workoutPlan?.days?.[k]) throw new Error(`Den ${args.day} nenalezen.`);
+        state.workoutPlan.days[k].rest = false;
+        if (!state.workoutPlan.days[k].title || state.workoutPlan.days[k].title === 'Volno') {
+          state.workoutPlan.days[k].title = 'Trénink';
+        }
+        await client.saveState(state);
+        return `Den ${DAY_CZ[k] || args.day} je nyní nastaven jako tréninkový den.`;
+      }
       const res = applyWorkoutOpsTool('set_rest_day', {
-        day: normDayKey(args.day),
-        rest: args.rest
+        day: k || args.day
       }, state);
 
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);
-      return res.note || `Den ${args.day} byl upraven (rest day: ${args.rest}).`;
+      return res.note || `Den ${args.day} byl nastaven jako volno.`;
     }
   );
 
@@ -290,9 +322,9 @@ function registerWorkoutTools(client) {
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('copy_day', {
-        fromDay: normDayKey(args.fromDay),
-        toDay: normDayKey(args.toDay)
+      const res = applyTool('copy_workout_day', {
+        from: normDayKey(args.fromDay || args.from),
+        to: normDayKey(args.toDay || args.to)
       }, state);
 
       if (!res.ok) throw new Error(res.error);
@@ -307,42 +339,49 @@ function registerWorkoutTools(client) {
     {
       required: ['dayA', 'dayB'],
       properties: {
-        dayA: { type: 'string', description: 'První den (např. pondělí).' },
-        dayB: { type: 'string', description: 'Druhý den (např. sobota).' }
+        dayA: { type: 'string', description: 'První den (např. mon).' },
+        dayB: { type: 'string', description: 'Druhý den (např. sat).' }
       }
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('swap_days', {
+      const res = applyTool('swap_workout_days', {
         dayA: normDayKey(args.dayA),
         dayB: normDayKey(args.dayB)
       }, state);
 
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);
-      return res.note || `Dny ${args.dayA} a ${args.dayB} byly prohozeny.`;
+      return `Dny ${res.swapped} byly prohozeny.`;
     }
   );
 
   def(
     'progress_exercise',
-    'Zvýší cílovou váhu nebo počet opakování u cviku pro progresivní přetížení (např. +2.5 kg).',
+    'Zvýší cílovou váhu u cviku pro progresivní přetížení (např. +2.5 kg).',
     {
       required: ['exerciseName'],
       properties: {
         exerciseName: { type: 'string', description: 'Název cviku k progresu.' },
-        addWeightKg: { type: 'number', description: 'Kolik kg přidat (např. 2.5).' },
-        addReps: { type: 'number', description: 'Kolik opakování přidat (např. 1 nebo 2).' },
-        day: { type: 'string', description: 'Volitelný den v plánu (mon, tue...); pokud není zadán, prohledá celý split.' }
+        addWeightKg: { type: 'number', description: 'Kolik kg přidat (výchozí 2.5).' },
+        day: { type: 'string', description: 'Den v plánu (mon, tue...; výchozí mon).' }
       }
     },
     async (args) => {
       const state = await client.getState();
+      let dayKey = args.day ? normDayKey(args.day) : null;
+      if (!dayKey && state.workoutPlan?.days) {
+        const foundKey = Object.keys(state.workoutPlan.days).find((k) =>
+          (state.workoutPlan.days[k].exercises || []).some((e) =>
+            e.name.toLowerCase().includes(String(args.exerciseName).toLowerCase())
+          )
+        );
+        dayKey = foundKey || 'mon';
+      }
       const res = applyWorkoutOpsTool('progress_exercise', {
-        name: args.exerciseName,
-        add_weight: args.addWeightKg,
-        add_reps: args.addReps,
-        day: args.day ? normDayKey(args.day) : undefined
+        day: dayKey || 'mon',
+        exerciseRef: args.exerciseName || args.exerciseRef,
+        kgStep: args.addWeightKg || args.kgStep || 2.5
       }, state);
 
       if (!res.ok) throw new Error(res.error);
@@ -391,18 +430,18 @@ function registerWorkoutTools(client) {
 
   def(
     'deload_week',
-    'Nastaví odlehčovací deload týden: sníží pracovní váhy a počet sérií pro regeneraci svalů a kloubů.',
+    'Nastaví odlehčovací deload týden: sníží počet sérií napříč tréninkovým týdnem pro regeneraci.',
     {
       properties: {
-        intensityReductionPct: { type: 'number', description: 'O kolik % snížit váhy (výchozí 10-15%).' },
-        volumeReductionPct: { type: 'number', description: 'O kolik % snížit počet sérií (výchozí 30-40%).' }
+        volumeReductionPct: { type: 'number', description: 'O kolik % snížit počet sérií (5-50%, výchozí 20%).' },
+        intensityReductionPct: { type: 'number', description: 'Volitelné % snížení intenzity.' }
       }
     },
     async (args) => {
       const state = await client.getState();
+      const pct = args.volumeReductionPct || args.percent || args.intensityReductionPct || 20;
       const res = applyWorkoutOpsTool('deload_week', {
-        intensity_pct: args.intensityReductionPct,
-        volume_pct: args.volumeReductionPct
+        percent: pct
       }, state);
 
       if (!res.ok) throw new Error(res.error);
@@ -413,7 +452,7 @@ function registerWorkoutTools(client) {
 
   def(
     'extend_or_shorten_workout',
-    'Přizpůsobí délku tréninku (přidá doplňky nebo naopak ořeže méně podstatné cviky, pokud uživatel spěchá).',
+    'Přizpůsobí délku tréninku (přidá doplňkové cviky nebo naopak ořeže méně podstatné cviky, pokud uživatel spěchá).',
     {
       required: ['day', 'mode'],
       properties: {
@@ -421,49 +460,68 @@ function registerWorkoutTools(client) {
         mode: {
           type: 'string',
           enum: ['shorten', 'extend'],
-          description: 'Zda trénink zkrátit (odstranit doplňky) nebo prodloužit (přidat pumpovací cvik).'
+          description: 'Zda trénink zkrátit (shorten) nebo prodloužit (extend).'
         },
-        targetMinutes: { type: 'number', description: 'Cílový čas v minutách (např. 45 min pro rychlý trénink).' }
+        count: { type: 'number', description: 'Pro extend: kolik cviků přidat (1-5). Pro shorten: kolik cviků má v tréninku zbýt.' }
       }
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('extend_or_shorten_workout', {
-        day: normDayKey(args.day),
-        mode: args.mode,
-        target_minutes: args.targetMinutes
-      }, state);
+      const k = normDayKey(args.day) || args.day;
+      let res;
+      if (args.mode === 'shorten') {
+        res = applyWorkoutOpsTool('shorten_workout', {
+          day: k,
+          targetCount: args.count || 3
+        }, state);
+      } else {
+        res = applyWorkoutOpsTool('extend_workout', {
+          day: k,
+          count: args.count || 2
+        }, state);
+      }
 
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);
-      return res.note || `Trénink byl upraven dle požadavku na čas.`;
+      return res.note || 'Trénink byl upraven dle požadavku.';
     }
   );
 
   def(
     'set_exercise_tempo_and_notes',
-    'Nastaví tréninkové tempo (např. 3-0-1-0 pro hypertrofii) a poznámky k technice pro konkrétní cvik.',
+    'Nastaví tréninkové tempo (např. 3-1-1-0 pro hypertrofii) a poznámky k technice pro konkrétní cvik.',
     {
       required: ['day', 'exerciseRef'],
       properties: {
         day: { type: 'string', description: 'Den v týdnu.' },
         exerciseRef: { type: 'string', description: 'Název nebo ID cviku.' },
-        tempo: { type: 'string', description: 'Tempo provádění (např. "3-1-1-0", "kontrolovaná excentrika 3s").' },
+        tempo: { type: 'string', description: 'Tempo provádění (čtyři čísla oddělená pomlčkou, např. "3-1-1-0").' },
         note: { type: 'string', description: 'Trenérská instrukce k technice či pocitu.' }
       }
     },
     async (args) => {
       const state = await client.getState();
-      const res = applyWorkoutOpsTool('set_exercise_notes', {
-        day: normDayKey(args.day),
-        exerciseRef: args.exerciseRef,
-        tempo: args.tempo,
-        note: args.note
-      }, state);
-
-      if (!res.ok) throw new Error(res.error);
+      const k = normDayKey(args.day) || args.day;
+      let msg = '';
+      if (args.tempo) {
+        const res = applyWorkoutOpsTool('set_exercise_tempo', {
+          day: k,
+          exerciseRef: args.exerciseRef,
+          tempo: args.tempo
+        }, state);
+        if (!res.ok) throw new Error(res.error);
+        msg = res.note;
+      }
+      if (args.note && state.workoutPlan?.days?.[k]) {
+        const ex = (state.workoutPlan.days[k].exercises || []).find((e) =>
+          e.id === args.exerciseRef || e.name.toLowerCase().includes(String(args.exerciseRef).toLowerCase())
+        );
+        if (ex) {
+          ex.note = ex.note ? `${ex.note} · ${args.note}` : args.note;
+        }
+      }
       await client.saveState(state);
-      return res.note || 'Poznámky a tempo cviku byly uloženy.';
+      return msg || 'Poznámky a tempo cviku byly uloženy.';
     }
   );
 
@@ -473,15 +531,13 @@ function registerWorkoutTools(client) {
     {
       required: ['exerciseName'],
       properties: {
-        exerciseName: { type: 'string', description: 'Název cviku.' },
-        limit: { type: 'number', description: 'Počet posledních tréninků (výchozí 10).' }
+        exerciseName: { type: 'string', description: 'Název cviku.' }
       }
     },
     async (args) => {
       const state = await client.getState();
       const res = applyStatsTool('get_exercise_history', {
-        exerciseName: args.exerciseName,
-        limit: args.limit || 10
+        exerciseName: args.exerciseName
       }, state);
       return JSON.stringify(res, null, 2);
     }
@@ -494,46 +550,64 @@ function registerWorkoutTools(client) {
     async () => {
       const state = await client.getState();
       const exLogs = state.exerciseLogs || {};
-      const list = Object.entries(exLogs).map(([name, log]) => ({
-        name,
-        prWeight: log.prWeight || null,
-        prReps: log.prReps || null,
-        lastDate: log.lastDate || null,
-        totalSetsLogged: (log.history || []).length
-      }));
+      const list = Object.entries(exLogs).map(([key, log]) => {
+        const sessions = Array.isArray(log.sessions) ? log.sessions : [];
+        let prWeight = 0;
+        let prReps = 0;
+        sessions.forEach((s) => {
+          (s.sets || []).forEach((st) => {
+            if (Number(st.w) > prWeight) {
+              prWeight = Number(st.w);
+              prReps = Number(st.r);
+            }
+          });
+        });
+        const lastSes = sessions[sessions.length - 1];
+        return {
+          key,
+          name: log.name || key,
+          prWeight: prWeight || null,
+          prReps: prReps || null,
+          lastDate: lastSes ? lastSes.date : null,
+          totalSessionsLogged: sessions.length
+        };
+      });
       return JSON.stringify(list, null, 2);
     }
   );
 
   def(
     'log_set',
-    'Zapíše jednu odcvičenou sérii (váha v kg, počet opakování, volitelně RPE a poznámka) do historie cviku.',
+    'Zapíše odcvičenou sérii nebo více sérií (váha v kg, počet opakování) do historie cviku.',
     {
       required: ['exerciseName', 'weightKg', 'reps'],
       properties: {
         exerciseName: { type: 'string', description: 'Název odcvičeného cviku.' },
         weightKg: { type: 'number', description: 'Váha na čince / stroji v kg.' },
         reps: { type: 'number', description: 'Počet provedených opakování.' },
+        setsCount: { type: 'number', description: 'Kolik takových sérií zapsat (výchozí 1).' },
         rpe: { type: 'number', description: 'Míra vnímaného úsilí RPE 1-10 (např. 8.5).' },
-        note: { type: 'string', description: 'Poznámka k sérii.' },
         date: { type: 'string', description: 'Datum ve formátu YYYY-MM-DD (výchozí dnešek).' }
       }
     },
     async (args) => {
       const state = await client.getState();
       const d = args.date || todayStr();
-      const res = applyStatsTool('log_set', {
-        exerciseName: args.exerciseName,
-        weight: args.weightKg,
-        reps: args.reps,
-        rpe: args.rpe,
-        note: args.note,
-        date: d
+      const count = Math.max(1, Math.min(10, Number(args.setsCount || 1)));
+      const newSets = Array.from({ length: count }, () => ({
+        weight: Number(args.weightKg),
+        reps: Number(args.reps)
+      }));
+
+      const res = applyTool('log_set', {
+        exercise: args.exerciseName,
+        date: d,
+        sets: newSets
       }, state);
 
       if (!res.ok) throw new Error(res.error);
       await client.saveState(state);
-      return res.note || `Série zapsána: ${args.exerciseName} — ${args.weightKg} kg × ${args.reps} op. (${d}).`;
+      return `Série zapsána: ${res.exercise} — ${res.sets.join(', ')} (datum ${res.date}, objem ${res.volume} kg).`;
     }
   );
 
